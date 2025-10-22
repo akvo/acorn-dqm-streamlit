@@ -1,113 +1,111 @@
 """
-Configuration file for DQM App
-Contains all thresholds, constants, and validation rules
+Configuration for Ground Truth DQM
+Supports dynamic partner selection via URL parameters
 """
+
+import streamlit as st
+
+# ============================================
+# PARTNER CONFIGURATIONS
+# ============================================
+
+PARTNERS = {
+    "AFOCO": {
+        "country": "Kyrgyzstan",
+        "country_iso3": "KGZ",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [41.5, 74.5],
+    },
+    "COMACO": {
+        "country": "Zambia",
+        "country_iso3": "ZMB",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [-13.5, 28.5],
+    },
+}
+
+# ============================================
+# GET ACTIVE PARTNER FROM URL OR DEFAULT
+# ============================================
+
+
+def get_active_partner():
+    """
+    Get active partner from URL query parameters or default
+    Usage: http://localhost:8501/?partner=COMACO
+    """
+    # Try to get partner from URL query parameters
+    query_params = st.query_params
+
+    # Check if 'partner' is in query params
+    if "partner" in query_params:
+        partner_param = query_params["partner"].upper()
+
+        # Validate partner exists
+        if partner_param in PARTNERS:
+            return partner_param
+        else:
+            st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default AFOCO.")
+            return "AFOCO"
+
+    # Default partner if no URL parameter
+    return "AFOCO"
+
+
+# Set active partner
+ACTIVE_PARTNER = get_active_partner()
+
+# Partner details
+PARTNER = ACTIVE_PARTNER
+COUNTRY = PARTNERS[PARTNER]["country"]
+COUNTRY_ISO3 = PARTNERS[PARTNER]["country_iso3"]
 
 # ============================================
 # VALIDATION THRESHOLDS
 # ============================================
 
-# Plot Geometry
-MAX_PLOT_AREA_SIZE = 30  # hectares
-MIN_SUBPLOT_AREA_SIZE = 450  # m²
-MAX_SUBPLOT_AREA_SIZE = 750  # m²
+# Subplot area constraints (m²)
+MIN_SUBPLOT_AREA_SIZE = 450
+MAX_SUBPLOT_AREA_SIZE = 750
+
+# Plot area constraints (m²)
+MIN_GT_PLOT_AREA_SIZE = PARTNERS[PARTNER]["min_plot_area"]
+MAX_GT_PLOT_AREA_SIZE = PARTNERS[PARTNER]["max_plot_area"]
+
+# Geometry validation
 MAX_VERTICES = 4
-THRESHOLD_WITHIN_RADIUS = 40  # meters
+THRESHOLD_WITHIN_RADIUS = 40  # meters (subplots)
+THRESHOLD_WITHIN_RADIUS_PLOT = 200  # meters (plots)
 THRESHOLD_LENGTH_WIDTH = 2.0
 THRESHOLD_PROTRUDING_RATIO = 1.55
 
-# Measurements
-MAX_TREE_HEIGHT = 80  # meters
-MIN_TREE_HEIGHT = 0.5  # meters
-MAX_CIRCUMFERENCE_BH = 500  # cm
-MAX_CIRCUMFERENCE_10CM = 1200  # cm
-MAX_STEMS_BH = 50
-HEIGHT_OUTLIER_RATIO = 4  # times median
-CIRCUMFERENCE_OUTLIER_RATIO = 4
-
-# Coverage
-MAX_COVERAGE_PERCENTAGE = 100
-MIN_COVERAGE_PERCENTAGE = 0
+# GPS accuracy
+GPS_ACCURACY_THRESHOLD = 10  # meters
 
 # ============================================
-# COORDINATE SYSTEM
+# SYSTEM SETTINGS
 # ============================================
-CRS = "EPSG:4326"  # WGS84
 
-# ============================================
-# SPECIES VALIDATION
-# ============================================
-WOODY_SPECIES_LIST = [
-    "gliricidia_sepium",
-    "parinari_curatellifolia",
-    "mangifera_indica",
-    "kigelia_africana",
-    "combretum_molle",
-    "manihot_esculenta",
-]
-
-BANANA_SPECIES_LIST = ["musa_acuminata", "musa_balbisiana"]
-
-PALM_SPECIES_LIST = ["elaeis_guineensis", "cocos_nucifera"]
-
-NON_WOODY_SPECIES_LIST = ["poacea", "grass", "weeds"]
-
-# Coverage-only species (should not have individual measurements)
-COVERAGE_ONLY_SPECIES = NON_WOODY_SPECIES_LIST + ["crops", "maize", "rice", "potatoes"]
+CRS_EPSG = "EPSG:4326"
+YEAR = "2025"
 
 # ============================================
 # UI CONFIGURATION
 # ============================================
+
+APP_TITLE = f"Ground Truth DQM - {PARTNER}"
+APP_ICON = "🌳"
+
 SEVERITY_COLORS = {
-    "critical": "#D32F2F",  # Red
-    "error": "#F57C00",  # Orange
-    "warning": "#FBC02D",  # Yellow
-    "info": "#1976D2",  # Blue
-    "valid": "#388E3C",  # Green
+    "critical": "#D32F2F",
+    "error": "#F57C00",
+    "warning": "#FBC02D",
+    "info": "#1976D2",
+    "valid": "#388E3C",
 }
 
-ISSUE_CATEGORIES = [
-    "Geometry Issues",
-    "Species Issues",
-    "Measurement Issues",
-    "Missing Data",
-    "Overlapping Boundaries",
-]
-
-# ============================================
-# PARTNERS & COUNTRIES
-# ============================================
-PARTNER_CONFIG = {
-    "AFOCO": {"country": "Kyrgyzstan", "accuracy_threshold": 10},
-    "COMACO": {"country": "Zambia", "accuracy_threshold": 10},
-}
-
-# ============================================
-# EXPORT FORMATS
-# ============================================
-EXPORT_FORMATS = {
-    "json": "application/json",
-    "geojson": "application/geo+json",
-    "csv": "text/csv",
-    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "zip": "application/zip",
-}
-
-# ============================================
-# DATE FORMATS
-# ============================================
-DATE_FORMAT = "%Y-%m-%d"
-DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-# ============================================
-# FILE UPLOAD SETTINGS
-# ============================================
-ALLOWED_EXTENSIONS = [".xlsx", ".xls"]
-MAX_FILE_SIZE_MB = 500
-
-# ============================================
-# MAP SETTINGS
-# ============================================
-DEFAULT_MAP_CENTER = [0, 0]
-DEFAULT_MAP_ZOOM = 2
-MARKER_COLORS = {"valid": "green", "warning": "orange", "critical": "red"}
+# Map settings
+MAP_CENTER = PARTNERS[PARTNER]["map_center"]
+DEFAULT_ZOOM = 7

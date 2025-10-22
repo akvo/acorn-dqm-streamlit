@@ -1,482 +1,338 @@
 """
-Plot Issues Page - Enhanced with quick summary and better issue distinction
+Subplot Details Page - Deep dive into individual subplots
 """
 
 import streamlit as st
 import pandas as pd
-import json
-import numpy as np
-from datetime import datetime
-from utils.download_helpers import *
-from utils.validators import aggregate_validation_results
+import plotly.express as px
 import config
+from ui.components import show_header, create_sidebar_filters
+from utils.data_processor import get_validation_summary
 
-st.set_page_config(page_title="Plot Issues", page_icon="🔍", layout="wide")
-
-st.title("🔍 Plot Issues")
-
-
-# Helper functions for JSON serialization
-def make_json_serializable(obj):
-    """Convert non-serializable objects to serializable format"""
-    if hasattr(obj, "__geo_interface__"):
-        return obj.__geo_interface__
-    elif isinstance(obj, (pd.Timestamp, datetime)):
-        return obj.isoformat()
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif pd.isna(obj):
-        return None
-    return obj
-
-
-def clean_for_json(data):
-    """Recursively clean data structure for JSON serialization"""
-    if isinstance(data, dict):
-        return {k: clean_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [clean_for_json(item) for item in data]
-    else:
-        return make_json_serializable(data)
-
-
-def get_issue_badge(issue_type):
-    """Return badge HTML for issue type"""
-    badges = {
-        "geometry": ("📐 GEOMETRY", "#1976D2"),
-        "measurement": ("📏 MEASUREMENT", "#F57C00"),
-        "species": ("🌿 SPECIES", "#388E3C"),
-        "coverage": ("📊 COVERAGE", "#9C27B0"),
-        "missing_data": ("⚠️ MISSING DATA", "#D32F2F"),
-    }
-
-    for key, (label, color) in badges.items():
-        if key in issue_type.lower():
-            return f"<span style='background-color: {color}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; font-weight: bold;'>{label}</span>"
-
-    return f"<span style='background-color: #757575; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.85em;'>OTHER</span>"
-
-
-if not st.session_state.get("data_loaded", False):
-    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
-    if st.button("Go to Home"):
-        st.switch_page("pages/1_📊_Overview.py")
-    st.stop()
-
-# Get data
-plots_subplots = st.session_state.merged_data["plots_subplots"]
-validation_results = st.session_state.validation_results
-
-# Get vegetation and measurement data if available
-plots_vegetation = st.session_state.merged_data.get("plots_vegetation", pd.DataFrame())
-plots_measurements = st.session_state.merged_data.get(
-    "plots_measurements", pd.DataFrame()
+# Page config
+st.set_page_config(
+    page_title="Subplot Details - " + config.APP_TITLE,
+    page_icon="🌳",
+    layout="wide",
 )
 
-# Group by plot
-plot_groups = plots_subplots.groupby("PLOT_KEY")
+# Check if data exists
+if "data" not in st.session_state or st.session_state.data is None:
+    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
+    st.stop()
 
-# Calculate plot-level validation with enhanced details
-plot_issues = []
+# Header
+show_header()
 
-for plot_id, group in plot_groups:
-    plot_info = {
-        "plot_id": plot_id,
-        "enumerator": (
-            group["enumerator"].iloc[0] if "enumerator" in group.columns else "Unknown"
-        ),
-        "collection_date": (
-            str(group["SubmissionDate"].iloc[0])
-            if "SubmissionDate" in group.columns
-            else "Unknown"
-        ),
-        "total_subplots": len(group),
-        "invalid_subplots": 0,
-        "issue_count": 0,
-        "issues_summary": {},
-        "issue_types_detail": {
-            "geometry": 0,
-            "measurement": 0,
-            "species": 0,
-            "coverage": 0,
-            "missing_data": 0,
-        },
-        "species_problems": [],
-        "subplots": [],
-    }
+st.markdown("## 🌳 Subplot Details")
 
-    # Check each subplot
-    for idx, subplot_row in group.iterrows():
-        subplot_id = subplot_row.get("SUBPLOT_KEY")
-        if subplot_id and subplot_id in validation_results["subplots"]:
-            validation = validation_results["subplots"][subplot_id]
+# Get data
+gdf_subplots = st.session_state.data["subplots"]
 
-            subplot_data = {
-                "subplot_id": subplot_id,
-                "valid": validation["valid"],
-                "issues": validation["issues"],
-                "area_m2": (
-                    float(validation.get("area_m2"))
-                    if validation.get("area_m2")
-                    else None
-                ),
-                "geometry": subplot_row.get("geometry"),
-            }
+# Apply filters
+filtered_gdf = create_sidebar_filters(gdf_subplots)
 
-            plot_info["subplots"].append(subplot_data)
-
-            if not validation["valid"]:
-                plot_info["invalid_subplots"] += 1
-
-            plot_info["issue_count"] += len(validation["issues"])
-
-            # Categorize issues with detail
-            for issue in validation["issues"]:
-                issue_type = issue.get("type", "unknown")
-                plot_info["issues_summary"][issue_type] = (
-                    plot_info["issues_summary"].get(issue_type, 0) + 1
-                )
-
-                # Count by detailed type
-                if "geometry" in issue_type.lower():
-                    plot_info["issue_types_detail"]["geometry"] += 1
-                elif "measurement" in issue_type.lower():
-                    plot_info["issue_types_detail"]["measurement"] += 1
-                elif "species" in issue_type.lower():
-                    plot_info["issue_types_detail"]["species"] += 1
-                elif "coverage" in issue_type.lower():
-                    plot_info["issue_types_detail"]["coverage"] += 1
-                elif "missing" in issue_type.lower():
-                    plot_info["issue_types_detail"]["missing_data"] += 1
-
-    # Get species information for this plot
-    if not plots_vegetation.empty:
-        plot_veg = plots_vegetation[plots_vegetation["PLOT_KEY"] == plot_id]
-        for idx, veg_row in plot_veg.iterrows():
-            veg_id = veg_row.get("VEGETATION_KEY")
-            if veg_id and veg_id in validation_results.get("vegetation", {}):
-                validation = validation_results["vegetation"][veg_id]
-                if validation.get("issues"):
-                    species_name = (
-                        veg_row.get("woody_species")
-                        or veg_row.get("other_species")
-                        or veg_row.get("non_woody_species")
-                        or "Unknown species"
-                    )
-                    plot_info["species_problems"].append(
-                        {
-                            "species": species_name,
-                            "subplot": veg_row.get("SUBPLOT_KEY"),
-                            "issues": validation["issues"],
-                        }
-                    )
-
-    plot_info["validation_status"] = (
-        "valid" if plot_info["invalid_subplots"] == 0 else "invalid"
-    )
-
-    # Determine primary issue type
-    if plot_info["issue_types_detail"]["geometry"] > 0:
-        plot_info["primary_issue"] = "Geometry"
-    elif plot_info["issue_types_detail"]["measurement"] > 0:
-        plot_info["primary_issue"] = "Measurement"
-    elif plot_info["issue_types_detail"]["species"] > 0:
-        plot_info["primary_issue"] = "Species"
-    elif plot_info["issue_types_detail"]["coverage"] > 0:
-        plot_info["primary_issue"] = "Coverage"
-    else:
-        plot_info["primary_issue"] = "Other"
-
-    plot_issues.append(plot_info)
-
-# Filter to invalid plots
-invalid_plots = [p for p in plot_issues if p["validation_status"] == "invalid"]
-
-# Display summary
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("Total Plots", len(plot_issues))
-
-with col2:
-    st.metric("Invalid Plots", len(invalid_plots))
-
-with col3:
-    if len(plot_issues) > 0:
-        invalid_pct = (len(invalid_plots) / len(plot_issues)) * 100
-        st.metric("Invalid %", f"{invalid_pct:.1f}%")
-
-st.markdown("---")
-
-# Bulk download section
-st.subheader("📦 Bulk Download")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    format_type = st.selectbox(
-        "JSON Format",
-        ["Hierarchical (Complete)", "Flat (Issues Only)", "GeoJSON (For GIS)"],
-        help="Choose format based on your use case",
-    )
-
-with col2:
-    st.write("")  # Spacer
-
-with col3:
-    if st.button("📥 Download All Invalid Plots", use_container_width=True):
-        format_map = {
-            "Hierarchical (Complete)": "hierarchical",
-            "Flat (Issues Only)": "flat",
-            "GeoJSON (For GIS)": "geojson",
-        }
-
-        selected_format = format_map[format_type]
-        zip_data = create_bulk_download(invalid_plots, selected_format)
-
-        st.download_button(
-            label="⬇️ Download ZIP File",
-            data=zip_data,
-            file_name=f"invalid_plots_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-
-st.markdown("---")
-
-# Filters
-st.subheader("🔍 Filters")
+# Summary
+summary = get_validation_summary(filtered_gdf)
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    search_plot = st.text_input("🔍 Search Plot ID", "")
+    st.metric("Total", f"{summary['total']:,}")
 
 with col2:
-    filter_enumerator = st.multiselect(
-        "Filter by Enumerator",
-        options=list(set([p["enumerator"] for p in invalid_plots])),
-    )
+    st.metric("Valid", f"{summary['valid']:,}", f"{summary['valid_pct']:.1f}%")
 
 with col3:
-    filter_issue_type = st.multiselect(
-        "Filter by Issue Type",
-        options=["Geometry", "Measurement", "Species", "Coverage", "Missing Data"],
-    )
+    st.metric("Invalid", f"{summary['invalid']:,}")
 
 with col4:
-    sort_by = st.selectbox(
-        "Sort by",
-        ["Most Issues", "Date (Recent)", "Date (Oldest)", "Enumerator", "Plot ID"],
+    avg_area = (
+        filtered_gdf["area_m2"].mean() if "area_m2" in filtered_gdf.columns else 0
     )
-
-# Apply filters
-filtered_plots = invalid_plots
-
-if search_plot:
-    filtered_plots = [
-        p for p in filtered_plots if search_plot.lower() in str(p["plot_id"]).lower()
-    ]
-
-if filter_enumerator:
-    filtered_plots = [p for p in filtered_plots if p["enumerator"] in filter_enumerator]
-
-if filter_issue_type:
-    filtered_plots = [
-        p for p in filtered_plots if p["primary_issue"] in filter_issue_type
-    ]
-
-# Sort
-if sort_by == "Most Issues":
-    filtered_plots = sorted(
-        filtered_plots, key=lambda x: x["issue_count"], reverse=True
-    )
-elif sort_by == "Date (Recent)":
-    filtered_plots = sorted(
-        filtered_plots, key=lambda x: x["collection_date"], reverse=True
-    )
-elif sort_by == "Date (Oldest)":
-    filtered_plots = sorted(filtered_plots, key=lambda x: x["collection_date"])
-elif sort_by == "Enumerator":
-    filtered_plots = sorted(filtered_plots, key=lambda x: x["enumerator"])
-elif sort_by == "Plot ID":
-    filtered_plots = sorted(filtered_plots, key=lambda x: x["plot_id"])
+    st.metric("Avg Area", f"{avg_area:.1f} m²")
 
 st.markdown("---")
 
-# QUICK SUMMARY TABLE - NEW FEATURE
-st.subheader(f"📋 Quick Summary ({len(filtered_plots)} plots)")
+# Subplot search and filter
+st.markdown("### 🔍 Search Subplots")
 
-if len(filtered_plots) == 0:
-    st.info("No invalid plots found with current filters.")
-else:
-    # Create summary table
-    summary_data = []
-    for plot in filtered_plots:
-        summary_data.append(
-            {
-                "Plot ID": plot["plot_id"],
-                "Enumerator": plot["enumerator"],
-                "Date": plot["collection_date"],
-                "Invalid Subplots": f"{plot['invalid_subplots']}/{plot['total_subplots']}",
-                "Total Issues": plot["issue_count"],
-                "Primary Issue": plot["primary_issue"],
-                "Geometry": "✓" if plot["issue_types_detail"]["geometry"] > 0 else "✗",
-                "Measurement": (
-                    "✓" if plot["issue_types_detail"]["measurement"] > 0 else "✗"
-                ),
-                "Species": "✓" if plot["issue_types_detail"]["species"] > 0 else "✗",
-            }
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    search_term = st.text_input(
+        "Search by Subplot ID", placeholder="Enter subplot ID..."
+    )
+
+with col2:
+    show_only = st.selectbox(
+        "Show",
+        ["All Subplots", "Valid Only", "Invalid Only"],
+    )
+
+# Apply search and filter
+search_df = filtered_gdf.copy()
+
+if search_term:
+    search_df = search_df[
+        search_df["subplot_id"]
+        .astype(str)
+        .str.contains(search_term, case=False, na=False)
+    ]
+
+if show_only == "Valid Only":
+    search_df = search_df[search_df["geom_valid"]]
+elif show_only == "Invalid Only":
+    search_df = search_df[~search_df["geom_valid"]]
+
+st.markdown(f"**Showing {len(search_df)} of {len(filtered_gdf)} subplots**")
+
+st.markdown("---")
+
+# Display table with all details
+st.markdown("### 📊 Subplot Data Table")
+
+# Select columns to display
+display_cols = ["subplot_id", "geom_valid"]
+
+for col in [
+    "enumerator",
+    "starttime",
+    "area_m2",
+    "nr_vertices",
+    "length_width_ratio",
+    "mrr_ratio",
+    "in_radius",
+    "reasons",
+]:
+    if col in search_df.columns:
+        display_cols.append(col)
+
+# Format the dataframe
+display_df = search_df[display_cols].copy()
+
+if "area_m2" in display_df.columns:
+    display_df["area_m2"] = display_df["area_m2"].round(1)
+
+if "length_width_ratio" in display_df.columns:
+    display_df["length_width_ratio"] = display_df["length_width_ratio"].round(2)
+
+if "mrr_ratio" in display_df.columns:
+    display_df["mrr_ratio"] = display_df["mrr_ratio"].round(2)
+
+# Display
+st.dataframe(
+    display_df,
+    use_container_width=True,
+    height=500,
+    column_config={
+        "subplot_id": "Subplot ID",
+        "geom_valid": st.column_config.CheckboxColumn("Valid"),
+        "enumerator": "Enumerator",
+        "starttime": st.column_config.DatetimeColumn(
+            "Collection Date", format="YYYY-MM-DD"
+        ),
+        "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+        "nr_vertices": "Vertices",
+        "length_width_ratio": st.column_config.NumberColumn("L/W Ratio", format="%.2f"),
+        "mrr_ratio": st.column_config.NumberColumn("MRR Ratio", format="%.2f"),
+        "in_radius": st.column_config.CheckboxColumn("In Radius"),
+        "reasons": "Validation Issues",
+    },
+)
+
+# Download current view
+st.markdown("---")
+st.markdown("### 📥 Export Current View")
+
+csv_data = display_df.to_csv(index=False)
+
+st.download_button(
+    label="📊 Download Table as CSV",
+    data=csv_data,
+    file_name=f"{config.PARTNER}_subplot_details.csv",
+    mime="text/csv",
+    use_container_width=True,
+)
+
+# Statistics for filtered view
+st.markdown("---")
+st.markdown("### 📈 Statistics for Current View")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    # Vertex distribution
+    if "nr_vertices" in search_df.columns:
+        st.markdown("#### Vertex Count Distribution")
+
+        vertex_counts = search_df["nr_vertices"].value_counts().sort_index()
+
+        fig_vertices = px.bar(
+            x=vertex_counts.index,
+            y=vertex_counts.values,
+            labels={"x": "Number of Vertices", "y": "Count"},
+            title="Distribution of Vertex Counts",
+        )
+        fig_vertices.update_traces(marker_color="steelblue")
+
+        st.plotly_chart(fig_vertices, use_container_width=True)
+
+with col2:
+    # Area distribution for current view
+    if "area_m2" in search_df.columns:
+        st.markdown("#### Area Distribution")
+
+        fig_area = px.histogram(
+            search_df[search_df["area_m2"] > 0],
+            x="area_m2",
+            nbins=30,
+            title="Area Distribution (Current View)",
+            labels={"area_m2": "Area (m²)"},
         )
 
-    df_summary = pd.DataFrame(summary_data)
+        fig_area.add_vline(
+            x=config.MIN_SUBPLOT_AREA_SIZE,
+            line_dash="dash",
+            line_color="red",
+            annotation_text="Min",
+        )
+        fig_area.add_vline(
+            x=config.MAX_SUBPLOT_AREA_SIZE,
+            line_dash="dash",
+            line_color="red",
+            annotation_text="Max",
+        )
 
-    # Display with styling
-    st.dataframe(
-        df_summary,
-        use_container_width=True,
-        height=400,
-        hide_index=True,
+        st.plotly_chart(fig_area, use_container_width=True)
+
+# Individual subplot inspector
+st.markdown("---")
+st.markdown("### 🔬 Individual Subplot Inspector")
+
+if len(search_df) > 0:
+    subplot_ids = search_df["subplot_id"].tolist()
+
+    selected_subplot = st.selectbox(
+        "Select a subplot to inspect in detail:",
+        options=subplot_ids,
+        format_func=lambda x: f"{x} {'✅' if search_df[search_df['subplot_id']==x]['geom_valid'].iloc[0] else '❌'}",
     )
 
-    # Export summary table
-    csv = df_summary.to_csv(index=False)
-    st.download_button(
-        label="📊 Export Summary as CSV",
-        data=csv,
-        file_name=f"plot_issues_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv",
-    )
+    if selected_subplot:
+        subplot_data = search_df[search_df["subplot_id"] == selected_subplot].iloc[0]
 
-    st.markdown("---")
+        # Create three columns for detailed view
+        col1, col2, col3 = st.columns(3)
 
-    # Detailed view with expandable sections
-    st.subheader("📖 Detailed Issues")
+        with col1:
+            st.markdown("#### 📋 Basic Information")
+            st.write(f"**Subplot ID:** {subplot_data['subplot_id']}")
+            st.write(
+                f"**Status:** {'✅ Valid' if subplot_data['geom_valid'] else '❌ Invalid'}"
+            )
 
-    for idx, plot in enumerate(filtered_plots):
-        with st.expander(
-            f"**{plot['plot_id']}** - {plot['enumerator']} - {plot['primary_issue']} Issues ({plot['invalid_subplots']}/{plot['total_subplots']} invalid)",
-            expanded=False,
-        ):
-            col1, col2 = st.columns([3, 1])
+            if "enumerator" in subplot_data.index:
+                st.write(f"**Enumerator:** {subplot_data['enumerator']}")
 
-            with col1:
-                st.write(f"**Collection Date:** {plot['collection_date']}")
-                st.write(f"**Total Issues:** {plot['issue_count']}")
+            if "starttime" in subplot_data.index:
+                st.write(f"**Collection Date:** {subplot_data['starttime']}")
 
-                # Issue breakdown with badges
-                st.write("**Issues Breakdown:**")
-                col_a, col_b, col_c = st.columns(3)
+        with col2:
+            st.markdown("#### 📐 Geometry Metrics")
 
-                with col_a:
-                    if plot["issue_types_detail"]["geometry"] > 0:
-                        st.markdown(
-                            f"{get_issue_badge('geometry')}: {plot['issue_types_detail']['geometry']}",
-                            unsafe_allow_html=True,
-                        )
-                    if plot["issue_types_detail"]["measurement"] > 0:
-                        st.markdown(
-                            f"{get_issue_badge('measurement')}: {plot['issue_types_detail']['measurement']}",
-                            unsafe_allow_html=True,
-                        )
-
-                with col_b:
-                    if plot["issue_types_detail"]["species"] > 0:
-                        st.markdown(
-                            f"{get_issue_badge('species')}: {plot['issue_types_detail']['species']}",
-                            unsafe_allow_html=True,
-                        )
-                    if plot["issue_types_detail"]["coverage"] > 0:
-                        st.markdown(
-                            f"{get_issue_badge('coverage')}: {plot['issue_types_detail']['coverage']}",
-                            unsafe_allow_html=True,
-                        )
-
-                with col_c:
-                    if plot["issue_types_detail"]["missing_data"] > 0:
-                        st.markdown(
-                            f"{get_issue_badge('missing_data')}: {plot['issue_types_detail']['missing_data']}",
-                            unsafe_allow_html=True,
-                        )
-
-                # Species problems if any
-                if plot["species_problems"]:
-                    st.write("**Species Problems:**")
-                    for sp_issue in plot["species_problems"]:
-                        st.markdown(
-                            f"🌿 **{sp_issue['species']}** (Subplot: {sp_issue['subplot']})"
-                        )
-                        for issue in sp_issue["issues"][:2]:  # Show first 2
-                            st.markdown(f"  - {issue['message']}")
-
-                st.markdown("---")
-
-                # List invalid subplots with issue type badges
-                st.write("**Invalid Subplots Details:**")
-                invalid_subs = [s for s in plot["subplots"] if not s["valid"]]
-
-                for subplot in invalid_subs:
-                    st.markdown(f"**📍 {subplot['subplot_id']}**")
-                    for issue in subplot["issues"]:
-                        severity = issue.get("severity", "info")
-                        issue_type = issue.get("type", "unknown")
-                        color = config.SEVERITY_COLORS.get(severity, "#999999")
-                        badge = get_issue_badge(issue_type)
-
-                        st.markdown(
-                            f"<div style='padding: 0.5rem; margin: 0.25rem 0; border-left: 4px solid {color}; background-color: {color}15;'>"
-                            f"{badge} <strong>{severity.upper()}:</strong> {issue['message']}"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-
-            with col2:
-                # Download buttons
-                st.write("**Download:**")
-
-                # Hierarchical JSON
-                json_hier = create_hierarchical_json(plot)
-                json_hier_clean = clean_for_json(json_hier)
-                st.download_button(
-                    label="📥 JSON (Detailed)",
-                    data=json.dumps(json_hier_clean, indent=2),
-                    file_name=f"{plot['plot_id']}_detailed.json",
-                    mime="application/json",
-                    key=f"hier_{idx}",
-                    use_container_width=True,
+            if "area_m2" in subplot_data.index:
+                area = subplot_data["area_m2"]
+                area_status = (
+                    "✅"
+                    if config.MIN_SUBPLOT_AREA_SIZE
+                    <= area
+                    <= config.MAX_SUBPLOT_AREA_SIZE
+                    else "❌"
                 )
+                st.write(f"{area_status} **Area:** {area:.2f} m²")
 
-                # Flat JSON
-                json_flat = create_flat_json(plot)
-                json_flat_clean = clean_for_json(json_flat)
-                st.download_button(
-                    label="📥 JSON (Issues)",
-                    data=json.dumps(json_flat_clean, indent=2),
-                    file_name=f"{plot['plot_id']}_issues.json",
-                    mime="application/json",
-                    key=f"flat_{idx}",
-                    use_container_width=True,
-                )
+            if "nr_vertices" in subplot_data.index:
+                vertices = subplot_data["nr_vertices"]
+                vert_status = "✅" if vertices > config.MAX_VERTICES else "❌"
+                st.write(f"{vert_status} **Vertices:** {vertices}")
 
-                # GeoJSON
-                geojson = create_geojson(plot)
-                geojson_clean = clean_for_json(geojson)
-                st.download_button(
-                    label="🗺️ GeoJSON",
-                    data=json.dumps(geojson_clean, indent=2),
-                    file_name=f"{plot['plot_id']}_geometry.geojson",
-                    mime="application/geo+json",
-                    key=f"geo_{idx}",
-                    use_container_width=True,
-                )
+            if "original_vertices" in subplot_data.index:
+                st.write(f"**Original Vertices:** {subplot_data['original_vertices']}")
 
-                # View details button
-                if st.button(
-                    "👁️ View Details", key=f"view_{idx}", use_container_width=True
-                ):
-                    st.session_state.selected_plot = plot["plot_id"]
-                    st.switch_page("pages/3_🌳_Subplot_Details.py")
+            if "vertices_dropped" in subplot_data.index:
+                dropped = subplot_data["vertices_dropped"]
+                if dropped > 0:
+                    st.write(f"⚠️ **Vertices Dropped:** {dropped}")
+
+        with col3:
+            st.markdown("#### 📊 Shape Analysis")
+
+            if "length_width_ratio" in subplot_data.index and pd.notna(
+                subplot_data["length_width_ratio"]
+            ):
+                lw_ratio = subplot_data["length_width_ratio"]
+                lw_status = "✅" if lw_ratio <= config.THRESHOLD_LENGTH_WIDTH else "⚠️"
+                st.write(f"{lw_status} **L/W Ratio:** {lw_ratio:.2f}")
+                st.caption(f"Threshold: {config.THRESHOLD_LENGTH_WIDTH}")
+
+            if "mrr_ratio" in subplot_data.index and pd.notna(
+                subplot_data["mrr_ratio"]
+            ):
+                mrr = subplot_data["mrr_ratio"]
+                mrr_status = "✅" if mrr <= config.THRESHOLD_PROTRUDING_RATIO else "⚠️"
+                st.write(f"{mrr_status} **Protruding Ratio:** {mrr:.2f}")
+                st.caption(f"Threshold: {config.THRESHOLD_PROTRUDING_RATIO}")
+
+            if "in_radius" in subplot_data.index:
+                in_rad = subplot_data["in_radius"]
+                rad_status = "✅" if in_rad else "⚠️"
+                st.write(f"{rad_status} **In Radius:** {'Yes' if in_rad else 'No'}")
+                st.caption(f"Radius: {config.THRESHOLD_WITHIN_RADIUS}m")
+
+        # Show validation issues if invalid
+        if not subplot_data["geom_valid"] and "reasons" in subplot_data.index:
+            st.markdown("---")
+            st.markdown("#### ❌ Validation Issues")
+
+            reasons = str(subplot_data["reasons"]).split(";")
+            for reason in reasons:
+                if reason.strip():
+                    st.error(f"• {reason.strip()}")
+
+        # Show geometry preview (if not empty)
+        if not subplot_data.geometry.is_empty:
+            st.markdown("---")
+            st.markdown("#### 🗺️ Geometry Preview")
+
+            import folium
+            from streamlit_folium import st_folium
+
+            # Create small map
+            centroid = subplot_data.geometry.centroid
+
+            m = folium.Map(
+                location=[centroid.y, centroid.x],
+                zoom_start=15,
+            )
+
+            coords = list(subplot_data.geometry.exterior.coords)
+            coords_latlon = [(lat, lon) for lon, lat in coords]
+
+            color = "green" if subplot_data["geom_valid"] else "red"
+
+            folium.Polygon(
+                locations=coords_latlon,
+                color=color,
+                fill=True,
+                fillColor=color,
+                fillOpacity=0.4,
+                weight=2,
+            ).add_to(m)
+
+            st_folium(m, width=700, height=400)
+
+else:
+    st.info("No subplots found with current filters")

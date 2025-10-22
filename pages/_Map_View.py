@@ -1,409 +1,364 @@
 """
-Map View Page - Interactive map of plots
+Map View Page - Enhanced
 """
 
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-from datetime import datetime
-import json
-import numpy as np
-import pandas as pd
 import config
+from ui.components import show_header, create_sidebar_filters
+from utils.data_processor import get_validation_summary
+import pandas as pd
 
-st.set_page_config(page_title="Map View", page_icon="🗺️", layout="wide")
+# Page config
+st.set_page_config(
+    page_title="Map View - " + config.APP_TITLE,
+    page_icon="🗺️",
+    layout="wide",
+)
 
-st.title("🗺️ Map View")
-
-
-# Helper functions for JSON serialization
-def make_json_serializable(obj):
-    """Convert non-serializable objects to serializable format"""
-    if hasattr(obj, "__geo_interface__"):
-        return obj.__geo_interface__
-    elif isinstance(obj, (pd.Timestamp, datetime)):
-        return obj.isoformat()
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif pd.isna(obj):
-        return None
-    return obj
-
-
-def clean_for_json(data):
-    """Recursively clean data structure for JSON serialization"""
-    if isinstance(data, dict):
-        return {k: clean_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [clean_for_json(item) for item in data]
-    else:
-        return make_json_serializable(data)
-
-
-# Check if data is loaded
-if not st.session_state.get("data_loaded", False):
+# Check if data exists
+if "data" not in st.session_state or st.session_state.data is None:
     st.warning("⚠️ No data loaded. Please upload a file from the home page.")
-    if st.button("🏠 Go to Home", use_container_width=True):
-        st.switch_page("pages/1_📊_Overview.py")
+    st.info("👈 Use the sidebar to navigate back to the home page")
     st.stop()
 
+# Header
+show_header()
+
+st.markdown("## 🗺️ Interactive Map View")
+
 # Get data
-plots_subplots = st.session_state.merged_data["plots_subplots"]
-validation_results = st.session_state.validation_results
+gdf_subplots = st.session_state.data["subplots"]
 
-# Summary metrics
-col1, col2, col3, col4 = st.columns(4)
+# Sidebar filters
+with st.sidebar:
+    st.markdown("## 🎨 Map Options")
 
-total_subplots = len(plots_subplots)
-valid_count = sum(1 for v in validation_results["subplots"].values() if v["valid"])
-invalid_count = total_subplots - valid_count
+    show_valid = st.checkbox("Show Valid Subplots", value=True)
+    show_invalid = st.checkbox("Show Invalid Subplots", value=True)
 
-with col1:
-    st.metric("Total Subplots", total_subplots)
+    st.markdown("---")
+    st.markdown("### 🗺️ Map Style")
 
-with col2:
-    st.metric("Valid", valid_count, delta=f"{(valid_count/total_subplots*100):.1f}%")
-
-with col3:
-    st.metric(
-        "Invalid",
-        invalid_count,
-        delta=f"{(invalid_count/total_subplots*100):.1f}%",
-        delta_color="inverse",
-    )
-
-with col4:
-    total_issues = sum(
-        len(v["issues"]) for v in validation_results["subplots"].values()
-    )
-    st.metric("Total Issues", total_issues)
-
-st.markdown("---")
-
-# Map controls
-st.subheader("🎛️ Map Controls")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    show_valid = st.checkbox("✅ Show Valid", value=True)
-
-with col2:
-    show_invalid = st.checkbox("❌ Show Invalid", value=True)
-
-with col3:
-    show_labels = st.checkbox("🏷️ Show Labels", value=False)
-
-with col4:
-    map_style = st.selectbox(
-        "Map Style",
-        ["OpenStreetMap", "CartoDB Positron", "CartoDB Dark_Matter"],
+    map_style = st.radio(
+        "Choose map style:",
+        options=[
+            "OpenStreetMap",
+            "Satellite (Esri)",
+            "Terrain",
+            "Light (CartoDB)",
+        ],
         index=0,
     )
 
-# Filter by enumerator
-enumerators = (
-    plots_subplots["enumerator"].unique().tolist()
-    if "enumerator" in plots_subplots.columns
-    else []
-)
-if enumerators:
-    selected_enumerators = st.multiselect(
-        "👤 Filter by Enumerator", options=["All"] + enumerators, default=["All"]
-    )
+    st.markdown("---")
 
-    if "All" not in selected_enumerators and selected_enumerators:
-        plots_subplots = plots_subplots[
-            plots_subplots["enumerator"].isin(selected_enumerators)
-        ]
+filtered_gdf = create_sidebar_filters(gdf_subplots)
+
+# Filter by validity
+if not show_valid:
+    filtered_gdf = filtered_gdf[~filtered_gdf["geom_valid"]]
+if not show_invalid:
+    filtered_gdf = filtered_gdf[filtered_gdf["geom_valid"]]
+
+# Remove empty geometries
+filtered_gdf = filtered_gdf[~filtered_gdf.geometry.is_empty]
+
+if len(filtered_gdf) == 0:
+    st.warning("No data to display with current filters")
+    st.stop()
+
+# Quick stats before map
+summary = get_validation_summary(filtered_gdf)
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Showing", f"{len(filtered_gdf):,}")
+with col2:
+    st.metric("Valid", f"{summary['valid']:,}", f"{summary['valid_pct']:.1f}%")
+with col3:
+    st.metric("Invalid", f"{summary['invalid']:,}")
+with col4:
+    avg_area = (
+        filtered_gdf["area_m2"].mean() if "area_m2" in filtered_gdf.columns else 0
+    )
+    st.metric("Avg Area", f"{avg_area:.0f} m²")
 
 st.markdown("---")
 
-# Create map
-if "geometry" in plots_subplots.columns and len(plots_subplots) > 0:
-    # Calculate center
-    centroids = plots_subplots[plots_subplots.geometry.notna()].geometry.centroid
+# Calculate map center
+bounds = filtered_gdf.total_bounds
+center_lat = (bounds[1] + bounds[3]) / 2
+center_lon = (bounds[0] + bounds[2]) / 2
 
-    if len(centroids) > 0:
-        center_lat = centroids.y.mean()
-        center_lon = centroids.x.mean()
-    else:
-        center_lat, center_lon = config.DEFAULT_MAP_CENTER
-
-    # Create map with selected style
-    tile_map = {
-        "OpenStreetMap": "OpenStreetMap",
-        "CartoDB Positron": "CartoDB positron",
-        "CartoDB Dark_Matter": "CartoDB dark_matter",
-    }
-
+# Create map with selected style
+if map_style == "OpenStreetMap":
     m = folium.Map(
         location=[center_lat, center_lon],
-        zoom_start=13,
-        tiles=tile_map.get(map_style, "OpenStreetMap"),
+        zoom_start=config.DEFAULT_ZOOM,
+        tiles="OpenStreetMap",
+    )
+elif map_style == "Satellite (Esri)":
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=config.DEFAULT_ZOOM,
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri",
+    )
+elif map_style == "Terrain":
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=config.DEFAULT_ZOOM,
+        tiles="Stamen Terrain",
+    )
+else:  # Light (CartoDB)
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=config.DEFAULT_ZOOM,
+        tiles="CartoDB positron",
     )
 
-    # Add fullscreen button
-    folium.plugins.Fullscreen().add_to(m)
+# Add additional tile layer options
+folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
+).add_to(m)
+folium.TileLayer("CartoDB positron", name="Light").add_to(m)
+folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
 
-    # Track statistics
-    valid_shown = 0
-    invalid_shown = 0
+# Create feature groups
+valid_group = folium.FeatureGroup(name="✅ Valid Subplots", show=show_valid)
+invalid_group = folium.FeatureGroup(name="❌ Invalid Subplots", show=show_invalid)
 
-    # Add subplots to map
-    for idx, row in plots_subplots.iterrows():
-        subplot_id = row.get("SUBPLOT_KEY")
-        geom = row.get("geometry")
+# Count for progress
+total_to_plot = len(filtered_gdf)
+if total_to_plot > 1000:
+    st.info(f"📍 Plotting {total_to_plot} subplots... This may take a moment.")
 
-        if geom and not geom.is_empty and subplot_id:
-            # Check validation status
-            is_valid = True
-            issues_text = "No issues"
-            issue_count = 0
+# Add subplots to map
+for idx, row in filtered_gdf.iterrows():
+    if row.geometry.is_empty:
+        continue
 
-            if subplot_id in validation_results["subplots"]:
-                validation = validation_results["subplots"][subplot_id]
-                is_valid = validation["valid"]
-                issue_count = len(validation["issues"])
+    # Get coordinates
+    coords = list(row.geometry.exterior.coords)
+    coords_latlon = [(lat, lon) for lon, lat in coords]
 
-                if not is_valid:
-                    issues_list = [
-                        f"• {issue['message']}" for issue in validation["issues"]
-                    ]
-                    issues_text = "<br>".join(issues_list[:5])  # Show first 5 issues
-                    if len(validation["issues"]) > 5:
-                        issues_text += f"<br><i>...and {len(validation['issues']) - 5} more issues</i>"
+    # Create detailed popup
+    popup_html = f"""
+    <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
+        <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'}; 
+                    color: white; padding: 8px; margin: -10px -10px 10px -10px; 
+                    border-radius: 3px 3px 0 0;">
+            <h3 style="margin: 0; font-size: 16px;">
+                {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
+            </h3>
+        </div>
+        
+        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
+                <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
+            </tr>
+            <tr style="background-color: #f5f5f5;">
+                <td style="padding: 4px; font-weight: bold;">Area:</td>
+                <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
+            </tr>
+            <tr>
+                <td style="padding: 4px; font-weight: bold;">Vertices:</td>
+                <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
+            </tr>
+            <tr style="background-color: #f5f5f5;">
+                <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
+                <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
+            </tr>
+    """
 
-            # Skip based on filter
-            if is_valid and not show_valid:
-                continue
-            if not is_valid and not show_invalid:
-                continue
+    # Add area status
+    if "area_m2" in row.index and row.get("area_m2", 0) > 0:
+        area = row["area_m2"]
+        if area < config.MIN_SUBPLOT_AREA_SIZE:
+            area_status = f"<span style='color: red;'>⚠️ Too small</span>"
+        elif area > config.MAX_SUBPLOT_AREA_SIZE:
+            area_status = f"<span style='color: red;'>⚠️ Too large</span>"
+        else:
+            area_status = f"<span style='color: green;'>✓ Within range</span>"
 
-            # Count displayed subplots
-            if is_valid:
-                valid_shown += 1
-            else:
-                invalid_shown += 1
+        popup_html += f"""
+            <tr>
+                <td style="padding: 4px; font-weight: bold;">Area Status:</td>
+                <td style="padding: 4px;">{area_status}</td>
+            </tr>
+        """
 
-            # Determine color and icon
-            color = (
-                config.MARKER_COLORS["valid"]
-                if is_valid
-                else config.MARKER_COLORS["critical"]
-            )
-            status_icon = "✓" if is_valid else "✗"
-            status_text = "Valid" if is_valid else "Invalid"
+    popup_html += "</table>"
 
-            # Create enhanced popup
-            popup_html = f"""
-            <div style="font-family: Arial, sans-serif; min-width: 280px; max-width: 350px;">
-                <h3 style="margin: 0 0 10px 0; color: {color}; border-bottom: 2px solid {color}; padding-bottom: 5px;">
-                    {status_icon} {subplot_id}
-                </h3>
-                <table style="width: 100%; font-size: 14px;">
-                    <tr>
-                        <td style="padding: 4px 0;"><b>Plot ID:</b></td>
-                        <td style="padding: 4px 0;">{row.get('PLOT_KEY', 'Unknown')}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0;"><b>Enumerator:</b></td>
-                        <td style="padding: 4px 0;">{row.get('enumerator', 'Unknown')}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0;"><b>Status:</b></td>
-                        <td style="padding: 4px 0; color: {color}; font-weight: bold;">{status_text}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 4px 0;"><b>Issue Count:</b></td>
-                        <td style="padding: 4px 0;">{issue_count}</td>
-                    </tr>
-                </table>
-                <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
-                <div style="max-height: 150px; overflow-y: auto; font-size: 13px; line-height: 1.4;">
-                    <b>Issues:</b><br>
-                    {issues_text}
-                </div>
-            </div>
-            """
+    # Add validation issues if invalid
+    if not row["geom_valid"] and "reasons" in row.index:
+        reasons = str(row["reasons"]).split(";")
+        popup_html += """
+        <div style="margin-top: 10px; padding: 8px; background-color: #ffebee; 
+                    border-left: 3px solid #f44336; border-radius: 3px;">
+            <b style="color: #c62828;">Validation Issues:</b>
+            <ul style="margin: 5px 0; padding-left: 20px; font-size: 12px;">
+        """
+        for reason in reasons:
+            if reason.strip():
+                popup_html += f"<li>{reason.strip()}</li>"
+        popup_html += "</ul></div>"
 
-            popup = folium.Popup(popup_html, max_width=400)
+    popup_html += "</div>"
 
-            # Add polygon to map with hover effect
-            folium.GeoJson(
-                geom.__geo_interface__,
-                style_function=lambda x, c=color: {
-                    "fillColor": c,
-                    "color": c,
-                    "weight": 2,
-                    "fillOpacity": 0.35,
-                    "opacity": 0.8,
-                },
-                highlight_function=lambda x: {
-                    "fillOpacity": 0.65,
-                    "weight": 4,
-                },
-                popup=popup,
-                tooltip=(
-                    f"<b>{subplot_id}</b><br>Click for details" if show_labels else None
-                ),
-            ).add_to(m)
+    # Choose styling based on validity
+    if row["geom_valid"]:
+        color = "#4CAF50"  # Green
+        fill_color = "#81C784"  # Light green
+        group = valid_group
+        weight = 2
+        opacity = 0.8
+        fill_opacity = 0.3
+    else:
+        color = "#F44336"  # Red
+        fill_color = "#E57373"  # Light red
+        group = invalid_group
+        weight = 2.5
+        opacity = 1
+        fill_opacity = 0.4
 
-    # Add layer control if needed
-    folium.LayerControl().add_to(m)
+    # Create tooltip
+    tooltip_text = f"{row.get('subplot_id', 'N/A')}"
+    if "area_m2" in row.index:
+        tooltip_text += f" • {row.get('area_m2', 0):.0f}m²"
+    if not row["geom_valid"]:
+        tooltip_text = "❌ " + tooltip_text
+    else:
+        tooltip_text = "✅ " + tooltip_text
 
-    # Add refresh button
-    if st.button("🔄 Refresh Map", use_container_width=False):
-        st.rerun()
+    # Add polygon
+    folium.Polygon(
+        locations=coords_latlon,
+        popup=folium.Popup(popup_html, max_width=350),
+        tooltip=tooltip_text,
+        color=color,
+        fill=True,
+        fillColor=fill_color,
+        fillOpacity=fill_opacity,
+        weight=weight,
+        opacity=opacity,
+    ).add_to(group)
 
-    # Display map
-    st.subheader(
-        f"📍 Displaying {valid_shown + invalid_shown} subplots ({valid_shown} valid, {invalid_shown} invalid)"
+# Add groups to map
+valid_group.add_to(m)
+invalid_group.add_to(m)
+
+# Add layer control
+folium.LayerControl(position="topright").add_to(m)
+
+# Add fullscreen option
+from folium.plugins import Fullscreen
+
+Fullscreen(position="topleft").add_to(m)
+
+# Add minimap
+from folium.plugins import MiniMap
+
+MiniMap(toggle_display=True, position="bottomleft").add_to(m)
+
+# Add statistics box
+stats_html = f"""
+<div style="position: fixed; 
+            top: 10px; right: 10px; 
+            width: 200px; 
+            background-color: white; 
+            border: 2px solid #2E7D32; 
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            z-index: 1000; 
+            padding: 15px;
+            font-family: Arial, sans-serif;">
+    <h4 style="margin: 0 0 10px 0; color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 5px;">
+        📊 Statistics
+    </h4>
+    <div style="font-size: 14px; line-height: 1.8;">
+        <b>Total Shown:</b> {len(filtered_gdf)}<br>
+        <b style="color: #4CAF50;">✅ Valid:</b> {summary['valid']}<br>
+        <b style="color: #F44336;">❌ Invalid:</b> {summary['invalid']}<br>
+        <b>📍 Valid %:</b> {summary['valid_pct']:.1f}%
+    </div>
+</div>
+"""
+
+m.get_root().html.add_child(folium.Element(stats_html))
+
+# Display map
+st.info(
+    "💡 **Tip:** Click on subplots to see detailed information. Use the layer control (top-right) to toggle between valid/invalid and change map styles."
+)
+st_folium(m, width=None, height=700, returned_objects=[])
+
+# Legend and summary below map
+st.markdown("---")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("### 📋 Map Legend")
+    st.markdown("🟢 **Green** = Valid subplots")
+    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;Count: **{summary['valid']:,}**")
+    st.markdown("")
+    st.markdown("🔴 **Red** = Invalid subplots")
+    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;Count: **{summary['invalid']:,}**")
+
+with col2:
+    st.markdown("### 📐 Area Range")
+    st.markdown(f"**Min Required:** {config.MIN_SUBPLOT_AREA_SIZE} m²")
+    st.markdown(f"**Max Allowed:** {config.MAX_SUBPLOT_AREA_SIZE} m²")
+    if "area_m2" in filtered_gdf.columns:
+        valid_areas = filtered_gdf[filtered_gdf["geom_valid"]]["area_m2"]
+        if len(valid_areas) > 0:
+            st.markdown(f"**Avg (Valid):** {valid_areas.mean():.1f} m²")
+
+with col3:
+    st.markdown("### 🗺️ Map Controls")
+    st.markdown("**🔍** Zoom in/out")
+    st.markdown("**🔲** Fullscreen (top-left)")
+    st.markdown("**🗺️** Mini map (bottom-left)")
+    st.markdown("**📑** Layer control (top-right)")
+
+# Download visible subplots
+st.markdown("---")
+st.markdown("### 📥 Export Map Data")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    export_gdf = filtered_gdf.copy()
+
+    for col in export_gdf.columns:
+        if pd.api.types.is_datetime64_any_dtype(export_gdf[col]):
+            export_gdf[col] = export_gdf[col].astype(str)
+
+    geojson_data = export_gdf.to_json()
+
+    st.download_button(
+        label="📄 Download Visible Subplots (GeoJSON)",
+        data=geojson_data,
+        file_name=f"{config.PARTNER}_map_subplots.geojson",
+        mime="application/geo+json",
+        use_container_width=True,
     )
 
-    map_data = st_folium(m, width=None, height=650, returned_objects=[])
+with col2:
+    from utils.export_helpers import create_csv_export
 
-    st.markdown("---")
-
-    # Legend
-    st.subheader("📊 Legend")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            f"<div style='padding: 0.75rem; background-color: rgba(56, 142, 60, 0.15); border-left: 4px solid {config.MARKER_COLORS['valid']}; border-radius: 4px;'>"
-            f"<b>🟢 Valid Subplots</b><br>"
-            f"<small>No validation issues detected</small>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            f"<div style='padding: 0.75rem; background-color: rgba(245, 124, 0, 0.15); border-left: 4px solid {config.MARKER_COLORS['warning']}; border-radius: 4px;'>"
-            f"<b>⚠️ Warnings</b><br>"
-            f"<small>Minor issues requiring attention</small>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            f"<div style='padding: 0.75rem; background-color: rgba(211, 47, 47, 0.15); border-left: 4px solid {config.MARKER_COLORS['critical']}; border-radius: 4px;'>"
-            f"<b>🔴 Invalid Subplots</b><br>"
-            f"<small>Critical validation failures</small>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-
-    # Download section
-    st.subheader("📥 Export Map Data")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        # Filter data based on current view
-        filtered_plots = plots_subplots.copy()
-
-        if not show_valid:
-            invalid_ids = [
-                k for k, v in validation_results["subplots"].items() if not v["valid"]
-            ]
-            filtered_plots = filtered_plots[
-                filtered_plots["SUBPLOT_KEY"].isin(invalid_ids)
-            ]
-
-        if not show_invalid:
-            valid_ids = [
-                k for k, v in validation_results["subplots"].items() if v["valid"]
-            ]
-            filtered_plots = filtered_plots[
-                filtered_plots["SUBPLOT_KEY"].isin(valid_ids)
-            ]
-
-        # Create GeoJSON
-        from utils.geometry_utils import to_geojson
-
-        features = []
-        for idx, row in filtered_plots.iterrows():
-            if row.get("geometry") and not row.get("geometry").is_empty:
-                subplot_id = row.get("SUBPLOT_KEY")
-                is_valid = True
-                issue_count = 0
-
-                if subplot_id in validation_results["subplots"]:
-                    validation = validation_results["subplots"][subplot_id]
-                    is_valid = validation["valid"]
-                    issue_count = len(validation["issues"])
-
-                feature = to_geojson(
-                    row.get("geometry"),
-                    properties={
-                        "subplot_id": subplot_id,
-                        "plot_id": row.get("PLOT_KEY"),
-                        "enumerator": row.get("enumerator"),
-                        "status": "valid" if is_valid else "invalid",
-                        "issue_count": issue_count,
-                        "submission_date": (
-                            str(row.get("SubmissionDate"))
-                            if "SubmissionDate" in row
-                            else None
-                        ),
-                    },
-                )
-                features.append(feature)
-
-        geojson_data = {"type": "FeatureCollection", "features": features}
-        geojson_clean = clean_for_json(geojson_data)
-
-        st.download_button(
-            label="🗺️ Download as GeoJSON",
-            data=json.dumps(geojson_clean, indent=2),
-            file_name=f"map_view_{datetime.now().strftime('%Y%m%d_%H%M%S')}.geojson",
-            mime="application/geo+json",
-            use_container_width=True,
-            help="Download visible subplots as GeoJSON for use in GIS applications",
-        )
-
-    with col2:
-        # CSV export
-        export_data = []
-        for idx, row in filtered_plots.iterrows():
-            subplot_id = row.get("SUBPLOT_KEY")
-            if subplot_id in validation_results["subplots"]:
-                validation = validation_results["subplots"][subplot_id]
-                export_data.append(
-                    {
-                        "subplot_id": subplot_id,
-                        "plot_id": row.get("PLOT_KEY"),
-                        "enumerator": row.get("enumerator"),
-                        "status": "valid" if validation["valid"] else "invalid",
-                        "issue_count": len(validation["issues"]),
-                        "submission_date": row.get("SubmissionDate"),
-                    }
-                )
-
-        if export_data:
-            df_export = pd.DataFrame(export_data)
-            csv = df_export.to_csv(index=False)
-
-            st.download_button(
-                label="📄 Download as CSV",
-                data=csv,
-                file_name=f"map_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-                help="Download subplot data as CSV",
-            )
-
-else:
-    st.warning("⚠️ No geometry data available for mapping.")
-    st.info(
-        "💡 Geometry data is required to display the map. Please ensure your uploaded data contains valid geometry information."
+    csv_data = create_csv_export(filtered_gdf, valid_only=False)
+    st.download_button(
+        label="📊 Download Visible Subplots (CSV)",
+        data=csv_data,
+        file_name=f"{config.PARTNER}_map_subplots.csv",
+        mime="text/csv",
+        use_container_width=True,
     )
