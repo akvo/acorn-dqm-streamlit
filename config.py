@@ -60,15 +60,17 @@ def get_active_partner():
             if partner_param in PARTNERS:
                 return partner_param
             else:
-                st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default AFOCO.")
-                return "AFOCO"
+                st.warning(
+                    f"⚠️ Unknown partner '{partner_param}'. Using default COMACO."
+                )
+                return "COMACO"
 
     except Exception as e:
         # If any error, use default
         pass
 
     # Default partner if no URL parameter or error
-    return "AFOCO"
+    return "COMACO"
 
 
 # Set active partner

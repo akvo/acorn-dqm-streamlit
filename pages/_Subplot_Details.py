@@ -145,6 +145,83 @@ else:
 # Get species column
 species_col = get_species_column(veg_with_enum)
 
+
+def extract_year_from_planted(series):
+    """
+    Extract year from tree_year_planted column
+    Handles both formats:
+    - Direct year (e.g., 2020, 2015)
+    - Epoch timestamp (converts to year)
+    - Date strings (extracts year)
+
+    Returns: Series of years (integers)
+    """
+
+    def parse_year(value):
+        if pd.isna(value):
+            return None
+
+        try:
+            # First, try to convert to numeric
+            num_val = float(value)
+
+            # If it's a large number (>10000), it's likely an epoch timestamp
+            if num_val > 10000:
+                # Try different epoch units
+                # Milliseconds (most common)
+                if num_val > 1e12:
+                    dt = pd.to_datetime(num_val, unit="ms", errors="coerce")
+                else:
+                    # Seconds
+                    dt = pd.to_datetime(num_val, unit="s", errors="coerce")
+
+                if pd.notna(dt):
+                    return dt.year
+                return None
+            else:
+                # It's already a year (between 1900-2100)
+                year = int(num_val)
+                if 1900 <= year <= 2100:
+                    return year
+                return None
+        except:
+            # If numeric conversion fails, try parsing as date string
+            try:
+                dt = pd.to_datetime(value, errors="coerce")
+                if pd.notna(dt):
+                    return dt.year
+            except:
+                pass
+            return None
+
+    return series.apply(parse_year)
+
+
+def calculate_tree_age_corrected(df, year_column="tree_year_planted"):
+    """
+    Calculate tree age from planting year
+    Handles epoch timestamps, direct years, and date strings
+
+    Parameters:
+    - df: DataFrame
+    - year_column: Column name containing planting year/date
+
+    Returns: DataFrame with 'tree_age' column added
+    """
+    if year_column not in df.columns:
+        return df
+
+    current_year = datetime.now().year
+
+    # Extract year (handles multiple formats)
+    planted_years = extract_year_from_planted(df[year_column])
+
+    # Calculate age
+    df["tree_age"] = current_year - planted_years
+
+    return df
+
+
 # ============================================
 # TABS
 # ============================================
@@ -442,46 +519,6 @@ with tabs[0]:
 
     st.markdown("---")
 
-    # CHECK 3: Unidentified Species ('other')
-    st.caption("Species marked as 'other' require botanical verification")
-
-    # Use raw veg_df, then merge with enumerator
-    other_species = check_unidentified_species(veg_df)
-
-    # Merge with enumerator info
-    if len(other_species) > 0:
-        other_species = merge_with_enumerator(
-            other_species, filtered_gdf, subplot_key_col="SUBPLOT_KEY"
-        )
-
-    st.metric("Records with 'other' Species", len(other_species))
-
-    if len(other_species) > 0:
-        st.warning(
-            f"⚠️ {len(other_species)} vegetation records need botanical verification"
-        )
-
-        # Group by enumerator
-        other_by_enum = (
-            other_species.groupby("enumerator").size().reset_index(name="count")
-        )
-        other_by_enum = other_by_enum.sort_values("count", ascending=False)
-
-        st.dataframe(other_by_enum, use_container_width=True)
-
-        with st.expander("View all unidentified species records"):
-            display_cols = ["VEGETATION_KEY", "enumerator", "vegetation_species_type"]
-            if "other_species" in other_species.columns:
-                display_cols.append("other_species")
-            if "woody_species" in other_species.columns:
-                display_cols.append("woody_species")
-
-            st.dataframe(
-                other_species[display_cols], use_container_width=True, height=400
-            )
-    else:
-        st.success("✅ All species properly identified")
-
 # ============================================
 # TAB 2: TREE CLASSIFICATION
 # ============================================
@@ -775,7 +812,7 @@ with tabs[3]:
     )
 
     # CHECK 1: Missing measurements
-    st.markdown("#### 1️⃣ Missing Height and Circumference")
+    st.markdown("#### (Pending validation)  1️⃣ Missing Height and Circumference ")
 
     missing_height = meas_with_enum[meas_with_enum["tree_height_m"].isna()]
 
@@ -1145,9 +1182,8 @@ with tabs[3]:
             if has_bh or has_10cm:
                 # Add tree age calculation
                 if "tree_year_planted" in circumference_list.columns:
-                    current_year = datetime.now().year
-                    circumference_list["tree_age"] = current_year - pd.to_numeric(
-                        circumference_list["tree_year_planted"], errors="coerce"
+                    circumference_list = calculate_tree_age_corrected(
+                        circumference_list
                     )
 
                 # Calculate median circumference per MEASUREMENT_KEY
@@ -1237,15 +1273,11 @@ with tabs[3]:
                     st.metric(f"Measurements > {threshold_bh}cm", len(large_bh))
 
                     if len(large_bh) > 0:
-                        st.warning(
-                            f"⚠️ {len(large_bh)} measurements exceed {threshold_bh}cm - verify age is realistic"
-                        )
 
                         # Calculate tree age
                         if "tree_year_planted" in large_bh.columns:
-                            current_year = datetime.now().year
-                            large_bh["tree_age"] = current_year - pd.to_numeric(
-                                large_bh["tree_year_planted"], errors="coerce"
+                            large_bh = calculate_tree_age_corrected(
+                                large_bh, "tree_year_planted"
                             )
 
                         # Display columns
@@ -1297,7 +1329,7 @@ with tabs[3]:
                 # Show circumference_10cm > threshold
                 if has_10cm:
                     st.markdown(
-                        f"##### 📏 Circumference at 10cm Height > {threshold_10cm}cm"
+                        f"##### 📏 Circumference at 10cm Height > {threshold_10cm}cm "
                     )
 
                     large_10cm = cir_total[
@@ -1307,16 +1339,10 @@ with tabs[3]:
                     st.metric(f"Measurements > {threshold_10cm}cm", len(large_10cm))
 
                     if len(large_10cm) > 0:
-                        st.warning(
-                            f"⚠️ {len(large_10cm)} measurements exceed {threshold_10cm}cm - verify age is realistic"
-                        )
 
                         # Calculate tree age
                         if "tree_year_planted" in large_10cm.columns:
-                            current_year = datetime.now().year
-                            large_10cm["tree_age"] = current_year - pd.to_numeric(
-                                large_10cm["tree_year_planted"], errors="coerce"
-                            )
+                            large_10cm = calculate_tree_age_corrected(large_10cm)
 
                         # Display columns
                         display_cols = [
@@ -1501,7 +1527,7 @@ with tabs[4]:
     st.markdown("---")
 
     # CHECK 3: Suspicious circumference by age
-    st.markdown(f"#### 3️⃣ Suspicious Circumference vs Tree Age")
+    st.markdown(f"#### (pending validation) 3️⃣ Suspicious Circumference vs Tree Age ")
     st.caption(
         f"Flagging: Circ >{young_tree_circ}cm AND age <5 years, OR Circ >300cm AND age <15 years"
     )
@@ -1586,9 +1612,7 @@ with tabs[4]:
         current_year = datetime.now().year
 
         if "tree_year_planted" in complete_with_enum.columns:
-            complete_with_enum["tree_age"] = current_year - pd.to_numeric(
-                complete_with_enum["tree_year_planted"], errors="coerce"
-            )
+            complete_with_enum = calculate_tree_age_corrected(complete_with_enum)
 
         # Determine circumference column
         circ_col = None
@@ -1693,7 +1717,7 @@ with tabs[4]:
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Summary stats
-                    st.markdown("##### 📊 Summary Statistics")
+                    st.markdown("##### 📊 Summary Statistics pending validation")
                     col1, col2, col3, col4 = st.columns(4)
 
                     with col1:

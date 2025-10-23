@@ -1,18 +1,17 @@
 """
-Subplot Details Page - Deep dive into individual subplots
+Plot Issues Page - Focus on plots with validation errors
+Shows plots with ≥8 invalid subplots and detailed error breakdown
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import config
 from ui.components import show_header, create_sidebar_filters
-from utils.data_processor import get_validation_summary
 
 # Page config
 st.set_page_config(
-    page_title="Subplot Details - " + config.APP_TITLE,
-    page_icon="🌳",
+    page_title="Plot Issues - " + config.APP_TITLE,
+    page_icon="⚠️",
     layout="wide",
 )
 
@@ -26,313 +25,516 @@ if "data" not in st.session_state or st.session_state.data is None:
 # Header
 show_header()
 
-st.markdown("## 🌳 Subplot Details")
+st.markdown("## ⚠️ Plot Issues")
+st.caption("Focus on plots with validation errors (≥8 invalid subplots)")
 
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
+raw_data = st.session_state.data.get("raw_data", {})
+
+# ============================================
+# VEGETATION VALIDATION
+# ============================================
+
+
+def validate_subplot_vegetation(subplot_key, raw_data):
+    """
+    Validate subplot based on vegetation data
+    Rule: Flag if ≥10 trees marked as 'other'
+    Returns: (is_valid, error_messages, other_count)
+    """
+    errors = []
+    other_count = 0
+
+    # Get vegetation data
+    if "plots_subplots_vegetation" not in raw_data:
+        return True, [], 0
+
+    veg_df = raw_data["plots_subplots_vegetation"]
+
+    # Filter to this subplot
+    subplot_veg = veg_df[veg_df["SUBPLOT_KEY"] == subplot_key]
+
+    if len(subplot_veg) == 0:
+        return True, [], 0
+
+    # Check 'other_species' column (primary indicator)
+    if "other_species" in subplot_veg.columns:
+        other_count = subplot_veg["other_species"].notna().sum()
+
+    # Alternative: check vegetation_species_type
+    if other_count == 0 and "vegetation_species_type" in subplot_veg.columns:
+        other_count = (
+            subplot_veg["vegetation_species_type"].astype(str).str.lower() == "other"
+        ).sum()
+
+    # Flag if 10 or more trees are marked as 'other'
+    if other_count >= 10:
+        errors.append(f"≥10 trees marked as 'other' ({other_count} found)")
+
+    is_valid = len(errors) == 0
+    return is_valid, errors, other_count
+
+
+def add_vegetation_validation(gdf_subplots, raw_data):
+    """Add vegetation validation columns to subplot dataframe"""
+    if "SUBPLOT_KEY" not in gdf_subplots.columns:
+        gdf_subplots["SUBPLOT_KEY"] = gdf_subplots["subplot_id"]
+
+    veg_valid_list = []
+    veg_errors_list = []
+    other_count_list = []
+
+    for idx, row in gdf_subplots.iterrows():
+        subplot_key = row["SUBPLOT_KEY"]
+        is_valid, errors, other_count = validate_subplot_vegetation(
+            subplot_key, raw_data
+        )
+        veg_valid_list.append(is_valid)
+        veg_errors_list.append("; ".join(errors) if errors else "")
+        other_count_list.append(other_count)
+
+    gdf_subplots["veg_valid"] = veg_valid_list
+    gdf_subplots["veg_errors"] = veg_errors_list
+    gdf_subplots["other_count"] = other_count_list
+
+    # Combined validation: geometry AND vegetation must be valid
+    gdf_subplots["overall_valid"] = (
+        gdf_subplots["geom_valid"] & gdf_subplots["veg_valid"]
+    )
+
+    return gdf_subplots
+
+
+# ============================================
+# PLOT-LEVEL VALIDATION
+# ============================================
+
+
+def calculate_plot_validation(gdf_subplots):
+    """
+    Calculate plot-level validation
+    Rule: Plot is invalid if ≥8 subplots are invalid
+    """
+    if "PLOT_KEY" not in gdf_subplots.columns:
+        # Try to extract from subplot_id
+        if "subplot_id" in gdf_subplots.columns:
+            gdf_subplots["PLOT_KEY"] = gdf_subplots["subplot_id"].str.split("/").str[0]
+        else:
+            return pd.DataFrame()
+
+    # Group by plot
+    plot_summary = (
+        gdf_subplots.groupby("PLOT_KEY")
+        .agg(
+            {
+                "subplot_id": "count",
+                "overall_valid": "sum",
+                "geom_valid": "sum",
+                "veg_valid": "sum",
+            }
+        )
+        .reset_index()
+    )
+
+    plot_summary.columns = [
+        "PLOT_KEY",
+        "total_subplots",
+        "valid_subplots",
+        "geom_valid_count",
+        "veg_valid_count",
+    ]
+
+    # Calculate invalid counts
+    plot_summary["invalid_subplots"] = (
+        plot_summary["total_subplots"] - plot_summary["valid_subplots"]
+    )
+    plot_summary["geom_invalid"] = (
+        plot_summary["total_subplots"] - plot_summary["geom_valid_count"]
+    )
+    plot_summary["veg_invalid"] = (
+        plot_summary["total_subplots"] - plot_summary["veg_valid_count"]
+    )
+
+    # Plot is invalid if ≥8 subplots are invalid
+    plot_summary["plot_valid"] = plot_summary["invalid_subplots"] < 8
+
+    return plot_summary
+
+
+# Add vegetation validation
+gdf_subplots = add_vegetation_validation(gdf_subplots, raw_data)
+
+# Calculate plot validation
+plot_summary = calculate_plot_validation(gdf_subplots)
 
 # Apply filters
 filtered_gdf = create_sidebar_filters(gdf_subplots)
 
-# Summary
-summary = get_validation_summary(filtered_gdf)
+# ============================================
+# SUMMARY METRICS
+# ============================================
+
+st.markdown("### 📊 Overall Summary")
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Total", f"{summary['total']:,}")
+    total_plots = len(plot_summary) if len(plot_summary) > 0 else 0
+    st.metric("Total Plots", f"{total_plots:,}")
 
 with col2:
-    st.metric("Valid", f"{summary['valid']:,}", f"{summary['valid_pct']:.1f}%")
+    if len(plot_summary) > 0:
+        invalid_plots = (~plot_summary["plot_valid"]).sum()
+        invalid_pct = (invalid_plots / total_plots * 100) if total_plots > 0 else 0
+        st.metric("❌ Invalid Plots", f"{invalid_plots:,}", f"{invalid_pct:.1f}%")
+    else:
+        st.metric("❌ Invalid Plots", "0", "0.0%")
 
 with col3:
-    st.metric("Invalid", f"{summary['invalid']:,}")
+    total_subplots = len(filtered_gdf)
+    st.metric("Total Subplots", f"{total_subplots:,}")
 
 with col4:
-    avg_area = (
-        filtered_gdf["area_m2"].mean() if "area_m2" in filtered_gdf.columns else 0
+    invalid_subplots = (~filtered_gdf["overall_valid"]).sum()
+    invalid_sub_pct = (
+        (invalid_subplots / total_subplots * 100) if total_subplots > 0 else 0
     )
-    st.metric("Avg Area", f"{avg_area:.1f} m²")
+    st.metric("❌ Invalid Subplots", f"{invalid_subplots:,}", f"{invalid_sub_pct:.1f}%")
 
 st.markdown("---")
 
-# Subplot search and filter
-st.markdown("### 🔍 Search Subplots")
+# ============================================
+# SUBPLOT ISSUE BREAKDOWN
+# ============================================
 
-col1, col2 = st.columns([2, 1])
+st.markdown("### ⚠️ Subplot Issues Breakdown")
+
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    search_term = st.text_input(
-        "Search by Subplot ID", placeholder="Enter subplot ID..."
-    )
+    geom_only = (~filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]).sum()
+    geom_pct = (geom_only / total_subplots * 100) if total_subplots > 0 else 0
+    st.metric("🔶 Geometry Issues Only", f"{geom_only:,}", f"{geom_pct:.1f}%")
 
 with col2:
-    show_only = st.selectbox(
-        "Show",
-        ["All Subplots", "Valid Only", "Invalid Only"],
+    veg_only = (filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]).sum()
+    veg_pct = (veg_only / total_subplots * 100) if total_subplots > 0 else 0
+    st.metric("🌿 Vegetation Issues Only", f"{veg_only:,}", f"{veg_pct:.1f}%")
+
+with col3:
+    both = (~filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]).sum()
+    both_pct = (both / total_subplots * 100) if total_subplots > 0 else 0
+    st.metric("❌ Both Issues", f"{both:,}", f"{both_pct:.1f}%")
+
+st.markdown("---")
+
+# ============================================
+# PLOTS WITH ISSUES (≥8 INVALID SUBPLOTS)
+# ============================================
+
+st.markdown("### 📋 Plots with ≥8 Invalid Subplots")
+
+if len(plot_summary) > 0:
+    invalid_plots_df = plot_summary[~plot_summary["plot_valid"]].sort_values(
+        "invalid_subplots", ascending=False
     )
 
-# Apply search and filter
-search_df = filtered_gdf.copy()
+    if len(invalid_plots_df) > 0:
+        st.warning(
+            f"⚠️ {len(invalid_plots_df)} plots have ≥8 invalid subplots and need attention"
+        )
 
-if search_term:
-    search_df = search_df[
-        search_df["subplot_id"]
-        .astype(str)
-        .str.contains(search_term, case=False, na=False)
+        # Display table
+        display_df = invalid_plots_df[
+            [
+                "PLOT_KEY",
+                "total_subplots",
+                "invalid_subplots",
+                "valid_subplots",
+                "geom_invalid",
+                "veg_invalid",
+            ]
+        ].copy()
+
+        # Add row numbers
+        display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=400,
+            column_config={
+                "#": st.column_config.NumberColumn("#", width="small"),
+                "PLOT_KEY": "Plot ID",
+                "total_subplots": st.column_config.NumberColumn("Total", width="small"),
+                "invalid_subplots": st.column_config.NumberColumn(
+                    "❌ Invalid", width="small"
+                ),
+                "valid_subplots": st.column_config.NumberColumn(
+                    "✅ Valid", width="small"
+                ),
+                "geom_invalid": st.column_config.NumberColumn("🔶 Geom", width="small"),
+                "veg_invalid": st.column_config.NumberColumn("🌿 Veg", width="small"),
+            },
+            hide_index=True,
+        )
+
+        # Download button
+        csv_data = invalid_plots_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Invalid Plots CSV",
+            data=csv_data,
+            file_name=f"{config.PARTNER}_invalid_plots.csv",
+            mime="text/csv",
+        )
+    else:
+        st.success(
+            "✅ No plots with ≥8 invalid subplots - all plots meet quality standards!"
+        )
+else:
+    st.info("No plot data available")
+
+st.markdown("---")
+
+# ============================================
+# SUBPLOTS WITH VEGETATION ISSUES ONLY
+# ============================================
+
+st.markdown("### 🌿 Subplots with Vegetation Issues Only")
+st.caption("Subplots that pass geometry checks but have ≥10 'other' trees")
+
+veg_issues_only = filtered_gdf[
+    filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]
+].copy()
+
+if len(veg_issues_only) > 0:
+    st.warning(
+        f"⚠️ {len(veg_issues_only)} subplots have vegetation issues (≥10 'other' trees)"
+    )
+
+    # Prepare display columns
+    display_cols = ["subplot_id", "PLOT_KEY", "enumerator", "other_count", "veg_errors"]
+
+    # Add optional columns if they exist
+    for col in ["starttime", "area_m2"]:
+        if col in veg_issues_only.columns:
+            display_cols.append(col)
+
+    display_cols = [col for col in display_cols if col in veg_issues_only.columns]
+
+    veg_display = veg_issues_only[display_cols].copy()
+
+    # Sort by other_count descending
+    if "other_count" in veg_display.columns:
+        veg_display = veg_display.sort_values("other_count", ascending=False)
+
+    # Add row numbers
+    veg_display.insert(0, "#", range(1, len(veg_display) + 1))
+
+    st.dataframe(
+        veg_display,
+        use_container_width=True,
+        height=400,
+        column_config={
+            "#": st.column_config.NumberColumn("#", width="small"),
+            "subplot_id": "Subplot ID",
+            "PLOT_KEY": "Plot ID",
+            "enumerator": "Enumerator",
+            "other_count": st.column_config.NumberColumn(
+                "'Other' Trees", width="small"
+            ),
+            "veg_errors": "Issue Description",
+            "starttime": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
+            "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+        },
+        hide_index=True,
+    )
+
+    # Download button
+    csv_data = veg_issues_only[display_cols].to_csv(index=False)
+    st.download_button(
+        label="📥 Download Vegetation Issues CSV",
+        data=csv_data,
+        file_name=f"{config.PARTNER}_vegetation_issues.csv",
+        mime="text/csv",
+    )
+else:
+    st.success("✅ No subplots with vegetation-only issues!")
+
+st.markdown("---")
+
+# ============================================
+# SUBPLOTS WITH GEOMETRY ISSUES ONLY
+# ============================================
+
+st.markdown("### 🔶 Subplots with Geometry Issues Only")
+st.caption("Subplots that pass vegetation checks but have geometry problems")
+
+geom_issues_only = filtered_gdf[
+    ~filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]
+].copy()
+
+if len(geom_issues_only) > 0:
+    st.warning(f"⚠️ {len(geom_issues_only)} subplots have geometry issues")
+
+    # Prepare display columns
+    display_cols = ["subplot_id", "PLOT_KEY", "enumerator", "reasons"]
+
+    # Add optional columns if they exist
+    for col in [
+        "starttime",
+        "area_m2",
+        "nr_vertices",
+        "length_width_ratio",
+        "mrr_ratio",
+        "in_radius",
+    ]:
+        if col in geom_issues_only.columns:
+            display_cols.append(col)
+
+    display_cols = [col for col in display_cols if col in geom_issues_only.columns]
+
+    geom_display = geom_issues_only[display_cols].copy()
+
+    # Add row numbers
+    geom_display.insert(0, "#", range(1, len(geom_display) + 1))
+
+    st.dataframe(
+        geom_display,
+        use_container_width=True,
+        height=400,
+        column_config={
+            "#": st.column_config.NumberColumn("#", width="small"),
+            "subplot_id": "Subplot ID",
+            "PLOT_KEY": "Plot ID",
+            "enumerator": "Enumerator",
+            "reasons": "Issue Description",
+            "starttime": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
+            "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+            "nr_vertices": st.column_config.NumberColumn("Vertices", width="small"),
+            "length_width_ratio": st.column_config.NumberColumn(
+                "L/W Ratio", format="%.2f"
+            ),
+            "mrr_ratio": st.column_config.NumberColumn("MRR Ratio", format="%.2f"),
+            "in_radius": st.column_config.CheckboxColumn("In Radius"),
+        },
+        hide_index=True,
+    )
+
+    # Download button
+    csv_data = geom_issues_only[display_cols].to_csv(index=False)
+    st.download_button(
+        label="📥 Download Geometry Issues CSV",
+        data=csv_data,
+        file_name=f"{config.PARTNER}_geometry_issues.csv",
+        mime="text/csv",
+    )
+else:
+    st.success("✅ No subplots with geometry-only issues!")
+
+st.markdown("---")
+
+# ============================================
+# SUBPLOTS WITH BOTH ISSUES
+# ============================================
+
+st.markdown("### ❌ Subplots with Both Geometry & Vegetation Issues")
+st.caption("Subplots that fail both validation checks - highest priority for revisit")
+
+both_issues = filtered_gdf[
+    ~filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]
+].copy()
+
+if len(both_issues) > 0:
+    st.error(
+        f"❌ {len(both_issues)} subplots have BOTH geometry and vegetation issues - high priority!"
+    )
+
+    # Prepare display columns
+    display_cols = [
+        "subplot_id",
+        "PLOT_KEY",
+        "enumerator",
+        "reasons",
+        "veg_errors",
+        "other_count",
     ]
 
-if show_only == "Valid Only":
-    search_df = search_df[search_df["geom_valid"]]
-elif show_only == "Invalid Only":
-    search_df = search_df[~search_df["geom_valid"]]
+    # Add optional columns if they exist
+    for col in ["starttime", "area_m2"]:
+        if col in both_issues.columns:
+            display_cols.append(col)
 
-st.markdown(f"**Showing {len(search_df)} of {len(filtered_gdf)} subplots**")
+    display_cols = [col for col in display_cols if col in both_issues.columns]
 
-st.markdown("---")
+    both_display = both_issues[display_cols].copy()
 
-# Display table with all details
-st.markdown("### 📊 Subplot Data Table")
+    # Sort by other_count descending
+    if "other_count" in both_display.columns:
+        both_display = both_display.sort_values("other_count", ascending=False)
 
-# Select columns to display
-display_cols = ["subplot_id", "geom_valid"]
+    # Add row numbers
+    both_display.insert(0, "#", range(1, len(both_display) + 1))
 
-for col in [
-    "enumerator",
-    "starttime",
-    "area_m2",
-    "nr_vertices",
-    "length_width_ratio",
-    "mrr_ratio",
-    "in_radius",
-    "reasons",
-]:
-    if col in search_df.columns:
-        display_cols.append(col)
-
-# Format the dataframe
-display_df = search_df[display_cols].copy()
-
-if "area_m2" in display_df.columns:
-    display_df["area_m2"] = display_df["area_m2"].round(1)
-
-if "length_width_ratio" in display_df.columns:
-    display_df["length_width_ratio"] = display_df["length_width_ratio"].round(2)
-
-if "mrr_ratio" in display_df.columns:
-    display_df["mrr_ratio"] = display_df["mrr_ratio"].round(2)
-
-# Display
-st.dataframe(
-    display_df,
-    use_container_width=True,
-    height=500,
-    column_config={
-        "subplot_id": "Subplot ID",
-        "geom_valid": st.column_config.CheckboxColumn("Valid"),
-        "enumerator": "Enumerator",
-        "starttime": st.column_config.DatetimeColumn(
-            "Collection Date", format="YYYY-MM-DD"
-        ),
-        "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
-        "nr_vertices": "Vertices",
-        "length_width_ratio": st.column_config.NumberColumn("L/W Ratio", format="%.2f"),
-        "mrr_ratio": st.column_config.NumberColumn("MRR Ratio", format="%.2f"),
-        "in_radius": st.column_config.CheckboxColumn("In Radius"),
-        "reasons": "Validation Issues",
-    },
-)
-
-# Download current view
-st.markdown("---")
-st.markdown("### 📥 Export Current View")
-
-csv_data = display_df.to_csv(index=False)
-
-st.download_button(
-    label="📊 Download Table as CSV",
-    data=csv_data,
-    file_name=f"{config.PARTNER}_subplot_details.csv",
-    mime="text/csv",
-    use_container_width=True,
-)
-
-# Statistics for filtered view
-st.markdown("---")
-st.markdown("### 📈 Statistics for Current View")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Vertex distribution
-    if "nr_vertices" in search_df.columns:
-        st.markdown("#### Vertex Count Distribution")
-
-        vertex_counts = search_df["nr_vertices"].value_counts().sort_index()
-
-        fig_vertices = px.bar(
-            x=vertex_counts.index,
-            y=vertex_counts.values,
-            labels={"x": "Number of Vertices", "y": "Count"},
-            title="Distribution of Vertex Counts",
-        )
-        fig_vertices.update_traces(marker_color="steelblue")
-
-        st.plotly_chart(fig_vertices, use_container_width=True)
-
-with col2:
-    # Area distribution for current view
-    if "area_m2" in search_df.columns:
-        st.markdown("#### Area Distribution")
-
-        fig_area = px.histogram(
-            search_df[search_df["area_m2"] > 0],
-            x="area_m2",
-            nbins=30,
-            title="Area Distribution (Current View)",
-            labels={"area_m2": "Area (m²)"},
-        )
-
-        fig_area.add_vline(
-            x=config.MIN_SUBPLOT_AREA_SIZE,
-            line_dash="dash",
-            line_color="red",
-            annotation_text="Min",
-        )
-        fig_area.add_vline(
-            x=config.MAX_SUBPLOT_AREA_SIZE,
-            line_dash="dash",
-            line_color="red",
-            annotation_text="Max",
-        )
-
-        st.plotly_chart(fig_area, use_container_width=True)
-
-# Individual subplot inspector
-st.markdown("---")
-st.markdown("### 🔬 Individual Subplot Inspector")
-
-if len(search_df) > 0:
-    subplot_ids = search_df["subplot_id"].tolist()
-
-    selected_subplot = st.selectbox(
-        "Select a subplot to inspect in detail:",
-        options=subplot_ids,
-        format_func=lambda x: f"{x} {'✅' if search_df[search_df['subplot_id']==x]['geom_valid'].iloc[0] else '❌'}",
+    st.dataframe(
+        both_display,
+        use_container_width=True,
+        height=400,
+        column_config={
+            "#": st.column_config.NumberColumn("#", width="small"),
+            "subplot_id": "Subplot ID",
+            "PLOT_KEY": "Plot ID",
+            "enumerator": "Enumerator",
+            "reasons": "Geometry Issues",
+            "veg_errors": "Vegetation Issues",
+            "other_count": st.column_config.NumberColumn(
+                "'Other' Trees", width="small"
+            ),
+            "starttime": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
+            "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+        },
+        hide_index=True,
     )
 
-    if selected_subplot:
-        subplot_data = search_df[search_df["subplot_id"] == selected_subplot].iloc[0]
-
-        # Create three columns for detailed view
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown("#### 📋 Basic Information")
-            st.write(f"**Subplot ID:** {subplot_data['subplot_id']}")
-            st.write(
-                f"**Status:** {'✅ Valid' if subplot_data['geom_valid'] else '❌ Invalid'}"
-            )
-
-            if "enumerator" in subplot_data.index:
-                st.write(f"**Enumerator:** {subplot_data['enumerator']}")
-
-            if "starttime" in subplot_data.index:
-                st.write(f"**Collection Date:** {subplot_data['starttime']}")
-
-        with col2:
-            st.markdown("#### 📐 Geometry Metrics")
-
-            if "area_m2" in subplot_data.index:
-                area = subplot_data["area_m2"]
-                area_status = (
-                    "✅"
-                    if config.MIN_SUBPLOT_AREA_SIZE
-                    <= area
-                    <= config.MAX_SUBPLOT_AREA_SIZE
-                    else "❌"
-                )
-                st.write(f"{area_status} **Area:** {area:.2f} m²")
-
-            if "nr_vertices" in subplot_data.index:
-                vertices = subplot_data["nr_vertices"]
-                vert_status = "✅" if vertices > config.MAX_VERTICES else "❌"
-                st.write(f"{vert_status} **Vertices:** {vertices}")
-
-            if "original_vertices" in subplot_data.index:
-                st.write(f"**Original Vertices:** {subplot_data['original_vertices']}")
-
-            if "vertices_dropped" in subplot_data.index:
-                dropped = subplot_data["vertices_dropped"]
-                if dropped > 0:
-                    st.write(f"⚠️ **Vertices Dropped:** {dropped}")
-
-        with col3:
-            st.markdown("#### 📊 Shape Analysis")
-
-            if "length_width_ratio" in subplot_data.index and pd.notna(
-                subplot_data["length_width_ratio"]
-            ):
-                lw_ratio = subplot_data["length_width_ratio"]
-                lw_status = "✅" if lw_ratio <= config.THRESHOLD_LENGTH_WIDTH else "⚠️"
-                st.write(f"{lw_status} **L/W Ratio:** {lw_ratio:.2f}")
-                st.caption(f"Threshold: {config.THRESHOLD_LENGTH_WIDTH}")
-
-            if "mrr_ratio" in subplot_data.index and pd.notna(
-                subplot_data["mrr_ratio"]
-            ):
-                mrr = subplot_data["mrr_ratio"]
-                mrr_status = "✅" if mrr <= config.THRESHOLD_PROTRUDING_RATIO else "⚠️"
-                st.write(f"{mrr_status} **Protruding Ratio:** {mrr:.2f}")
-                st.caption(f"Threshold: {config.THRESHOLD_PROTRUDING_RATIO}")
-
-            if "in_radius" in subplot_data.index:
-                in_rad = subplot_data["in_radius"]
-                rad_status = "✅" if in_rad else "⚠️"
-                st.write(f"{rad_status} **In Radius:** {'Yes' if in_rad else 'No'}")
-                st.caption(f"Radius: {config.THRESHOLD_WITHIN_RADIUS}m")
-
-        # Show validation issues if invalid
-        if not subplot_data["geom_valid"] and "reasons" in subplot_data.index:
-            st.markdown("---")
-            st.markdown("#### ❌ Validation Issues")
-
-            reasons = str(subplot_data["reasons"]).split(";")
-            for reason in reasons:
-                if reason.strip():
-                    st.error(f"• {reason.strip()}")
-
-        # Show geometry preview (if not empty)
-        if not subplot_data.geometry.is_empty:
-            st.markdown("---")
-            st.markdown("#### 🗺️ Geometry Preview")
-
-            import folium
-            from streamlit_folium import st_folium
-
-            # Create small map
-            centroid = subplot_data.geometry.centroid
-
-            m = folium.Map(
-                location=[centroid.y, centroid.x],
-                zoom_start=15,
-            )
-
-            coords = list(subplot_data.geometry.exterior.coords)
-            coords_latlon = [(lat, lon) for lon, lat in coords]
-
-            color = "green" if subplot_data["geom_valid"] else "red"
-
-            folium.Polygon(
-                locations=coords_latlon,
-                color=color,
-                fill=True,
-                fillColor=color,
-                fillOpacity=0.4,
-                weight=2,
-            ).add_to(m)
-
-            st_folium(m, width=700, height=400)
-
+    # Download button
+    csv_data = both_issues[display_cols].to_csv(index=False)
+    st.download_button(
+        label="📥 Download Both Issues CSV",
+        data=csv_data,
+        file_name=f"{config.PARTNER}_both_issues.csv",
+        mime="text/csv",
+    )
 else:
-    st.info("No subplots found with current filters")
+    st.success("✅ No subplots with both types of issues!")
+
+st.markdown("---")
+
+# ============================================
+# VALIDATION RULES REFERENCE
+# ============================================
+
+with st.expander("📖 Validation Rules Reference"):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("**Plot-Level Validation:**")
+        st.write("• Plot is ❌ invalid if **≥8 subplots** are invalid")
+        st.write("• Plot is ✅ valid if **<8 subplots** are invalid")
+
+        st.markdown("**Geometry Validation:**")
+        st.write(
+            f"• Area: {config.MIN_SUBPLOT_AREA_SIZE}-{config.MAX_SUBPLOT_AREA_SIZE} m²"
+        )
+        st.write(f"• Length/Width ratio: ≤{config.THRESHOLD_LENGTH_WIDTH}")
+        st.write(f"• Protruding ratio: ≤{config.THRESHOLD_PROTRUDING_RATIO}")
+        st.write(f"• Within radius: {config.THRESHOLD_WITHIN_RADIUS}m")
+
+    with col2:
+        st.markdown("**Vegetation Validation:**")
+        st.write("• **<10 trees** marked as 'other'")
+        st.write("• Flag if ≥10 trees unidentified")
+
+        st.markdown("**Overall Validation:**")
+        st.write("• Subplot must pass **BOTH** geometry AND vegetation")
+        st.write("• Any failure = subplot marked invalid")
