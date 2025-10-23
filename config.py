@@ -36,21 +36,38 @@ def get_active_partner():
     Get active partner from URL query parameters or default
     Usage: http://localhost:8501/?partner=COMACO
     """
-    # Try to get partner from URL query parameters
-    query_params = st.query_params
+    try:
+        # Get query parameters
+        query_params = st.query_params
 
-    # Check if 'partner' is in query params
-    if "partner" in query_params:
-        partner_param = query_params["partner"].upper()
-
-        # Validate partner exists
-        if partner_param in PARTNERS:
-            return partner_param
+        # Check if 'partner' parameter exists
+        if hasattr(query_params, "get"):
+            partner_param = query_params.get("partner", None)
+        elif hasattr(query_params, "__getitem__"):
+            partner_param = (
+                query_params.get("partner", [None])[0]
+                if "partner" in query_params
+                else None
+            )
         else:
-            st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default AFOCO.")
-            return "AFOCO"
+            # Try direct access
+            partner_param = query_params.get("partner") if query_params else None
 
-    # Default partner if no URL parameter
+        if partner_param:
+            partner_param = str(partner_param).upper()
+
+            # Validate partner exists
+            if partner_param in PARTNERS:
+                return partner_param
+            else:
+                st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default AFOCO.")
+                return "AFOCO"
+
+    except Exception as e:
+        # If any error, use default
+        pass
+
+    # Default partner if no URL parameter or error
     return "AFOCO"
 
 

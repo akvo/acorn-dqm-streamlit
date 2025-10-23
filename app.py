@@ -76,7 +76,6 @@ with st.sidebar:
         )
     else:
         process_btn = False
-        st.info("Upload a file to begin")
 
 # Process data
 if process_btn and uploaded_file:
@@ -288,18 +287,3 @@ else:
         The app automatically handles merging and validation.
         """
         )
-
-    # Example metrics
-    st.markdown("---")
-    st.markdown("### 📈 Example Validation Results")
-
-    example_col1, example_col2, example_col3, example_col4 = st.columns(4)
-
-    with example_col1:
-        st.metric("Total Subplots", "1,600")
-    with example_col2:
-        st.metric("Valid", "1,444", "90.2%")
-    with example_col3:
-        st.metric("Invalid", "156")
-    with example_col4:
-        st.metric("Issues", "156")

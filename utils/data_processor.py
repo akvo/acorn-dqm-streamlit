@@ -94,7 +94,9 @@ def merge_all_data(sheets_dict):
 
     # Merge with vegetation if available
     if vegetation_df is not None:
-        m_veg = pd.merge(m_plots, vegetation_df, how="left", on="SUBPLOT_KEY")
+        # INNER JOIN - only subplots WITH vegetation (matches notebook)
+        # This ensures m_veg only contains subplots that have vegetation records
+        m_veg = pd.merge(m_plots, vegetation_df, how="inner", on="SUBPLOT_KEY")
         merged["plots_subplots_vegetation"] = m_veg
 
         # Merge with measurements if available
