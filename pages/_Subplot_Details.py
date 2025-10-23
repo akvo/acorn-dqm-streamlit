@@ -145,7 +145,6 @@ else:
 # Get species column
 species_col = get_species_column(veg_with_enum)
 
-
 # ============================================
 # TABS
 # ============================================
@@ -443,7 +442,7 @@ with tabs[0]:
 
     st.markdown("---")
 
-    st.markdown("#### 4️⃣ Records with 'other' Species")
+    # CHECK 3: Unidentified Species ('other')
     st.caption("Species marked as 'other' require botanical verification")
 
     # Use raw veg_df, then merge with enumerator
@@ -454,6 +453,8 @@ with tabs[0]:
         other_species = merge_with_enumerator(
             other_species, filtered_gdf, subplot_key_col="SUBPLOT_KEY"
         )
+
+    st.metric("Records with 'other' Species", len(other_species))
 
     if len(other_species) > 0:
         st.warning(
@@ -494,6 +495,10 @@ with tabs[1]:
     # Use RAW vegetation data like notebook does (m_veg)
     # Get debug info about data structure
     debug_info = get_tree_classification_debug_info(veg_df)
+
+    # Show debug info
+    with st.expander("🔍 Debug: Data Structure"):
+        st.json(debug_info)
 
     # Get tree lists using utility functions on RAW data
     # These match notebook logic exactly with string values
@@ -1100,6 +1105,269 @@ with tabs[3]:
     else:
         st.info("ℹ️ Merged measurement data not available for this check")
 
+    st.markdown("---")
+
+    # CHECK 5: Circumference Check with Threshold
+    st.markdown("#### 5️⃣ Large Circumference Check")
+    st.caption(
+        "Focus on relationship between tree age and circumference to avoid errors (e.g. circumference 300cm planted in 2024)"
+    )
+
+    # Get the merged data that includes circumference (complete dataset has circumference merged)
+    if "complete" in raw_data and raw_data["complete"] is not None:
+        m_cir = raw_data["complete"]
+
+        # Filter to records with actual measurements
+        if "MEASUREMENT_KEY" in m_cir.columns:
+            m_cir = m_cir[m_cir["MEASUREMENT_KEY"].notna()].copy()
+
+        # Parameters from notebook
+        circumference_cols = [
+            "enumerator",
+            "VEGETATION_KEY",
+            "MEASUREMENT_KEY",
+            "vegetation_type_number",
+            "circumference_bh",
+            "circumference_10cm",
+            "tree_year_planted",
+        ]
+
+        # Filter to available columns
+        available_cols = [col for col in circumference_cols if col in m_cir.columns]
+
+        if len(available_cols) > 0:
+            circumference_list = m_cir[available_cols].copy()
+
+            # Calculate median per MEASUREMENT_KEY
+            has_bh = "circumference_bh" in circumference_list.columns
+            has_10cm = "circumference_10cm" in circumference_list.columns
+
+            if has_bh or has_10cm:
+                # Add tree age calculation
+                if "tree_year_planted" in circumference_list.columns:
+                    current_year = datetime.now().year
+                    circumference_list["tree_age"] = current_year - pd.to_numeric(
+                        circumference_list["tree_year_planted"], errors="coerce"
+                    )
+
+                # Calculate median circumference per MEASUREMENT_KEY
+                # Use circumference_bh for median calculation (notebook logic)
+                if has_bh and "MEASUREMENT_KEY" in circumference_list.columns:
+                    # Filter to non-null BH values for median calculation
+                    bh_data = circumference_list[
+                        circumference_list["circumference_bh"].notna()
+                    ]
+                    if len(bh_data) > 0:
+                        median_cir_bh = (
+                            bh_data.groupby("MEASUREMENT_KEY")["circumference_bh"]
+                            .median()
+                            .reset_index(name="median_cir")
+                        )
+                        cir_total = pd.merge(
+                            circumference_list,
+                            median_cir_bh,
+                            how="left",
+                            on="MEASUREMENT_KEY",
+                        )
+
+                        # Outlier flags for circumference_bh
+                        cir_total["Upper_outliers"] = cir_total.apply(
+                            lambda row: (
+                                "outlier"
+                                if pd.notna(row["circumference_bh"])
+                                and pd.notna(row.get("median_cir"))
+                                and row["circumference_bh"] > (row["median_cir"] * 4)
+                                else "ok"
+                            ),
+                            axis=1,
+                        )
+                        cir_total["Lower_outliers"] = cir_total.apply(
+                            lambda row: (
+                                "outlier"
+                                if pd.notna(row["circumference_bh"])
+                                and pd.notna(row.get("median_cir"))
+                                and row["circumference_bh"] < (row["median_cir"] / 4)
+                                else "ok"
+                            ),
+                            axis=1,
+                        )
+                    else:
+                        cir_total = circumference_list.copy()
+                else:
+                    # If no BH data, just use the list as is
+                    cir_total = circumference_list.copy()
+
+                st.markdown("---")
+
+                # Threshold sliders in columns
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    if has_bh:
+                        threshold_bh = st.slider(
+                            "circumference_bh threshold (cm)",
+                            min_value=50,
+                            max_value=300,
+                            value=90,
+                            step=10,
+                            help="Flag measurements exceeding this circumference at breast height",
+                        )
+
+                with col2:
+                    if has_10cm:
+                        threshold_10cm = st.slider(
+                            "circumference_10cm threshold (cm)",
+                            min_value=50,
+                            max_value=300,
+                            value=90,
+                            step=10,
+                            help="Flag measurements exceeding this circumference at 10cm height",
+                        )
+
+                # Show circumference_bh > threshold
+                if has_bh:
+                    st.markdown(
+                        f"##### 📏 Circumference at Breast Height > {threshold_bh}cm"
+                    )
+
+                    large_bh = cir_total[
+                        cir_total["circumference_bh"] > threshold_bh
+                    ].copy()
+
+                    st.metric(f"Measurements > {threshold_bh}cm", len(large_bh))
+
+                    if len(large_bh) > 0:
+                        st.warning(
+                            f"⚠️ {len(large_bh)} measurements exceed {threshold_bh}cm - verify age is realistic"
+                        )
+
+                        # Calculate tree age
+                        if "tree_year_planted" in large_bh.columns:
+                            current_year = datetime.now().year
+                            large_bh["tree_age"] = current_year - pd.to_numeric(
+                                large_bh["tree_year_planted"], errors="coerce"
+                            )
+
+                        # Display columns
+                        display_cols = [
+                            "enumerator",
+                            "VEGETATION_KEY",
+                            "MEASUREMENT_KEY",
+                            "vegetation_type_number",
+                            "circumference_bh",
+                            "tree_year_planted",
+                        ]
+
+                        if "tree_age" in large_bh.columns:
+                            display_cols.append("tree_age")
+                        if "median_cir" in large_bh.columns:
+                            display_cols.append("median_cir")
+                        if "Upper_outliers" in large_bh.columns:
+                            display_cols.append("Upper_outliers")
+                        if "Lower_outliers" in large_bh.columns:
+                            display_cols.append("Lower_outliers")
+
+                        display_cols = [
+                            col for col in display_cols if col in large_bh.columns
+                        ]
+
+                        # Add row numbers
+                        display_df = large_bh[display_cols].copy()
+                        display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+                        st.dataframe(
+                            display_df.sort_values("circumference_bh", ascending=False),
+                            use_container_width=True,
+                            height=400,
+                            hide_index=True,
+                        )
+
+                        # Download option
+                        st.download_button(
+                            label=f"📥 Download circumference_bh > {threshold_bh}cm",
+                            data=large_bh[display_cols].to_csv(index=False),
+                            file_name=f"large_circumference_bh_{threshold_bh}cm.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.success(f"✅ No measurements exceed {threshold_bh}cm")
+
+                st.markdown("---")
+
+                # Show circumference_10cm > threshold
+                if has_10cm:
+                    st.markdown(
+                        f"##### 📏 Circumference at 10cm Height > {threshold_10cm}cm"
+                    )
+
+                    large_10cm = cir_total[
+                        cir_total["circumference_10cm"] > threshold_10cm
+                    ].copy()
+
+                    st.metric(f"Measurements > {threshold_10cm}cm", len(large_10cm))
+
+                    if len(large_10cm) > 0:
+                        st.warning(
+                            f"⚠️ {len(large_10cm)} measurements exceed {threshold_10cm}cm - verify age is realistic"
+                        )
+
+                        # Calculate tree age
+                        if "tree_year_planted" in large_10cm.columns:
+                            current_year = datetime.now().year
+                            large_10cm["tree_age"] = current_year - pd.to_numeric(
+                                large_10cm["tree_year_planted"], errors="coerce"
+                            )
+
+                        # Display columns
+                        display_cols = [
+                            "enumerator",
+                            "VEGETATION_KEY",
+                            "MEASUREMENT_KEY",
+                            "vegetation_type_number",
+                            "circumference_10cm",
+                            "tree_year_planted",
+                        ]
+
+                        if "tree_age" in large_10cm.columns:
+                            display_cols.append("tree_age")
+
+                        display_cols = [
+                            col for col in display_cols if col in large_10cm.columns
+                        ]
+
+                        # Add row numbers
+                        display_df = large_10cm[display_cols].copy()
+                        display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+                        st.dataframe(
+                            display_df.sort_values(
+                                "circumference_10cm", ascending=False
+                            ),
+                            use_container_width=True,
+                            height=400,
+                            hide_index=True,
+                        )
+
+                        # Download option
+                        st.download_button(
+                            label=f"📥 Download circumference_10cm > {threshold_10cm}cm",
+                            data=large_10cm[display_cols].to_csv(index=False),
+                            file_name=f"large_circumference_10cm_{threshold_10cm}cm.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.success(f"✅ No measurements exceed {threshold_10cm}cm")
+            else:
+                st.info(
+                    "ℹ️ No circumference columns (circumference_bh or circumference_10cm) found"
+                )
+        else:
+            st.info("ℹ️ Required columns not available")
+    else:
+        st.info(
+            "ℹ️ Complete dataset with circumference not available. Make sure your Excel file has a 'circumference' sheet."
+        )
+
 # ============================================
 # TAB 5: OUTLIERS & SUSPICIOUS
 # ============================================
@@ -1423,6 +1691,48 @@ with tabs[4]:
                     )
 
                     st.plotly_chart(fig, use_container_width=True)
+
+                    # Summary stats
+                    st.markdown("##### 📊 Summary Statistics")
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric("Total Trees", len(plot_subset))
+
+                    with col2:
+                        st.metric("Unique Species", plot_subset[species_col].nunique())
+
+                    with col3:
+                        if "tree_age" in plot_subset.columns:
+                            avg_age = plot_subset["tree_age"].mean()
+                            st.metric("Avg Age", f"{avg_age:.1f} years")
+                        else:
+                            st.metric(
+                                "Avg Height",
+                                f"{plot_subset['tree_height_m'].mean():.1f}m",
+                            )
+
+                    with col4:
+                        if circ_col in plot_subset.columns:
+                            avg_circ = plot_subset[circ_col].mean()
+                            st.metric("Avg Circumference", f"{avg_circ:.1f}cm")
+                        else:
+                            st.metric(
+                                "Avg Stems", f"{plot_subset['nr_stems_bh'].mean():.1f}"
+                            )
+
+                    # Download data
+                    csv = plot_subset.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download plot data",
+                        data=csv,
+                        file_name="tree_measurements_scatter.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.warning(
+                        "⚠️ Not enough data after filtering for selected variables"
+                    )
             else:
                 st.info(
                     "ℹ️ No complete records with height, circumference, and stem data"
