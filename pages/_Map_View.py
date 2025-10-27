@@ -1,14 +1,23 @@
 """
-Map View Page - Enhanced
+Map View Page - Enhanced (Folium Only)
+Removed Plotly fallback as it causes hanging
 """
 
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
+import pandas as pd
 import config
 from ui.components import show_header, create_sidebar_filters
 from utils.data_processor import get_validation_summary
-import pandas as pd
+
+# Import folium
+try:
+    import folium
+    from streamlit_folium import st_folium
+    from folium.plugins import Fullscreen, MiniMap
+
+    FOLIUM_AVAILABLE = True
+except ImportError:
+    FOLIUM_AVAILABLE = False
 
 # Page config
 st.set_page_config(
@@ -21,6 +30,23 @@ st.set_page_config(
 if "data" not in st.session_state or st.session_state.data is None:
     st.warning("⚠️ No data loaded. Please upload a file from the home page.")
     st.info("👈 Use the sidebar to navigate back to the home page")
+    st.stop()
+
+# Check if folium available
+if not FOLIUM_AVAILABLE:
+    st.error("📦 **Folium not installed!**")
+    st.markdown(
+        """
+    This map feature requires the Folium library.
+    
+    **To install:**
+    ```bash
+    pip install folium streamlit-folium
+    ```
+    
+    Then restart the application.
+    """
+    )
     st.stop()
 
 # Header
@@ -39,18 +65,21 @@ with st.sidebar:
     show_invalid = st.checkbox("Show Invalid Subplots", value=True)
 
     st.markdown("---")
-    st.markdown("### 🗺️ Map Style")
+    st.markdown("### 🎨 Map Style")
 
     map_style = st.radio(
-        "Choose map style:",
+        "Choose base map:",
         options=[
             "OpenStreetMap",
             "Satellite (Esri)",
             "Terrain",
             "Light (CartoDB)",
+            "Dark (CartoDB)",
         ],
         index=0,
     )
+
+    st.caption("💡 Use layer control on map to switch styles")
 
     st.markdown("---")
 
@@ -92,212 +121,244 @@ bounds = filtered_gdf.total_bounds
 center_lat = (bounds[1] + bounds[3]) / 2
 center_lon = (bounds[0] + bounds[2]) / 2
 
-# Create map with selected style
-if map_style == "OpenStreetMap":
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=config.DEFAULT_ZOOM,
-        tiles="OpenStreetMap",
-    )
-elif map_style == "Satellite (Esri)":
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=config.DEFAULT_ZOOM,
+# ============================================
+# CREATE FOLIUM MAP
+# ============================================
+
+try:
+    # Create map with selected style
+    if map_style == "OpenStreetMap":
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=config.DEFAULT_ZOOM,
+            tiles="OpenStreetMap",
+        )
+    elif map_style == "Satellite (Esri)":
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=config.DEFAULT_ZOOM,
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri",
+        )
+    elif map_style == "Terrain":
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=config.DEFAULT_ZOOM,
+            tiles="Stamen Terrain",
+        )
+    elif map_style == "Light (CartoDB)":
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=config.DEFAULT_ZOOM,
+            tiles="CartoDB positron",
+        )
+    else:  # Dark (CartoDB)
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=config.DEFAULT_ZOOM,
+            tiles="CartoDB dark_matter",
+        )
+
+    # Add additional tile layer options
+    folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+    folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri",
-    )
-elif map_style == "Terrain":
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=config.DEFAULT_ZOOM,
-        tiles="Stamen Terrain",
-    )
-else:  # Light (CartoDB)
-    m = folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=config.DEFAULT_ZOOM,
-        tiles="CartoDB positron",
-    )
+        name="Satellite",
+    ).add_to(m)
+    folium.TileLayer("CartoDB positron", name="Light").add_to(m)
+    folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
 
-# Add additional tile layer options
-folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attr="Esri",
-    name="Satellite",
-).add_to(m)
-folium.TileLayer("CartoDB positron", name="Light").add_to(m)
-folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
+    # Create feature groups
+    valid_group = folium.FeatureGroup(name="✅ Valid Subplots", show=show_valid)
+    invalid_group = folium.FeatureGroup(name="❌ Invalid Subplots", show=show_invalid)
 
-# Create feature groups
-valid_group = folium.FeatureGroup(name="✅ Valid Subplots", show=show_valid)
-invalid_group = folium.FeatureGroup(name="❌ Invalid Subplots", show=show_invalid)
+    # Count for progress
+    total_to_plot = len(filtered_gdf)
+    if total_to_plot > 1000:
+        with st.spinner(f"📍 Loading {total_to_plot} subplots on map..."):
+            pass
 
-# Count for progress
-total_to_plot = len(filtered_gdf)
-if total_to_plot > 1000:
-    st.info(f"📍 Plotting {total_to_plot} subplots... This may take a moment.")
+    # Add subplots to map
+    for idx, row in filtered_gdf.iterrows():
+        if row.geometry.is_empty:
+            continue
 
-# Add subplots to map
-for idx, row in filtered_gdf.iterrows():
-    if row.geometry.is_empty:
-        continue
+        # Get coordinates
+        coords = list(row.geometry.exterior.coords)
+        coords_latlon = [(lat, lon) for lon, lat in coords]
 
-    # Get coordinates
-    coords = list(row.geometry.exterior.coords)
-    coords_latlon = [(lat, lon) for lon, lat in coords]
+        # Create detailed popup
+        popup_html = f"""
+        <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
+            <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'}; 
+                        color: white; padding: 8px; margin: -10px -10px 10px -10px; 
+                        border-radius: 3px 3px 0 0;">
+                <h3 style="margin: 0; font-size: 16px;">
+                    {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
+                </h3>
+            </div>
+            
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
+                    <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
+                </tr>
+                <tr style="background-color: #f5f5f5;">
+                    <td style="padding: 4px; font-weight: bold;">Area:</td>
+                    <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
+                </tr>
+                <tr>
+                    <td style="padding: 4px; font-weight: bold;">Vertices:</td>
+                    <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
+                </tr>
+                <tr style="background-color: #f5f5f5;">
+                    <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
+                    <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
+                </tr>
+        """
 
-    # Create detailed popup
-    popup_html = f"""
-    <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
-        <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'}; 
-                    color: white; padding: 8px; margin: -10px -10px 10px -10px; 
-                    border-radius: 3px 3px 0 0;">
-            <h3 style="margin: 0; font-size: 16px;">
-                {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
-            </h3>
+        # Add area status
+        if "area_m2" in row.index and row.get("area_m2", 0) > 0:
+            area = row["area_m2"]
+            if area < config.MIN_SUBPLOT_AREA_SIZE:
+                area_status = f"<span style='color: red;'>⚠️ Too small</span>"
+            elif area > config.MAX_SUBPLOT_AREA_SIZE:
+                area_status = f"<span style='color: red;'>⚠️ Too large</span>"
+            else:
+                area_status = f"<span style='color: green;'>✓ Within range</span>"
+
+            popup_html += f"""
+                <tr>
+                    <td style="padding: 4px; font-weight: bold;">Area Status:</td>
+                    <td style="padding: 4px;">{area_status}</td>
+                </tr>
+            """
+
+        popup_html += "</table>"
+
+        # Add validation issues if invalid
+        if not row["geom_valid"] and "reasons" in row.index:
+            reasons = str(row["reasons"]).split(";")
+            popup_html += """
+            <div style="margin-top: 10px; padding: 8px; background-color: #ffebee; 
+                        border-left: 3px solid #f44336; border-radius: 3px;">
+                <b style="color: #c62828;">Validation Issues:</b>
+                <ul style="margin: 5px 0; padding-left: 20px; font-size: 12px;">
+            """
+            for reason in reasons:
+                if reason.strip():
+                    popup_html += f"<li>{reason.strip()}</li>"
+            popup_html += "</ul></div>"
+
+        popup_html += "</div>"
+
+        # Choose styling based on validity
+        if row["geom_valid"]:
+            color = "#4CAF50"  # Green
+            fill_color = "#81C784"  # Light green
+            group = valid_group
+            weight = 2
+            opacity = 0.8
+            fill_opacity = 0.3
+        else:
+            color = "#F44336"  # Red
+            fill_color = "#E57373"  # Light red
+            group = invalid_group
+            weight = 2.5
+            opacity = 1
+            fill_opacity = 0.4
+
+        # Create tooltip
+        tooltip_text = f"{row.get('subplot_id', 'N/A')}"
+        if "area_m2" in row.index:
+            tooltip_text += f" • {row.get('area_m2', 0):.0f}m²"
+        if not row["geom_valid"]:
+            tooltip_text = "❌ " + tooltip_text
+        else:
+            tooltip_text = "✅ " + tooltip_text
+
+        # Add polygon
+        folium.Polygon(
+            locations=coords_latlon,
+            popup=folium.Popup(popup_html, max_width=350),
+            tooltip=tooltip_text,
+            color=color,
+            fill=True,
+            fillColor=fill_color,
+            fillOpacity=fill_opacity,
+            weight=weight,
+            opacity=opacity,
+        ).add_to(group)
+
+    # Add groups to map
+    valid_group.add_to(m)
+    invalid_group.add_to(m)
+
+    # Add layer control
+    folium.LayerControl(position="topright").add_to(m)
+
+    # Add fullscreen option
+    Fullscreen(position="topleft").add_to(m)
+
+    # Add minimap
+    MiniMap(toggle_display=True, position="bottomleft").add_to(m)
+
+    # Add statistics box
+    stats_html = f"""
+    <div style="position: fixed; 
+                bottom: 10px; right: 10px; 
+                width: 200px; 
+                background-color: white; 
+                border: 2px solid #2E7D32; 
+                border-radius: 8px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                z-index: 1000; 
+                padding: 15px;
+                font-family: Arial, sans-serif;">
+        <h4 style="margin: 0 0 10px 0; color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 5px;">
+            📊 Statistics
+        </h4>
+        <div style="font-size: 14px; line-height: 1.8;">
+            <b>Total Shown:</b> {len(filtered_gdf)}<br>
+            <b style="color: #4CAF50;">✅ Valid:</b> {summary['valid']}<br>
+            <b style="color: #F44336;">❌ Invalid:</b> {summary['invalid']}<br>
+            <b>📈 Valid %:</b> {summary['valid_pct']:.1f}%
         </div>
-        
-        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
-            <tr>
-                <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
-                <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
-            </tr>
-            <tr style="background-color: #f5f5f5;">
-                <td style="padding: 4px; font-weight: bold;">Area:</td>
-                <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
-            </tr>
-            <tr>
-                <td style="padding: 4px; font-weight: bold;">Vertices:</td>
-                <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
-            </tr>
-            <tr style="background-color: #f5f5f5;">
-                <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
-                <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
-            </tr>
+    </div>
     """
 
-    # Add area status
-    if "area_m2" in row.index and row.get("area_m2", 0) > 0:
-        area = row["area_m2"]
-        if area < config.MIN_SUBPLOT_AREA_SIZE:
-            area_status = f"<span style='color: red;'>⚠️ Too small</span>"
-        elif area > config.MAX_SUBPLOT_AREA_SIZE:
-            area_status = f"<span style='color: red;'>⚠️ Too large</span>"
-        else:
-            area_status = f"<span style='color: green;'>✓ Within range</span>"
+    m.get_root().html.add_child(folium.Element(stats_html))
 
-        popup_html += f"""
-            <tr>
-                <td style="padding: 4px; font-weight: bold;">Area Status:</td>
-                <td style="padding: 4px;">{area_status}</td>
-            </tr>
+    # Display map
+    st.info(
+        "💡 **Tip:** Click on subplots to see detailed information. "
+        "Use the layer control (top-right) to toggle between valid/invalid and change map styles."
+    )
+
+    st_folium(m, width=None, height=700, returned_objects=[])
+
+except Exception as e:
+    st.error(f"⚠️ **Map failed to load:** {str(e)}")
+    st.markdown(
         """
+    **Possible solutions:**
+    
+    1. **Refresh the page** (Ctrl+R or Cmd+R)
+    2. **Check your internet connection** (map tiles load from CDN)
+    3. **Try a different map style** from the sidebar
+    4. **If on a server**, ensure firewall allows:
+       - Access to unpkg.com
+       - Access to cdnjs.com
+       - Access to tile servers
+    
+    **Alternative:** Export the data as GeoJSON and view in QGIS or other GIS software.
+    """
+    )
 
-    popup_html += "</table>"
-
-    # Add validation issues if invalid
-    if not row["geom_valid"] and "reasons" in row.index:
-        reasons = str(row["reasons"]).split(";")
-        popup_html += """
-        <div style="margin-top: 10px; padding: 8px; background-color: #ffebee; 
-                    border-left: 3px solid #f44336; border-radius: 3px;">
-            <b style="color: #c62828;">Validation Issues:</b>
-            <ul style="margin: 5px 0; padding-left: 20px; font-size: 12px;">
-        """
-        for reason in reasons:
-            if reason.strip():
-                popup_html += f"<li>{reason.strip()}</li>"
-        popup_html += "</ul></div>"
-
-    popup_html += "</div>"
-
-    # Choose styling based on validity
-    if row["geom_valid"]:
-        color = "#4CAF50"  # Green
-        fill_color = "#81C784"  # Light green
-        group = valid_group
-        weight = 2
-        opacity = 0.8
-        fill_opacity = 0.3
-    else:
-        color = "#F44336"  # Red
-        fill_color = "#E57373"  # Light red
-        group = invalid_group
-        weight = 2.5
-        opacity = 1
-        fill_opacity = 0.4
-
-    # Create tooltip
-    tooltip_text = f"{row.get('subplot_id', 'N/A')}"
-    if "area_m2" in row.index:
-        tooltip_text += f" • {row.get('area_m2', 0):.0f}m²"
-    if not row["geom_valid"]:
-        tooltip_text = "❌ " + tooltip_text
-    else:
-        tooltip_text = "✅ " + tooltip_text
-
-    # Add polygon
-    folium.Polygon(
-        locations=coords_latlon,
-        popup=folium.Popup(popup_html, max_width=350),
-        tooltip=tooltip_text,
-        color=color,
-        fill=True,
-        fillColor=fill_color,
-        fillOpacity=fill_opacity,
-        weight=weight,
-        opacity=opacity,
-    ).add_to(group)
-
-# Add groups to map
-valid_group.add_to(m)
-invalid_group.add_to(m)
-
-# Add layer control
-folium.LayerControl(position="topright").add_to(m)
-
-# Add fullscreen option
-from folium.plugins import Fullscreen
-
-Fullscreen(position="topleft").add_to(m)
-
-# Add minimap
-from folium.plugins import MiniMap
-
-MiniMap(toggle_display=True, position="bottomleft").add_to(m)
-
-# Add statistics box
-stats_html = f"""
-<div style="position: fixed; 
-            top: 10px; right: 10px; 
-            width: 200px; 
-            background-color: white; 
-            border: 2px solid #2E7D32; 
-            border-radius: 8px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            z-index: 1000; 
-            padding: 15px;
-            font-family: Arial, sans-serif;">
-    <h4 style="margin: 0 0 10px 0; color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 5px;">
-        📊 Statistics
-    </h4>
-    <div style="font-size: 14px; line-height: 1.8;">
-        <b>Total Shown:</b> {len(filtered_gdf)}<br>
-        <b style="color: #4CAF50;">✅ Valid:</b> {summary['valid']}<br>
-        <b style="color: #F44336;">❌ Invalid:</b> {summary['invalid']}<br>
-        <b>📍 Valid %:</b> {summary['valid_pct']:.1f}%
-    </div>
-</div>
-"""
-
-m.get_root().html.add_child(folium.Element(stats_html))
-
-# Display map
-st.info(
-    "💡 **Tip:** Click on subplots to see detailed information. Use the layer control (top-right) to toggle between valid/invalid and change map styles."
-)
-st_folium(m, width=None, height=700, returned_objects=[])
+    # Still show export options even if map fails
+    st.markdown("---")
+    st.markdown("### 📥 Export Data (Map not required)")
 
 # Legend and summary below map
 st.markdown("---")
@@ -313,7 +374,7 @@ with col1:
     st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;Count: **{summary['invalid']:,}**")
 
 with col2:
-    st.markdown("### 📐 Area Range")
+    st.markdown("### 📏 Area Range")
     st.markdown(f"**Min Required:** {config.MIN_SUBPLOT_AREA_SIZE} m²")
     st.markdown(f"**Max Allowed:** {config.MAX_SUBPLOT_AREA_SIZE} m²")
     if "area_m2" in filtered_gdf.columns:
@@ -323,20 +384,26 @@ with col2:
 
 with col3:
     st.markdown("### 🗺️ Map Controls")
-    st.markdown("**🔍** Zoom in/out")
+    st.markdown(f"**Style:** {map_style}")
+    st.markdown("**📍** Click polygons for details")
+    st.markdown("**🗺️** Layer control (top-right)")
     st.markdown("**🔲** Fullscreen (top-left)")
-    st.markdown("**🗺️** Mini map (bottom-left)")
-    st.markdown("**📑** Layer control (top-right)")
+    st.markdown("**🗺️** Minimap (bottom-left)")
 
 # Download visible subplots
 st.markdown("---")
 st.markdown("### 📥 Export Map Data")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
+# GeoJSON Export (Full data)
 with col1:
+    st.markdown("##### 🗺️ GeoJSON Export")
+    st.caption("Geographic data format")
+
     export_gdf = filtered_gdf.copy()
 
+    # Convert datetime columns to strings
     for col in export_gdf.columns:
         if pd.api.types.is_datetime64_any_dtype(export_gdf[col]):
             export_gdf[col] = export_gdf[col].astype(str)
@@ -344,21 +411,85 @@ with col1:
     geojson_data = export_gdf.to_json()
 
     st.download_button(
-        label="📄 Download Visible Subplots (GeoJSON)",
+        label="🗺️ Download GeoJSON",
         data=geojson_data,
         file_name=f"{config.PARTNER}_map_subplots.geojson",
         mime="application/geo+json",
         use_container_width=True,
     )
 
+# CSV Export
 with col2:
-    from utils.export_helpers import create_csv_export
+    st.markdown("##### 📊 CSV Export")
+    st.caption("Spreadsheet format")
 
-    csv_data = create_csv_export(filtered_gdf, valid_only=False)
+    try:
+        from utils.export_helpers import create_csv_export
+
+        csv_data = create_csv_export(filtered_gdf, valid_only=False)
+    except ImportError:
+        # Fallback if export_helpers not available
+        csv_df = filtered_gdf.drop(columns=["geometry"], errors="ignore")
+        csv_data = csv_df.to_csv(index=False)
+
     st.download_button(
-        label="📊 Download Visible Subplots (CSV)",
+        label="📊 Download CSV",
         data=csv_data,
         file_name=f"{config.PARTNER}_map_subplots.csv",
         mime="text/csv",
         use_container_width=True,
+    )
+
+# Errors Only GeoJSON
+with col3:
+    st.markdown("##### ⚠️ Errors Only")
+    st.caption("Invalid subplots GeoJSON")
+
+    invalid_gdf = filtered_gdf[~filtered_gdf["geom_valid"]].copy()
+
+    if len(invalid_gdf) > 0:
+        # Convert datetime columns
+        for col in invalid_gdf.columns:
+            if pd.api.types.is_datetime64_any_dtype(invalid_gdf[col]):
+                invalid_gdf[col] = invalid_gdf[col].astype(str)
+
+        invalid_geojson = invalid_gdf.to_json()
+
+        st.download_button(
+            label="🗺️ Download Errors GeoJSON",
+            data=invalid_geojson,
+            file_name=f"{config.PARTNER}_map_errors.geojson",
+            mime="application/geo+json",
+            use_container_width=True,
+        )
+    else:
+        st.success("✅ No errors to export!")
+
+# Additional info
+st.markdown("---")
+st.markdown("### 💡 Tips")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown(
+        """
+    **Using the Map:**
+    - Click polygons to see full details
+    - Use layer control (top-right) to toggle layers
+    - Switch map styles instantly with layer control
+    - Go fullscreen for better view
+    - Use minimap to navigate large areas
+    """
+    )
+
+with col2:
+    st.markdown(
+        """
+    **Exporting Data:**
+    - GeoJSON: Load in QGIS, ArcGIS, or web maps
+    - CSV: Open in Excel or analysis tools
+    - Errors only: Focus on problems for field teams
+    - All exports respect current filters
+    """
     )
