@@ -9,3 +9,4 @@ geojson-rewind==1.0.3
 plotly==5.18.0
 folium==0.15.1
 streamlit-folium==0.15.1
+reportlab>=3.6.0

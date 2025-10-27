@@ -1,24 +1,16 @@
 """
 Enumerator Performance Analysis - Error-focused quality control
-Uses centralized utility functions for clean, maintainable code
+Enhanced with: Interactive maps, PDF export, GeoJSON export
 """
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import json
+from io import BytesIO
 import config
 from ui.components import show_header
-from utils.data_merge_utils import (
-    merge_with_enumerator,
-    calculate_tree_age,
-    get_species_column,
-)
-from utils.vegetation_validation import (
-    detect_height_outliers,
-    detect_circumference_outliers,
-    detect_suspicious_circumference_by_age,
-)
 
 # Page config
 st.set_page_config(
@@ -48,6 +40,289 @@ has_vegetation = "plots_subplots_vegetation" in raw_data
 has_measurements = "plots_subplots_vegetation_measurements" in raw_data
 
 st.markdown("---")
+
+# ============================================
+# HELPER FUNCTIONS
+# ============================================
+
+
+def create_enumerator_map(enum_data):
+    """
+    Create interactive map showing all subplots for an enumerator
+    Color-coded by validation status
+    """
+    if len(enum_data) == 0 or "geometry" not in enum_data.columns:
+        return None
+
+    # Filter out empty geometries
+    map_data = enum_data[~enum_data.geometry.is_empty].copy()
+
+    if len(map_data) == 0:
+        return None
+
+    # Get centroids for markers
+    map_data["centroid"] = map_data.geometry.centroid
+    map_data["lat"] = map_data["centroid"].y
+    map_data["lon"] = map_data["centroid"].x
+
+    # Create color based on validation
+    map_data["color"] = map_data["geom_valid"].apply(lambda x: "green" if x else "red")
+    map_data["status"] = map_data["geom_valid"].apply(
+        lambda x: "✅ Valid" if x else "❌ Invalid"
+    )
+
+    # Create hover text
+    map_data["hover_text"] = (
+        "<b>"
+        + map_data["subplot_id"].astype(str)
+        + "</b><br>"
+        + "Status: "
+        + map_data["status"]
+        + "<br>"
+        + "Area: "
+        + map_data["area_m2"].round(1).astype(str)
+        + " m²<br>"
+    )
+
+    # Add error reasons for invalid subplots
+    invalid_mask = ~map_data["geom_valid"]
+    if "reasons" in map_data.columns:
+        map_data.loc[invalid_mask, "hover_text"] = (
+            map_data.loc[invalid_mask, "hover_text"]
+            + "Issues: "
+            + map_data.loc[invalid_mask, "reasons"].fillna("Unknown")
+        )
+
+    # Create figure
+    fig = go.Figure()
+
+    # Add valid subplots
+    valid_data = map_data[map_data["geom_valid"]]
+    if len(valid_data) > 0:
+        fig.add_trace(
+            go.Scattermapbox(
+                lon=valid_data["lon"],
+                lat=valid_data["lat"],
+                mode="markers",
+                marker=dict(size=12, color="green", opacity=0.7),
+                text=valid_data["hover_text"],
+                hovertemplate="%{text}<extra></extra>",
+                name="✅ Valid",
+            )
+        )
+
+    # Add invalid subplots
+    invalid_data = map_data[~map_data["geom_valid"]]
+    if len(invalid_data) > 0:
+        fig.add_trace(
+            go.Scattermapbox(
+                lon=invalid_data["lon"],
+                lat=invalid_data["lat"],
+                mode="markers",
+                marker=dict(size=14, color="red", opacity=0.8, symbol="x"),
+                text=invalid_data["hover_text"],
+                hovertemplate="%{text}<extra></extra>",
+                name="❌ Invalid",
+            )
+        )
+
+    # Calculate center
+    center_lat = map_data["lat"].mean()
+    center_lon = map_data["lon"].mean()
+
+    # Update layout
+    fig.update_layout(
+        mapbox=dict(
+            style="open-street-map",
+            center=dict(lat=center_lat, lon=center_lon),
+            zoom=12,
+        ),
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=500,
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01,
+            bgcolor="rgba(255,255,255,0.8)",
+        ),
+    )
+
+    return fig
+
+
+def generate_pdf_report(enum_data, enumerator_name, partner_name):
+    """
+    Generate PDF report for enumerator
+    Using reportlab for PDF generation
+    """
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Table,
+            TableStyle,
+            Paragraph,
+            Spacer,
+        )
+        from reportlab.lib import colors
+        from datetime import datetime
+
+        # Create buffer
+        buffer = BytesIO()
+
+        # Create PDF
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        story = []
+        styles = getSampleStyleSheet()
+
+        # Title
+        title_style = ParagraphStyle(
+            "CustomTitle",
+            parent=styles["Heading1"],
+            fontSize=24,
+            textColor=colors.HexColor("#1f77b4"),
+            spaceAfter=30,
+        )
+
+        story.append(Paragraph(f"Enumerator Performance Report", title_style))
+        story.append(
+            Paragraph(f"Enumerator: <b>{enumerator_name}</b>", styles["Heading2"])
+        )
+        story.append(Paragraph(f"Partner: {partner_name}", styles["Normal"]))
+        story.append(
+            Paragraph(
+                f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                styles["Normal"],
+            )
+        )
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Summary Statistics
+        story.append(Paragraph("Summary Statistics", styles["Heading2"]))
+
+        total = len(enum_data)
+        invalid = (~enum_data["geom_valid"]).sum()
+        valid = enum_data["geom_valid"].sum()
+        error_rate = (invalid / total * 100) if total > 0 else 0
+
+        summary_data = [
+            ["Metric", "Value"],
+            ["Total Subplots", str(total)],
+            ["Valid Subplots", f"{valid} ({valid/total*100:.1f}%)"],
+            ["Invalid Subplots", f"{invalid} ({error_rate:.1f}%)"],
+        ]
+
+        if "area_m2" in enum_data.columns:
+            avg_area = enum_data["area_m2"].mean()
+            summary_data.append(["Average Area", f"{avg_area:.1f} m²"])
+
+        summary_table = Table(summary_data)
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 12),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                ]
+            )
+        )
+
+        story.append(summary_table)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Invalid Subplots Details
+        invalid_data = enum_data[~enum_data["geom_valid"]]
+
+        if len(invalid_data) > 0:
+            story.append(Paragraph("Invalid Subplots Details", styles["Heading2"]))
+            story.append(Spacer(1, 0.2 * inch))
+
+            # Create table
+            table_data = [["Subplot ID", "Area (m²)", "Validation Issues"]]
+
+            for idx, row in invalid_data.iterrows():
+                subplot_id = str(row["subplot_id"])
+                area = f"{row['area_m2']:.1f}" if "area_m2" in row else "N/A"
+                reasons = str(row.get("reasons", "Unknown"))
+
+                # Wrap long text
+                if len(reasons) > 60:
+                    reasons = reasons[:60] + "..."
+
+                table_data.append([subplot_id, area, reasons])
+
+            error_table = Table(table_data, colWidths=[2 * inch, 1.5 * inch, 3 * inch])
+            error_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.red),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 9),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.lightgrey),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ]
+                )
+            )
+
+            story.append(error_table)
+        else:
+            story.append(Paragraph("✅ No invalid subplots found!", styles["Heading2"]))
+
+        # Build PDF
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    except ImportError:
+        return None
+
+
+def export_to_geojson(enum_data, enumerator_name):
+    """
+    Export enumerator's data to GeoJSON format
+    """
+    if "geometry" not in enum_data.columns:
+        return None
+
+    # Filter out empty geometries
+    export_data = enum_data[~enum_data.geometry.is_empty].copy()
+
+    if len(export_data) == 0:
+        return None
+
+    # Select columns for export
+    export_cols = ["subplot_id", "geom_valid", "geometry"]
+
+    optional_cols = ["area_m2", "nr_vertices", "reasons", "enumerator"]
+    for col in optional_cols:
+        if col in export_data.columns:
+            export_cols.append(col)
+
+    # Create GeoDataFrame
+    gdf_export = export_data[export_cols].copy()
+
+    # Add metadata
+    gdf_export["enumerator"] = enumerator_name
+    gdf_export["export_date"] = pd.Timestamp.now().strftime("%Y-%m-%d")
+
+    # Convert to GeoJSON
+    geojson_str = gdf_export.to_json()
+
+    return geojson_str
+
 
 # ============================================
 # ENUMERATOR SELECTION
@@ -85,544 +360,170 @@ filtered_gdf = gdf_subplots[gdf_subplots["enumerator"].isin(selected_enumerators
 st.markdown("---")
 
 # ============================================
-# TABS
+# TABS - ALWAYS DEFINED
 # ============================================
 
+# Determine which tabs to show
 if has_vegetation:
-    tabs = st.tabs(
-        [
-            "📊 Error Overview",
-            "📐 Geometry Errors",
-            "⚠️ Vegetation Errors",
-            "📏 Measurement Outliers",
-            "📋 Error Details by Enumerator",
-        ]
-    )
+    tab_list = [
+        "📊 Error Overview",
+        "📐 Geometry Errors",
+        "📋 Error Details by Enumerator",
+    ]
 else:
-    tabs = st.tabs(["📊 Error Overview", "📐 Geometry Errors", "📋 Error Details"])
+    tab_list = [
+        "📊 Error Overview",
+        "📐 Geometry Errors",
+        "📋 Error Details by Enumerator",
+    ]
+
+# Create tabs (ALWAYS executed)
+tabs = st.tabs(tab_list)
+
+# Calculate indices
+TAB_OVERVIEW = 0
+TAB_GEOMETRY = 1
+TAB_ERROR_DETAILS = 2
 
 # ============================================
 # TAB 1: ERROR OVERVIEW
 # ============================================
 
-with tabs[0]:
+with tabs[TAB_OVERVIEW]:
     st.markdown("### 📊 Error Rate Overview")
 
-    # Calculate error stats by enumerator
+    # Calculate error statistics
     enum_stats = []
-
     for enum in selected_enumerators:
         enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum]
+        total = len(enum_data)
+        invalid = (~enum_data["geom_valid"]).sum()
+        valid = enum_data["geom_valid"].sum()
+        error_rate = (invalid / total * 100) if total > 0 else 0
 
-        stats = {
-            "Enumerator": enum,
-            "Total Subplots": len(enum_data),
-            "Valid Subplots": enum_data["geom_valid"].sum(),
-            "Invalid Subplots": (~enum_data["geom_valid"]).sum(),
-            "Error Rate %": (
-                (~enum_data["geom_valid"]).sum() / len(enum_data) * 100
-                if len(enum_data) > 0
-                else 0
-            ),
-        }
-
-        enum_stats.append(stats)
+        enum_stats.append(
+            {
+                "Enumerator": enum,
+                "Total": total,
+                "Valid": valid,
+                "Invalid": invalid,
+                "Error Rate (%)": error_rate,
+            }
+        )
 
     stats_df = pd.DataFrame(enum_stats)
 
-    # Display summary table
-    st.dataframe(
-        stats_df,
-        use_container_width=True,
-        height=min(500, len(stats_df) * 35 + 38),
-    )
+    if len(stats_df) > 0:
+        col1, col2 = st.columns(2)
 
-    st.markdown("---")
+        with col1:
+            # Bar chart
+            fig = px.bar(
+                stats_df,
+                x="Enumerator",
+                y="Error Rate (%)",
+                title="Error Rate by Enumerator",
+                color="Error Rate (%)",
+                color_continuous_scale="Reds",
+            )
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 
-    # Error visualizations
-    col1, col2 = st.columns(2)
+        with col2:
+            # Stacked bar chart
+            fig = px.bar(
+                stats_df,
+                x="Enumerator",
+                y=["Valid", "Invalid"],
+                title="Valid vs Invalid Subplots",
+                labels={"value": "Count", "variable": "Status"},
+                color_discrete_map={"Valid": "green", "Invalid": "red"},
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-    with col1:
-        fig = px.bar(
-            stats_df,
-            x="Enumerator",
-            y="Error Rate %",
-            title="Error Rate by Enumerator",
-            color="Error Rate %",
-            color_continuous_scale=["green", "yellow", "red"],
-            range_color=[0, 100],
-        )
-        fig.add_hline(
-            y=10,
-            line_dash="dash",
-            line_color="red",
-            annotation_text="10% Warning Threshold",
-        )
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        fig = px.bar(
-            stats_df,
-            x="Enumerator",
-            y=["Valid Subplots", "Invalid Subplots"],
-            title="Valid vs Invalid Subplots by Enumerator",
-            barmode="stack",
-            color_discrete_map={
-                "Valid Subplots": "#28a745",
-                "Invalid Subplots": "#dc3545",
-            },
-        )
-        fig.update_layout(legend_title_text="Status")
-        st.plotly_chart(fig, use_container_width=True)
+        # Data table
+        st.markdown("#### Summary Table")
+        st.dataframe(stats_df, use_container_width=True, height=300)
 
 # ============================================
 # TAB 2: GEOMETRY ERRORS
 # ============================================
 
-with tabs[1]:
-    st.markdown("### 📐 Geometry Validation Errors")
+with tabs[TAB_GEOMETRY]:
+    st.markdown("### 📐 Geometry Errors by Enumerator")
 
-    # Parse error reasons
-    error_data = []
+    invalid_subplots = filtered_gdf[~filtered_gdf["geom_valid"]]
 
-    for _, row in filtered_gdf[~filtered_gdf["geom_valid"]].iterrows():
-        if pd.notna(row.get("reasons")):
-            reasons = row["reasons"].split(";")
-            for reason in reasons:
-                reason = reason.strip()
-                if reason:
-                    error_data.append(
-                        {
-                            "enumerator": row["enumerator"],
-                            "subplot_id": row["subplot_id"],
-                            "error": reason,
-                        }
-                    )
+    if len(invalid_subplots) > 0:
+        # Count errors by enumerator
+        error_counts = (
+            invalid_subplots.groupby("enumerator")
+            .size()
+            .reset_index(name="Error Count")
+        )
+        error_counts = error_counts.sort_values("Error Count", ascending=False)
 
-    if error_data:
-        errors_df = pd.DataFrame(error_data)
-
-        # Error counts by type
-        error_counts = errors_df.groupby("error").size().reset_index(name="count")
-        error_counts = error_counts.sort_values("count", ascending=False)
-
-        col1, col2 = st.columns([2, 1])
+        col1, col2 = st.columns(2)
 
         with col1:
             fig = px.bar(
                 error_counts,
-                x="count",
-                y="error",
-                orientation="h",
-                title="Most Common Geometry Errors",
-                color="count",
-                color_continuous_scale="Reds",
+                x="enumerator",
+                y="Error Count",
+                title="Geometry Errors by Enumerator",
+                color="Error Count",
+                color_continuous_scale="Oranges",
             )
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            st.dataframe(error_counts, use_container_width=True, height=400)
+            st.dataframe(error_counts, use_container_width=True, height=300)
 
-        st.markdown("---")
-        st.markdown("### Errors by Enumerator")
+        # Error types breakdown
+        st.markdown("#### Error Types Breakdown")
 
-        enum_errors = (
-            errors_df.groupby(["enumerator", "error"]).size().reset_index(name="count")
-        )
+        error_type_data = []
+        for enum in selected_enumerators:
+            enum_invalid = invalid_subplots[invalid_subplots["enumerator"] == enum]
+            if len(enum_invalid) > 0:
+                for _, row in enum_invalid.iterrows():
+                    if pd.notna(row.get("reasons")):
+                        for reason in str(row["reasons"]).split(";"):
+                            if reason.strip():
+                                error_type_data.append(
+                                    {
+                                        "Enumerator": enum,
+                                        "Error Type": reason.strip(),
+                                    }
+                                )
 
-        fig = px.bar(
-            enum_errors,
-            x="enumerator",
-            y="count",
-            color="error",
-            title="Geometry Errors Distribution by Enumerator",
-            barmode="stack",
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if error_type_data:
+            error_types_df = pd.DataFrame(error_type_data)
+            error_summary = (
+                error_types_df.groupby(["Enumerator", "Error Type"])
+                .size()
+                .reset_index(name="Count")
+            )
 
-        with st.expander("🔍 View all geometry errors"):
-            st.dataframe(errors_df, use_container_width=True, height=400)
+            fig = px.bar(
+                error_summary,
+                x="Enumerator",
+                y="Count",
+                color="Error Type",
+                title="Error Types by Enumerator",
+                barmode="stack",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.dataframe(error_summary, use_container_width=True, height=300)
     else:
-        st.success("✅ No geometry errors found!")
+        st.success("✅ No geometry errors found for selected enumerators!")
 
 # ============================================
-# TAB 3: VEGETATION ERRORS (if available)
+# TAB 3: ERROR DETAILS BY ENUMERATOR
 # ============================================
 
-if has_vegetation:
-    with tabs[2]:
-        st.markdown("### ⚠️ Vegetation Data Quality Issues")
-
-        veg_df = raw_data["plots_subplots_vegetation"].copy()
-
-        # Use utility function to merge with enumerator
-        veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
-
-        # ERROR 1: Missing Subplots
-        st.markdown("#### 🚫 Missing Vegetation Records")
-
-        all_subplots = set(filtered_gdf["subplot_id"].unique())
-        subplots_with_veg = set(veg_df["SUBPLOT_KEY"].unique())
-        missing_subplots = all_subplots - subplots_with_veg
-
-        if len(missing_subplots) > 0:
-            missing_df = filtered_gdf[filtered_gdf["subplot_id"].isin(missing_subplots)]
-
-            st.warning(f"⚠️ {len(missing_subplots)} subplots have NO vegetation records")
-
-            missing_by_enum = (
-                missing_df.groupby("enumerator").size().reset_index(name="count")
-            )
-
-            col1, col2 = st.columns([2, 1])
-
-            with col1:
-                fig = px.bar(
-                    missing_by_enum,
-                    x="enumerator",
-                    y="count",
-                    title="Missing Vegetation Records by Enumerator",
-                    color="count",
-                    color_continuous_scale="Reds",
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col2:
-                st.dataframe(missing_by_enum, use_container_width=True, height=300)
-        else:
-            st.success("✅ All subplots have vegetation records")
-
-        # ERROR 2: Unidentified Species ('other')
-        st.markdown("---")
-        st.markdown("#### 🔍 Unidentified Species Requiring Botanical Verification")
-
-        other_conditions = []
-        for col in [
-            "vegetation_species_type",
-            "other_species",
-            "woody_species",
-            "non_woody_species",
-        ]:
-            if col in veg_with_enum.columns:
-                other_conditions.append(veg_with_enum[col].str.lower() == "other")
-
-        if other_conditions:
-            combined_condition = other_conditions[0]
-            for condition in other_conditions[1:]:
-                combined_condition = combined_condition | condition
-
-            other_species = veg_with_enum[combined_condition].copy()
-
-            if len(other_species) > 0:
-                st.warning(
-                    f"⚠️ {len(other_species)} vegetation records with unidentified species ('other')"
-                )
-
-                other_by_enum = (
-                    other_species.groupby("enumerator").size().reset_index(name="count")
-                )
-
-                col1, col2 = st.columns([2, 1])
-
-                with col1:
-                    fig = px.bar(
-                        other_by_enum,
-                        x="enumerator",
-                        y="count",
-                        title="Unidentified Species ('other') by Enumerator",
-                        color="count",
-                        color_continuous_scale="Oranges",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                with col2:
-                    st.dataframe(other_by_enum, use_container_width=True, height=300)
-            else:
-                st.success("✅ All species properly identified")
-        else:
-            st.success("✅ All species properly identified")
-
-        # ERROR 3: Missing Measurements
-        if has_measurements:
-            st.markdown("---")
-            st.markdown("#### 📏 Missing or Incomplete Measurements")
-
-            measurements_df = raw_data["plots_subplots_vegetation_measurements"].copy()
-
-            # Use utility function to merge with enumerator
-            meas_with_enum = merge_with_enumerator(measurements_df, filtered_gdf)
-
-            # Check missing height
-            no_height = meas_with_enum[meas_with_enum["tree_height_m"].isna()]
-
-            # Check missing circumference
-            has_circ_bh = "circumference_bh" in meas_with_enum.columns
-            has_circ_10 = "circumference_10cm" in meas_with_enum.columns
-
-            if has_circ_bh and has_circ_10:
-                no_circumference = meas_with_enum[
-                    meas_with_enum["circumference_bh"].isna()
-                    & meas_with_enum["circumference_10cm"].isna()
-                ]
-            elif has_circ_bh:
-                no_circumference = meas_with_enum[
-                    meas_with_enum["circumference_bh"].isna()
-                ]
-            elif has_circ_10:
-                no_circumference = meas_with_enum[
-                    meas_with_enum["circumference_10cm"].isna()
-                ]
-            else:
-                no_circumference = pd.DataFrame()
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if len(no_height) > 0:
-                    height_errors = (
-                        no_height.groupby("enumerator").size().reset_index(name="count")
-                    )
-
-                    st.warning(f"⚠️ {len(no_height)} trees missing height")
-
-                    fig = px.bar(
-                        height_errors,
-                        x="enumerator",
-                        y="count",
-                        title="Missing Height Measurements",
-                        color="count",
-                        color_continuous_scale="Reds",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.success("✅ No missing heights")
-
-            with col2:
-                if len(no_circumference) > 0:
-                    circ_errors = (
-                        no_circumference.groupby("enumerator")
-                        .size()
-                        .reset_index(name="count")
-                    )
-
-                    st.warning(f"⚠️ {len(no_circumference)} trees missing circumference")
-
-                    fig = px.bar(
-                        circ_errors,
-                        x="enumerator",
-                        y="count",
-                        title="Missing Circumference Measurements",
-                        color="count",
-                        color_continuous_scale="Oranges",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.success("✅ No missing circumferences")
-
-# ============================================
-# TAB 4: MEASUREMENT OUTLIERS (if available)
-# ============================================
-
-if has_vegetation and has_measurements:
-    with tabs[3]:
-        st.markdown("### 📏 Measurement Outliers & Suspicious Values")
-
-        measurements_df = raw_data["plots_subplots_vegetation_measurements"].copy()
-
-        # Use utility function to merge with enumerator
-        combined = merge_with_enumerator(measurements_df, filtered_gdf)
-
-        # Get species column
-        species_col = get_species_column(combined)
-
-        # OUTLIER 1: Height Outliers
-        st.markdown("#### 📐 Height Outliers")
-        st.caption(
-            "Detecting trees with heights >3x or <0.33x the median for their species"
-        )
-
-        if species_col and "tree_height_m" in combined.columns:
-            # Use utility function to detect outliers
-            combined_with_height = detect_height_outliers(
-                combined, height_col="tree_height_m", species_col=species_col
-            )
-
-            outliers = combined_with_height[
-                (combined_with_height["Upper_outliers"] == "outlier")
-                | (combined_with_height["Lower_outliers"] == "outlier")
-            ]
-
-            if len(outliers) > 0:
-                st.warning(f"⚠️ {len(outliers)} height outliers detected")
-
-                outliers_by_enum = (
-                    outliers.groupby("enumerator").size().reset_index(name="count")
-                )
-
-                col1, col2 = st.columns([2, 1])
-
-                with col1:
-                    fig = px.bar(
-                        outliers_by_enum,
-                        x="enumerator",
-                        y="count",
-                        title="Height Outliers by Enumerator",
-                        color="count",
-                        color_continuous_scale="Reds",
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                with col2:
-                    st.dataframe(outliers_by_enum, use_container_width=True, height=300)
-
-                with st.expander("🔍 View height outliers"):
-                    display_cols = [
-                        "VEGETATION_KEY",
-                        "enumerator",
-                        species_col,
-                        "tree_height_m",
-                        "median_height",
-                        "Upper_outliers",
-                        "Lower_outliers",
-                    ]
-                    st.dataframe(
-                        outliers[display_cols], use_container_width=True, height=300
-                    )
-            else:
-                st.success("✅ No height outliers detected")
-        else:
-            st.info("ℹ️ No height data available for outlier detection")
-
-        # OUTLIER 2: Circumference vs Age Validation
-        st.markdown("---")
-        st.markdown("#### 🌳 Circumference vs Tree Age Validation")
-        st.caption("Detecting unrealistic circumferences given tree planting year")
-
-        if "complete" in raw_data:
-            circ_df = raw_data["complete"].copy()
-
-            # Determine which circumference column to use
-            if "circumference_bh" in circ_df.columns:
-                circ_data = circ_df[circ_df["circumference_bh"].notna()].copy()
-                circ_col = "circumference_bh"
-            elif "circumference_10cm" in circ_df.columns:
-                circ_data = circ_df[circ_df["circumference_10cm"].notna()].copy()
-                circ_col = "circumference_10cm"
-            else:
-                circ_data = pd.DataFrame()
-
-            if len(circ_data) > 0 and "tree_year_planted" in circ_data.columns:
-                # Use utility functions
-                circ_data = merge_with_enumerator(circ_data, filtered_gdf)
-
-                if len(circ_data) > 0:
-                    circ_data = calculate_tree_age(circ_data)
-
-                    if circ_data["tree_age"].notna().any():
-                        circ_data = detect_suspicious_circumference_by_age(
-                            circ_data, circ_col=circ_col
-                        )
-
-                        suspicious = circ_data[circ_data["suspicious"]]
-
-                        if len(suspicious) > 0:
-                            st.warning(
-                                f"⚠️ {len(suspicious)} suspicious circumference values detected"
-                            )
-
-                            susp_by_enum = (
-                                suspicious.groupby("enumerator")
-                                .size()
-                                .reset_index(name="count")
-                            )
-
-                            col1, col2 = st.columns([2, 1])
-
-                            with col1:
-                                fig = px.bar(
-                                    susp_by_enum,
-                                    x="enumerator",
-                                    y="count",
-                                    title="Suspicious Circumferences by Enumerator",
-                                    color="count",
-                                    color_continuous_scale="Oranges",
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-
-                            with col2:
-                                st.dataframe(
-                                    susp_by_enum, use_container_width=True, height=300
-                                )
-                        else:
-                            st.success("✅ No suspicious circumference values detected")
-                    else:
-                        st.info("ℹ️ Tree age data not available for validation")
-
-        # OUTLIER 3: Circumference Outliers using median
-        st.markdown("---")
-        st.markdown("#### 📊 Circumference Outliers (Median Comparison)")
-        st.caption("Detecting circumferences >4x or <0.25x the median")
-
-        if "complete" in raw_data and species_col:
-            circ_df = raw_data["complete"].copy()
-
-            if "circumference_bh" in circ_df.columns:
-                circ_check = circ_df[circ_df["circumference_bh"].notna()].copy()
-                circ_col = "circumference_bh"
-
-                if len(circ_check) > 0:
-                    # Use utility functions
-                    circ_check = merge_with_enumerator(circ_check, filtered_gdf)
-
-                    if len(circ_check) > 0:
-                        circ_check = detect_circumference_outliers(
-                            circ_check, circ_col=circ_col, species_col=species_col
-                        )
-
-                        circ_outliers = circ_check[
-                            (circ_check["Upper_outliers"] == "outlier")
-                            | (circ_check["Lower_outliers"] == "outlier")
-                        ]
-
-                        if len(circ_outliers) > 0:
-                            st.warning(
-                                f"⚠️ {len(circ_outliers)} circumference outliers detected"
-                            )
-
-                            circ_out_by_enum = (
-                                circ_outliers.groupby("enumerator")
-                                .size()
-                                .reset_index(name="count")
-                            )
-
-                            col1, col2 = st.columns([2, 1])
-
-                            with col1:
-                                fig = px.bar(
-                                    circ_out_by_enum,
-                                    x="enumerator",
-                                    y="count",
-                                    title="Circumference Outliers by Enumerator",
-                                    color="count",
-                                    color_continuous_scale="Purples",
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-
-                            with col2:
-                                st.dataframe(
-                                    circ_out_by_enum,
-                                    use_container_width=True,
-                                    height=300,
-                                )
-                        else:
-                            st.success("✅ No circumference outliers detected")
-
-# ============================================
-# LAST TAB: ERROR DETAILS BY ENUMERATOR
-# ============================================
-
-with tabs[-1]:
+with tabs[TAB_ERROR_DETAILS]:
     st.markdown("### 📋 Individual Enumerator Error Report")
 
     selected_enum = st.selectbox(
@@ -661,6 +562,22 @@ with tabs[-1]:
 
         st.markdown("---")
 
+        # ============================================
+        # INTERACTIVE MAP
+        # ============================================
+
+        st.markdown("#### 🗺️ Subplot Locations Map")
+        st.caption("Green markers = valid subplots | Red X markers = invalid subplots")
+
+        map_fig = create_enumerator_map(enum_data)
+
+        if map_fig:
+            st.plotly_chart(map_fig, use_container_width=True)
+        else:
+            st.info("📍 No geometry data available for map display")
+
+        st.markdown("---")
+
         # Show invalid subplots only
         st.markdown("#### ⚠️ Invalid Subplots")
 
@@ -669,7 +586,7 @@ with tabs[-1]:
         if len(invalid_data) > 0:
             display_cols = ["subplot_id", "reasons"]
 
-            for col in ["area_m2", "nr_vertices"]:
+            for col in ["area_m2", "nr_vertices", "length_width_ratio", "mrr_ratio"]:
                 if col in invalid_data.columns:
                     display_cols.append(col)
 
@@ -679,20 +596,102 @@ with tabs[-1]:
         else:
             st.success(f"✅ No invalid subplots for {selected_enum}")
 
-        # Export error report
-        st.markdown("---")
-        st.markdown("#### 📥 Export Error Report")
+        # ============================================
+        # EXPORT OPTIONS
+        # ============================================
 
+        st.markdown("---")
+        st.markdown("#### 📥 Export Options")
+
+        col1, col2, col3 = st.columns(3)
+
+        # CSV Export
+        with col1:
+            st.markdown("##### 📊 CSV Export")
+            st.caption("All subplot data")
+
+            if len(enum_data) > 0:
+                csv_data = enum_data.drop(columns=["geometry"], errors="ignore").to_csv(
+                    index=False
+                )
+                st.download_button(
+                    "📊 Download CSV",
+                    data=csv_data,
+                    file_name=f"{config.PARTNER}_{selected_enum}_subplots.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+        # PDF Export
+        with col2:
+            st.markdown("##### 📄 PDF Report")
+            st.caption("Formatted summary report")
+
+            if len(enum_data) > 0:
+                try:
+                    pdf_buffer = generate_pdf_report(
+                        enum_data, selected_enum, config.PARTNER
+                    )
+
+                    if pdf_buffer:
+                        st.download_button(
+                            "📄 Download PDF",
+                            data=pdf_buffer,
+                            file_name=f"{config.PARTNER}_{selected_enum}_report.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                    else:
+                        st.info("📦 Install reportlab:\n`pip install reportlab`")
+                except Exception as e:
+                    st.error(f"PDF generation error: {e}")
+                    st.caption("Install: `pip install reportlab`")
+
+        # GeoJSON Export
+        with col3:
+            st.markdown("##### 🗺️ GeoJSON Export")
+            st.caption("Geographic data format")
+
+            if len(enum_data) > 0:
+                geojson_data = export_to_geojson(enum_data, selected_enum)
+
+                if geojson_data:
+                    st.download_button(
+                        "🗺️ Download GeoJSON",
+                        data=geojson_data,
+                        file_name=f"{config.PARTNER}_{selected_enum}_subplots.geojson",
+                        mime="application/geo+json",
+                        use_container_width=True,
+                    )
+                else:
+                    st.info("No geometry data available")
+
+        # Export errors only
         if len(invalid_data) > 0:
-            csv_data = invalid_data.drop(columns=["geometry"], errors="ignore").to_csv(
-                index=False
-            )
-            st.download_button(
-                f"📊 Download {selected_enum}'s Error Report (CSV)",
-                data=csv_data,
-                file_name=f"{config.PARTNER}_{selected_enum}_errors.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        else:
-            st.info("No errors to export for this enumerator")
+            st.markdown("---")
+            st.markdown("##### ⚠️ Export Errors Only")
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                csv_errors = invalid_data.drop(
+                    columns=["geometry"], errors="ignore"
+                ).to_csv(index=False)
+                st.download_button(
+                    "📊 Download Errors CSV",
+                    data=csv_errors,
+                    file_name=f"{config.PARTNER}_{selected_enum}_errors.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+            with col2:
+                geojson_errors = export_to_geojson(invalid_data, selected_enum)
+                if geojson_errors:
+                    st.download_button(
+                        "🗺️ Download Errors GeoJSON",
+                        data=geojson_errors,
+                        file_name=f"{config.PARTNER}_{selected_enum}_errors.geojson",
+                        mime="application/geo+json",
+                        use_container_width=True,
+                    )
