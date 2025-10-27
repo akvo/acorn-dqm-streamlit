@@ -260,10 +260,9 @@ def create_enumerator_map(enum_data, enumerator_name):
         return None
 
 
-def generate_pdf_report(enum_data, enumerator_name, partner_name):
+def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
     """
-    Generate PDF report for enumerator
-    Using reportlab for PDF generation
+    Generate comprehensive PDF report for enumerator with charts and analysis
     """
     try:
         from reportlab.lib.pagesizes import A4
@@ -275,69 +274,119 @@ def generate_pdf_report(enum_data, enumerator_name, partner_name):
             TableStyle,
             Paragraph,
             Spacer,
+            PageBreak,
         )
         from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.graphics.shapes import Drawing
+        from reportlab.graphics.charts.piecharts import Pie
         from datetime import datetime
 
-        # Create buffer
         buffer = BytesIO()
-
-        # Create PDF
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=0.75 * inch,
+            leftMargin=0.75 * inch,
+            topMargin=0.75 * inch,
+            bottomMargin=0.75 * inch,
+        )
         story = []
         styles = getSampleStyleSheet()
 
-        # Title
+        # Custom styles
         title_style = ParagraphStyle(
             "CustomTitle",
             parent=styles["Heading1"],
-            fontSize=24,
-            textColor=colors.HexColor("#1f77b4"),
-            spaceAfter=30,
+            fontSize=26,
+            textColor=colors.HexColor("#1565C0"),
+            spaceAfter=12,
+            alignment=TA_CENTER,
+            fontName="Helvetica-Bold",
         )
 
-        story.append(Paragraph(f"Enumerator Performance Report", title_style))
-        story.append(
-            Paragraph(f"Enumerator: <b>{enumerator_name}</b>", styles["Heading2"])
+        section_style = ParagraphStyle(
+            "SectionHeader",
+            parent=styles["Heading2"],
+            fontSize=16,
+            textColor=colors.HexColor("#1565C0"),
+            spaceBefore=20,
+            spaceAfter=12,
+            fontName="Helvetica-Bold",
         )
-        story.append(Paragraph(f"Partner: {partner_name}", styles["Normal"]))
-        story.append(
-            Paragraph(
-                f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                styles["Normal"],
+
+        # Cover page
+        story.append(Spacer(1, 1.5 * inch))
+        story.append(Paragraph("ENUMERATOR PERFORMANCE REPORT", title_style))
+        story.append(Spacer(1, 0.2 * inch))
+
+        info_data = [
+            ["Enumerator:", f"<b>{enumerator_name}</b>"],
+            ["Partner:", partner_name],
+            ["Generated:", datetime.now().strftime("%B %d, %Y at %H:%M")],
+        ]
+
+        info_table = Table(info_data, colWidths=[2 * inch, 4 * inch])
+        info_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E3F2FD")),
+                    ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#1565C0")),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 11),
+                    ("PADDING", (0, 0), (-1, -1), 12),
+                    ("BOX", (0, 0), (-1, -1), 1.5, colors.HexColor("#1565C0")),
+                ]
             )
         )
-        story.append(Spacer(1, 0.3 * inch))
 
-        # Summary Statistics
-        story.append(Paragraph("Summary Statistics", styles["Heading2"]))
+        story.append(info_table)
+        story.append(PageBreak())
 
+        # Statistics
         total = len(enum_data)
         invalid = (~enum_data["geom_valid"]).sum()
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
 
+        # Performance rating
+        if error_rate <= 5:
+            rating, rating_color = "EXCELLENT", colors.green
+        elif error_rate <= 15:
+            rating, rating_color = "GOOD", colors.orange
+        elif error_rate <= 30:
+            rating, rating_color = "NEEDS IMPROVEMENT", colors.orange
+        else:
+            rating, rating_color = "CRITICAL", colors.red
+
+        story.append(Paragraph("Executive Summary", section_style))
+
         summary_data = [
-            ["Metric", "Value"],
-            ["Total Subplots", str(total)],
-            ["Valid Subplots", f"{valid} ({valid/total*100:.1f}%)"],
-            ["Invalid Subplots", f"{invalid} ({error_rate:.1f}%)"],
+            ["METRIC", "VALUE", "STATUS"],
+            ["Total Subplots", str(total), "—"],
+            [
+                "Valid Subplots",
+                f"{valid} ({valid/total*100:.1f}%)",
+                "✓" if valid / total > 0.85 else "⚠",
+            ],
+            [
+                "Invalid Subplots",
+                f"{invalid} ({error_rate:.1f}%)",
+                "✓" if error_rate < 15 else "✗",
+            ],
+            ["Performance Rating", rating, ""],
         ]
 
-        if "area_m2" in enum_data.columns:
-            avg_area = enum_data["area_m2"].mean()
-            summary_data.append(["Average Area", f"{avg_area:.1f} m²"])
-
-        summary_table = Table(summary_data)
+        summary_table = Table(
+            summary_data, colWidths=[2.5 * inch, 2.5 * inch, 1 * inch]
+        )
         summary_table.setStyle(
             TableStyle(
                 [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1565C0")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 12),
-                    ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                    ("PADDING", (0, 0), (-1, 0), 10),
                     ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
                     ("GRID", (0, 0), (-1, -1), 1, colors.black),
                 ]
@@ -347,49 +396,65 @@ def generate_pdf_report(enum_data, enumerator_name, partner_name):
         story.append(summary_table)
         story.append(Spacer(1, 0.3 * inch))
 
-        # Invalid Subplots Details
+        # Pie chart
+        story.append(Paragraph("Performance Visualization", section_style))
+        drawing = Drawing(400, 200)
+        pie = Pie()
+        pie.x, pie.y, pie.width, pie.height = 150, 50, 100, 100
+        pie.data = [valid, invalid]
+        pie.labels = ["Valid", "Invalid"]
+        pie.slices[0].fillColor = colors.green
+        pie.slices[1].fillColor = colors.red
+        pie.slices[0].popout = 5
+        drawing.add(pie)
+        story.append(drawing)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # Error analysis
         invalid_data = enum_data[~enum_data["geom_valid"]]
 
         if len(invalid_data) > 0:
-            story.append(Paragraph("Invalid Subplots Details", styles["Heading2"]))
-            story.append(Spacer(1, 0.2 * inch))
+            story.append(Paragraph("Error Details", section_style))
 
-            # Create table
-            table_data = [["Subplot ID", "Area (m²)", "Validation Issues"]]
+            error_types = {}
+            for reasons in invalid_data["reasons"].dropna():
+                for reason in str(reasons).split(";"):
+                    reason = reason.strip()
+                    if reason:
+                        error_types[reason] = error_types.get(reason, 0) + 1
 
-            for idx, row in invalid_data.iterrows():
-                subplot_id = str(row["subplot_id"])
-                area = f"{row['area_m2']:.1f}" if "area_m2" in row else "N/A"
-                reasons = str(row.get("reasons", "Unknown"))
-
-                # Wrap long text
-                if len(reasons) > 60:
-                    reasons = reasons[:60] + "..."
-
-                table_data.append([subplot_id, area, reasons])
-
-            error_table = Table(table_data, colWidths=[2 * inch, 1.5 * inch, 3 * inch])
-            error_table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.red),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 0), (-1, -1), 9),
-                        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                        ("BACKGROUND", (0, 1), (-1, -1), colors.lightgrey),
-                        ("GRID", (0, 0), (-1, -1), 1, colors.black),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ]
+            if error_types:
+                sorted_errors = sorted(
+                    error_types.items(), key=lambda x: x[1], reverse=True
                 )
-            )
+                error_breakdown = [["Error Type", "Count", "% of Errors"]]
+                for error_type, count in sorted_errors[:10]:
+                    pct = count / len(invalid_data) * 100
+                    error_breakdown.append([error_type[:50], str(count), f"{pct:.1f}%"])
 
-            story.append(error_table)
-        else:
-            story.append(Paragraph("✅ No invalid subplots found!", styles["Heading2"]))
+                error_table = Table(
+                    error_breakdown, colWidths=[3.5 * inch, 1 * inch, 1.5 * inch]
+                )
+                error_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D32F2F")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("PADDING", (0, 0), (-1, 0), 10),
+                            (
+                                "BACKGROUND",
+                                (0, 1),
+                                (-1, -1),
+                                colors.HexColor("#FFEBEE"),
+                            ),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ]
+                    )
+                )
 
-        # Build PDF
+                story.append(error_table)
+
         doc.build(story)
         buffer.seek(0)
         return buffer
@@ -768,7 +833,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
             if len(enum_data) > 0:
                 try:
-                    pdf_buffer = generate_pdf_report(
+                    pdf_buffer = generate_enhanced_pdf_report(
                         enum_data, selected_enum, config.PARTNER
                     )
 
