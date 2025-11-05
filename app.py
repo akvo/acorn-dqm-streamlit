@@ -1,11 +1,19 @@
 """
 Ground Truth DQM - Main Landing Page
+API-powered with manual credential input
 """
 
 import streamlit as st
 import config
 from ui.components import show_header
-from utils.data_processor import process_excel_file, get_validation_summary
+from utils.data_processor import (
+    process_excel_file,
+    get_validation_summary,
+    process_json_data,
+)
+import pandas as pd
+import requests
+from io import BytesIO
 
 # Page config
 st.set_page_config(
@@ -48,15 +56,46 @@ if "filename" not in st.session_state:
 # Header
 show_header()
 
-# Sidebar - File Upload
+# Sidebar - API Configuration
 with st.sidebar:
-    st.markdown("## 📤 Upload Data")
+    st.markdown("## 🌐 Data Source: API")
+    st.markdown("### 🔐 SurveyCTO Credentials")
 
-    uploaded_file = st.file_uploader(
-        "Choose Excel file",
-        type=["xlsx", "xls"],
-        help="Upload Ground Truth Collection Excel file",
+    # Manual credential inputs
+    server_name = st.text_input(
+        "Server Name",
+        value="akvofoundation",
+        help="Your SurveyCTO server name (e.g., akvofoundation)",
     )
+
+    username = st.text_input("Username", help="Your SurveyCTO username")
+
+    password = st.text_input(
+        "Password", type="password", help="Your SurveyCTO password"
+    )
+
+    credentials_configured = bool(server_name and username and password)
+
+    if credentials_configured:
+        st.success(f"✅ Connected to: {server_name}")
+    else:
+        st.warning("⚠️ Enter credentials above")
+
+    # Form ID input
+    st.markdown("---")
+    st.markdown("### 📋 Form ID")
+
+    form_id = st.text_input(
+        "Enter form ID:",
+        value="data_quality_ground_truth_collection_afoco_2025",
+        help="Your SurveyCTO form ID",
+        placeholder="data_quality_ground_truth_collection_afoco_2025",
+    )
+
+    if form_id:
+        st.caption(f"✅ Using: `{form_id}`")
+    else:
+        st.warning("⚠️ Form ID required")
 
     st.markdown("---")
 
@@ -70,35 +109,54 @@ with st.sidebar:
     st.markdown("---")
 
     # Process button
-    if uploaded_file:
+    if credentials_configured and form_id:
         process_btn = st.button(
-            "🚀 Process & Validate", type="primary", use_container_width=True
+            "🚀 Fetch & Validate", type="primary", use_container_width=True
         )
     else:
         process_btn = False
+        if not credentials_configured:
+            st.warning("⚠️ Configure API credentials")
+        elif not form_id:
+            st.warning("⚠️ Enter form ID")
 
-# Process data
-if process_btn and uploaded_file:
-    with st.spinner("Processing data..."):
+# Process data (fetch from API, then process)
+if process_btn and credentials_configured:
+    with st.spinner("Fetching and processing data..."):
         try:
-            progress_bar = st.progress(0, text="Starting validation...")
+            progress_bar = st.progress(0, text="Connecting to SurveyCTO...")
 
-            # Process file
-            progress_bar.progress(25, text="📖 Reading Excel file...")
-            data = process_excel_file(uploaded_file)
+            # Fetch JSON data directly
+            progress_bar.progress(25, text="📡 Downloading from API...")
+
+            url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
+            params = {"date": "0"}
+
+            response = requests.get(
+                url, auth=(username, password), params=params, timeout=60
+            )
+            response.raise_for_status()
+            json_data = response.json()
+
+            st.success(f"✅ Fetched {len(json_data)} submissions")
+
+            # Process using new JSON processor
+            progress_bar.progress(50, text="📖 Processing data...")
+            data = process_json_data(json_data)
 
             progress_bar.progress(100, text="✅ Validation complete!")
 
             # Store in session state
             st.session_state.data = data
-            st.session_state.filename = uploaded_file.name
+            st.session_state.filename = f"API: {form_id}"
 
             st.success(f"✅ Processed {len(data['subplots'])} subplots successfully!")
             progress_bar.empty()
 
         except Exception as e:
-            st.error(f"❌ Error processing file: {str(e)}")
+            st.error(f"❌ Error: {str(e)}")
             st.exception(e)
+            progress_bar.empty()
 
 # Main content
 if st.session_state.data is not None:
@@ -112,10 +170,7 @@ if st.session_state.data is not None:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric(
-            "Total Subplots",
-            f"{summary['total']:,}",
-        )
+        st.metric("Total Subplots", f"{summary['total']:,}")
 
     with col2:
         st.metric(
@@ -125,17 +180,11 @@ if st.session_state.data is not None:
         )
 
     with col3:
-        st.metric(
-            "Invalid Subplots",
-            f"{summary['invalid']:,}",
-        )
+        st.metric("Invalid Subplots", f"{summary['invalid']:,}")
 
     with col4:
         total_issues = sum(summary["reason_counts"].values())
-        st.metric(
-            "Total Issues",
-            f"{total_issues:,}",
-        )
+        st.metric("Total Issues", f"{total_issues:,}")
 
     # Status message
     st.markdown("---")
@@ -229,7 +278,9 @@ else:
     # Welcome screen
     st.markdown("## 👋 Welcome to Ground Truth DQM")
 
-    st.info("👈 Upload an Excel file from the sidebar to begin validation")
+    st.info(
+        "👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data"
+    )
 
     col1, col2 = st.columns(2)
 
@@ -238,14 +289,14 @@ else:
             """
         ### 📋 How It Works
         
-        This application validates ground truth forestry data using the 
-        **exact validation pipeline from the AKVO notebooks**:
+        This application validates ground truth forestry data:
         
-        1. **Parse** - Read Excel file (Ground Truth Collection v3)
-        2. **Create Geometries** - Convert GPS coordinates with accuracy filtering
-        3. **Fix Geometries** - Apply 13 geometry correction operations
-        4. **Validate** - Check area, vertices, overlaps, and more
-        5. **Report** - Generate comprehensive validation results
+        1. **Fetch** - Automatically get latest data from SurveyCTO API
+        2. **Parse** - Read and structure the data
+        3. **Create Geometries** - Convert GPS coordinates
+        4. **Fix Geometries** - Apply 13 correction operations
+        5. **Validate** - Check area, vertices, overlaps
+        6. **Report** - Generate comprehensive results
         
         ### ✅ What Gets Validated
         
@@ -263,27 +314,31 @@ else:
     with col2:
         st.markdown(
             """
-        ### 📊 Expected Results
+        ### 🌐 API Setup
         
-        After processing, you'll have access to:
+        Enter your credentials in the sidebar:
         
-        - **Overview Dashboard** - Summary statistics and charts
-        - **Interactive Map** - Visual representation of valid/invalid subplots
-        - **Detailed Issue List** - Every invalid subplot with reasons
-        - **Subplot Deep Dive** - Individual subplot information
+        1. **Server Name** - Your SurveyCTO server (e.g., akvofoundation)
+        2. **Username** - Your SurveyCTO username
+        3. **Password** - Your SurveyCTO password
+        4. **Form ID** - Your form ID
+        
+        ### 📊 After Processing
+        
+        - **Overview Dashboard** - Statistics and charts
+        - **Interactive Map** - Visual representation
+        - **Issue List** - Invalid subplots with reasons
+        - **Subplot Details** - Individual information
         - **Performance Metrics** - Quality by enumerator
-        - **Export Options** - Download validated data in multiple formats
+        - **Export Options** - Download validated data
         
-        ### 📁 Excel File Requirements
+        ### 🔄 Always Fresh
         
-        Your Excel file should contain:
+        API automatically fetches latest submissions!
+        No manual export or upload needed.
         
-        - **Sheet 0**: Plots
-          - Columns: `KEY`, `gt_plot`, `enumerator`, `starttime`
+        ### 🔒 Security
         
-        - **Sheet 1**: Subplots
-          - Columns: `PARENT_KEY`, `KEY`, `gt_subplot`
-        
-        The app automatically handles merging and validation.
+        Credentials are only used for this session and not stored.
         """
         )

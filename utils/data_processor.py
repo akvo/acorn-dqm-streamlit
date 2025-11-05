@@ -13,6 +13,7 @@ from core import (
     assign_geom_valid_geojson,
 )
 import config
+import sys
 
 
 def read_excel_all_sheets(uploaded_file):
@@ -86,9 +87,23 @@ def merge_all_data(sheets_dict):
     # Merge plots with subplots
     m_plots = pd.merge(plots_df, subplot_df, how="inner", on="PLOT_KEY")
 
+    # Handle duplicate enumerator columns (enumerator_x from plots, enumerator_y from subplots)
+    if "enumerator_x" in m_plots.columns and "enumerator_y" in m_plots.columns:
+        # Use the one from subplots (y) as it's more specific, fallback to plots (x)
+        m_plots["enumerator"] = m_plots["enumerator_y"].fillna(m_plots["enumerator_x"])
+        m_plots = m_plots.drop(columns=["enumerator_x", "enumerator_y"])
+    elif "enumerator_x" in m_plots.columns:
+        m_plots["enumerator"] = m_plots["enumerator_x"]
+        m_plots = m_plots.drop(columns=["enumerator_x"])
+    elif "enumerator_y" in m_plots.columns:
+        m_plots["enumerator"] = m_plots["enumerator_y"]
+        m_plots = m_plots.drop(columns=["enumerator_y"])
+
     # Convert submission date if exists
     if "SubmissionDate" in m_plots.columns:
-        m_plots["SubmissionDate"] = pd.to_datetime(m_plots["SubmissionDate"]).dt.date
+        m_plots["SubmissionDate"] = pd.to_datetime(
+            m_plots["SubmissionDate"], format="mixed", errors="coerce"
+        ).dt.date
 
     merged = {"plots_subplots": m_plots}
 
@@ -136,14 +151,36 @@ def process_excel_file(uploaded_file):
     m_plots = merged["plots_subplots"]
 
     # Process subplots for geometry validation
-    subplots_for_validation = m_plots[
-        [
-            "starttime" if "starttime" in m_plots.columns else "SubmissionDate",
-            "enumerator",
-            "gt_subplot",
-            "SUBPLOT_KEY",
-        ]
-    ].copy()
+    # Determine which time column to use
+    time_col = None
+    if "starttime" in m_plots.columns:
+        time_col = "starttime"
+    elif "SubmissionDate" in m_plots.columns:
+        time_col = "SubmissionDate"
+
+    # Build column list dynamically based on what exists
+    cols_to_select = []
+    if time_col:
+        cols_to_select.append(time_col)
+    if "enumerator" in m_plots.columns:
+        cols_to_select.append("enumerator")
+
+    # Always need these columns
+    cols_to_select.extend(["gt_subplot", "SUBPLOT_KEY"])
+
+    # Select only existing columns
+    subplots_for_validation = m_plots[cols_to_select].copy()
+
+    print(f"m_plots columns: {m_plots.columns.tolist()}", file=sys.stderr)
+    print(f"cols_to_select: {cols_to_select}", file=sys.stderr)
+    print(
+        f"subplots_for_validation columns: {subplots_for_validation.columns.tolist()}",
+        file=sys.stderr,
+    )
+    if "enumerator" in subplots_for_validation.columns:
+        print(f"✓ enumerator in subplots_for_validation", file=sys.stderr)
+    else:
+        print(f"✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
 
     subplots_for_validation = subplots_for_validation.rename(
         columns={"SUBPLOT_KEY": "subplot_id"}
@@ -188,6 +225,27 @@ def process_excel_file(uploaded_file):
         min_area=config.MIN_SUBPLOT_AREA_SIZE,
         max_area=config.MAX_SUBPLOT_AREA_SIZE,
     )
+
+    # Ensure enumerator and time columns are preserved
+    # (They might be lost during geometry operations)
+    preserve_cols = []
+    if "enumerator" in subplots_for_validation.columns:
+        preserve_cols.append("enumerator")
+    if time_col and time_col in subplots_for_validation.columns:
+        preserve_cols.append(time_col)
+
+    if preserve_cols:
+        # Merge back the preserved columns using subplot_id
+        preserve_data = subplots_for_validation[
+            ["subplot_id"] + preserve_cols
+        ].drop_duplicates()
+
+        # Only merge if columns are missing in gdf_final
+        cols_to_add = [col for col in preserve_cols if col not in gdf_final.columns]
+        if cols_to_add:
+            gdf_final = gdf_final.merge(
+                preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left"
+            )
 
     # Process plots
     plots_for_validation = sheets["plots"].copy()
@@ -383,13 +441,16 @@ def get_missing_subplots_analysis(raw_data):
 
     missing_df = m_plots[m_plots["SUBPLOT_KEY"].isin(missing_subplots)]
 
+    # Build display columns list based on what exists
+    display_cols = ["SUBPLOT_KEY"]
+    if "enumerator" in missing_df.columns:
+        display_cols.insert(0, "enumerator")
+    if "subplot_comments" in missing_df.columns:
+        display_cols.append("subplot_comments")
+
     return {
         "count": len(missing_subplots),
-        "subplots": (
-            missing_df[["enumerator", "SUBPLOT_KEY", "subplot_comments"]]
-            if "subplot_comments" in missing_df.columns
-            else missing_df[["enumerator", "SUBPLOT_KEY"]]
-        ),
+        "subplots": missing_df[display_cols] if len(display_cols) > 1 else missing_df,
     }
 
 
@@ -403,17 +464,17 @@ def get_vegetation_density_analysis(raw_data):
 
     m_veg = raw_data["plots_subplots_vegetation"]
 
-    density = (
-        m_veg.groupby("SUBPLOT_KEY")
-        .agg(
-            {
-                "vegetation_type_number": "sum",
-                "coverage_vegetation": "sum",
-                "enumerator": "first",
-            }
-        )
-        .reset_index()
-    )
+    # Build aggregation dict based on available columns
+    agg_dict = {
+        "vegetation_type_number": "sum",
+        "coverage_vegetation": "sum",
+    }
+
+    # Add enumerator only if it exists
+    if "enumerator" in m_veg.columns:
+        agg_dict["enumerator"] = "first"
+
+    density = m_veg.groupby("SUBPLOT_KEY").agg(agg_dict).reset_index()
 
     # Subplots with zero trees
     zero_trees = density[density["vegetation_type_number"] == 0]
@@ -605,4 +666,393 @@ def get_coverage_quality_check(raw_data, max_percentage=5):
         "total_coverage": len(coverage),
         "other_species_count": len(enumerator_coverage),
         "is_valid": percentage_cov <= max_percentage,
+    }
+
+
+def read_json_to_sheets(json_data):
+    """
+    Convert SurveyCTO JSON data to sheet structure matching Excel format
+
+    Args:
+        json_data: List of dictionaries from SurveyCTO API
+
+    Returns:
+        dict: Dictionary with all dataframes matching Excel structure
+    """
+    import re
+
+    df_main = pd.DataFrame(json_data)
+
+    # Sheet 0: Plots (main form data - keep all non-repeat columns)
+    # Exclude columns that are part of repeat groups (contain _number_ pattern)
+    plot_cols = []
+    for col in df_main.columns:
+        # Keep if it doesn't match repeat group patterns
+        if not re.search(r"_\d+_\d+", col) and not re.match(r"gt_subplot_\d+$", col):
+            plot_cols.append(col)
+
+    plots_df = df_main[plot_cols].copy()
+    plots_df = plots_df.rename(columns={"KEY": "PLOT_KEY"})
+
+    # Ensure enumerator field exists - handle different formats from API
+    if "enumerator" not in plots_df.columns:
+        if "enumerator_name" in plots_df.columns:
+            plots_df["enumerator"] = plots_df["enumerator_name"]
+        elif "enumerator_id" in plots_df.columns:
+            plots_df["enumerator"] = plots_df["enumerator_id"].astype(str)
+
+    # Parse SubmissionDate if it exists and is in string format
+    if "SubmissionDate" in plots_df.columns:
+        try:
+            plots_df["SubmissionDate"] = pd.to_datetime(
+                plots_df["SubmissionDate"], format="mixed", errors="coerce"
+            )
+        except:
+            pass  # Keep as is if parsing fails
+
+    # Sheet 1: Subplots (extract from repeat groups)
+    subplot_records = []
+    for idx, row in df_main.iterrows():
+        plot_key = row.get("KEY")
+
+        # Get enumerator - handle different field names
+        enumerator = row.get("enumerator")
+        if pd.isna(enumerator) or enumerator is None:
+            enumerator = row.get("enumerator_name")
+        if pd.isna(enumerator) or enumerator is None:
+            enumerator = row.get("enumerator_id")
+
+        starttime = row.get("starttime")
+        submission_date = row.get("SubmissionDate")
+
+        # Extract subplot data from columns like gt_subplot_1, gt_subplot_2, etc.
+        subplot_nums = set()
+        for col in df_main.columns:
+            match = re.match(r"gt_subplot_(\d+)$", col)
+            if match:
+                subplot_nums.add(int(match.group(1)))
+
+        for num in sorted(subplot_nums):
+            gt_subplot_val = row.get(f"gt_subplot_{num}")
+            # Only add if gt_subplot exists and is not null
+            if pd.notna(gt_subplot_val):
+                subplot_rec = {
+                    "PLOT_KEY": plot_key,
+                    "SUBPLOT_KEY": f"{plot_key}/subplot_{num}",
+                    "gt_subplot": gt_subplot_val,
+                    "subplot_comments": row.get(f"subplot_comments_{num}", ""),
+                    "starttime": starttime,
+                    "SubmissionDate": submission_date,
+                    "enumerator": enumerator,
+                }
+                subplot_records.append(subplot_rec)
+
+    subplot_df = pd.DataFrame(subplot_records) if subplot_records else pd.DataFrame()
+
+    # Sheet 2: Vegetation (extract from nested repeat groups)
+    vegetation_records = []
+    for idx, row in df_main.iterrows():
+        plot_key = row.get("KEY")
+        # Find all subplot and vegetation combinations
+        for col in df_main.columns:
+            # Match patterns like vegetation_type_number_1_1, vegetation_type_number_1_2, etc.
+            match = re.match(r"vegetation_type_number_(\d+)_(\d+)$", col)
+            if match:
+                subplot_num = int(match.group(1))
+                veg_num = int(match.group(2))
+
+                veg_type_num = row.get(
+                    f"vegetation_type_number_{subplot_num}_{veg_num}"
+                )
+                # Only add if vegetation_type_number exists and is not null
+                if pd.notna(veg_type_num):
+                    veg_rec = {
+                        "SUBPLOT_KEY": f"{plot_key}/subplot_{subplot_num}",
+                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
+                        "vegetation_type_number": veg_type_num,
+                        "vegetation_type_height": row.get(
+                            f"vegetation_type_height_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_woody": row.get(
+                            f"vegetation_type_woody_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_primary": row.get(
+                            f"vegetation_type_primary_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_dbh": row.get(
+                            f"vegetation_type_dbh_{subplot_num}_{veg_num}"
+                        ),
+                        "woody_species": row.get(
+                            f"woody_species_{subplot_num}_{veg_num}"
+                        ),
+                        "non_woody_species": row.get(
+                            f"non_woody_species_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_vegetation": row.get(
+                            f"coverage_vegetation_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_youngtree": row.get(
+                            f"vegetation_type_youngtree_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_species_type": row.get(
+                            f"vegetation_species_type_{subplot_num}_{veg_num}"
+                        ),
+                    }
+                    vegetation_records.append(veg_rec)
+
+    vegetation_df = (
+        pd.DataFrame(vegetation_records) if vegetation_records else pd.DataFrame()
+    )
+
+    # Convert numeric columns to proper types
+    if len(vegetation_df) > 0:
+        numeric_cols = ["vegetation_type_number"]
+        for col in numeric_cols:
+            if col in vegetation_df.columns:
+                vegetation_df[col] = pd.to_numeric(vegetation_df[col], errors="coerce")
+
+    # Sheet 3: Measurements
+    measurement_records = []
+    for idx, row in df_main.iterrows():
+        plot_key = row.get("KEY")
+        for col in df_main.columns:
+            match = re.match(r"tree_height_m_(\d+)_(\d+)_(\d+)$", col)
+            if match:
+                subplot_num = int(match.group(1))
+                veg_num = int(match.group(2))
+                mea_num = int(match.group(3))
+
+                tree_height = row.get(
+                    f"tree_height_m_{subplot_num}_{veg_num}_{mea_num}"
+                )
+                # Only add if tree_height exists and is not null
+                if pd.notna(tree_height):
+                    mea_rec = {
+                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
+                        "MEASUREMENT_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}",
+                        "tree_height_m": tree_height,
+                        "nr_stems_bh": row.get(
+                            f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                        "tree_prune": row.get(
+                            f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                        "prune_heigth": row.get(
+                            f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                    }
+                    measurement_records.append(mea_rec)
+
+    measurement_df = (
+        pd.DataFrame(measurement_records) if measurement_records else pd.DataFrame()
+    )
+
+    # Convert numeric columns to proper types
+    if len(measurement_df) > 0:
+        numeric_cols = ["tree_height_m", "nr_stems_bh", "prune_heigth"]
+        for col in numeric_cols:
+            if col in measurement_df.columns:
+                measurement_df[col] = pd.to_numeric(
+                    measurement_df[col], errors="coerce"
+                )
+
+    # Sheet 4: Circumference
+    circumference_records = []
+    for idx, row in df_main.iterrows():
+        plot_key = row.get("KEY")
+        for col in df_main.columns:
+            match = re.match(r"circumference_bh_(\d+)_(\d+)_(\d+)_(\d+)$", col)
+            if match:
+                subplot_num = int(match.group(1))
+                veg_num = int(match.group(2))
+                mea_num = int(match.group(3))
+                cir_num = int(match.group(4))
+
+                circumference = row.get(
+                    f"circumference_bh_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
+                )
+                # Only add if circumference exists and is not null
+                if pd.notna(circumference):
+                    cir_rec = {
+                        "MEASUREMENT_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}",
+                        "CIRCUMFERENCE_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}/cir_{cir_num}",
+                        "circumference_bh": circumference,
+                    }
+                    circumference_records.append(cir_rec)
+
+    circumference_df = (
+        pd.DataFrame(circumference_records) if circumference_records else pd.DataFrame()
+    )
+
+    # Convert numeric columns to proper types
+    if len(circumference_df) > 0:
+        if "circumference_bh" in circumference_df.columns:
+            circumference_df["circumference_bh"] = pd.to_numeric(
+                circumference_df["circumference_bh"], errors="coerce"
+            )
+
+    return {
+        "plots": plots_df,
+        "subplots": subplot_df,
+        "vegetation": vegetation_df,
+        "measurements": measurement_df,
+        "circumference": circumference_df,
+    }
+
+
+def process_json_data(json_data):
+    """
+    Complete processing pipeline for JSON data from API:
+    1. Convert JSON to sheets structure
+    2. Merge data
+    3. Create geometries
+    4. Validate
+    5. Add statistics
+
+    Args:
+        json_data: List of dictionaries from SurveyCTO API
+
+    Returns:
+        dict with all processed data
+    """
+    # Convert JSON to sheets structure
+    sheets = read_json_to_sheets(json_data)
+
+    # Use existing merge and processing logic
+    merged = merge_all_data(sheets)
+
+    # Get plots-subplots merged data
+    m_plots = merged["plots_subplots"]
+
+    # Process subplots for geometry validation
+    # Determine which time column to use
+    time_col = None
+    if "starttime" in m_plots.columns:
+        time_col = "starttime"
+    elif "SubmissionDate" in m_plots.columns:
+        time_col = "SubmissionDate"
+
+    # Build column list dynamically based on what exists
+    cols_to_select = []
+    if time_col:
+        cols_to_select.append(time_col)
+    if "enumerator" in m_plots.columns:
+        cols_to_select.append("enumerator")
+
+    # Always need these columns
+    cols_to_select.extend(["gt_subplot", "SUBPLOT_KEY"])
+
+    # Select only existing columns
+    subplots_for_validation = m_plots[cols_to_select].copy()
+    if "enumerator" in subplots_for_validation.columns:
+        print(f"✓ enumerator in subplots_for_validation", file=sys.stderr)
+    else:
+        print(f"✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
+
+    subplots_for_validation = subplots_for_validation.rename(
+        columns={"SUBPLOT_KEY": "subplot_id"}
+    )
+
+    # Create geometry
+    subplots_for_validation["geometry"] = subplots_for_validation.apply(
+        lambda row: geom_from_scto_str(
+            row,
+            column="gt_subplot",
+            accuracy_m=config.GPS_ACCURACY_THRESHOLD,
+            accuracy_zero_valid=False,
+        ),
+        axis=1,
+    )
+
+    gdf_subplots = gpd.GeoDataFrame(
+        subplots_for_validation, geometry="geometry", crs=4326
+    )
+
+    # Fix geometries
+    geometry_fixer = GeometryFixer()
+    gdf_subplots_fixed = geometry_fixer.fix_geometry(gdf_subplots)
+
+    # Validate
+    geometry_validator = GeometryValidator(
+        partner=config.PARTNER,
+        country=config.COUNTRY,
+        threshold_length_width=config.THRESHOLD_LENGTH_WIDTH,
+        threshold_protruding_ratio=config.THRESHOLD_PROTRUDING_RATIO,
+        validate_id="subplot_id",
+        threshold_within_radius=config.THRESHOLD_WITHIN_RADIUS,
+        min_area_size=config.MIN_SUBPLOT_AREA_SIZE,
+        max_area_size=config.MAX_SUBPLOT_AREA_SIZE,
+        max_vertices=config.MAX_VERTICES,
+    )
+    gdf_subplots_validated = geometry_validator.validate_geometry(gdf_subplots_fixed)
+
+    # Collect reasons
+    gdf_final = assign_geom_valid_geojson(
+        gdf_subplots_validated,
+        min_area=config.MIN_SUBPLOT_AREA_SIZE,
+        max_area=config.MAX_SUBPLOT_AREA_SIZE,
+    )
+
+    # Ensure enumerator and time columns are preserved
+    # (They might be lost during geometry operations)
+    preserve_cols = []
+    if "enumerator" in subplots_for_validation.columns:
+        preserve_cols.append("enumerator")
+    if time_col and time_col in subplots_for_validation.columns:
+        preserve_cols.append(time_col)
+
+    if preserve_cols:
+        # Merge back the preserved columns using subplot_id
+        preserve_data = subplots_for_validation[
+            ["subplot_id"] + preserve_cols
+        ].drop_duplicates()
+
+        # Only merge if columns are missing in gdf_final
+        cols_to_add = [col for col in preserve_cols if col not in gdf_final.columns]
+        if cols_to_add:
+            gdf_final = gdf_final.merge(
+                preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left"
+            )
+
+    # Process plots
+    plots_for_validation = sheets["plots"].copy()
+    if "gt_plot" in plots_for_validation.columns:
+        plots_for_validation["geometry"] = plots_for_validation.apply(
+            lambda row: geom_from_scto_str(
+                row,
+                column="gt_plot",
+                accuracy_m=config.GPS_ACCURACY_THRESHOLD,
+                accuracy_zero_valid=False,
+            ),
+            axis=1,
+        )
+        gdf_plots = gpd.GeoDataFrame(
+            plots_for_validation, geometry="geometry", crs=4326
+        )
+    else:
+        gdf_plots = None
+
+    # Add vegetation statistics to subplots if available
+    if "plots_subplots_vegetation" in merged:
+        try:
+            veg_stats = calculate_vegetation_stats(merged["plots_subplots_vegetation"])
+            gdf_final = gdf_final.merge(veg_stats, on="subplot_id", how="left")
+        except Exception as e:
+            print(f"Warning: Could not calculate vegetation stats: {str(e)}")
+
+    # Add measurement statistics if available
+    if "plots_subplots_vegetation_measurements" in merged:
+        try:
+            mea_stats = calculate_measurement_stats(
+                merged["plots_subplots_vegetation_measurements"]
+            )
+            gdf_final = gdf_final.merge(mea_stats, on="subplot_id", how="left")
+        except Exception as e:
+            print(f"Warning: Could not calculate measurement stats: {str(e)}")
+
+    return {
+        "subplots": gdf_final,
+        "plots": gdf_plots,
+        "raw_data": merged,
+        "sheets": sheets,
     }
