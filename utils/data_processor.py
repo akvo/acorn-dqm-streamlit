@@ -85,19 +85,31 @@ def merge_all_data(sheets_dict):
     circumference_df = sheets_dict["circumference"]
 
     # Merge plots with subplots
-    m_plots = pd.merge(plots_df, subplot_df, how="inner", on="PLOT_KEY")
+    m_plots = pd.merge(plots_df, subplot_df, how="inner", on="PLOT_KEY", suffixes=("_plot", "_subplot"))
 
-    # Handle duplicate enumerator columns (enumerator_x from plots, enumerator_y from subplots)
-    if "enumerator_x" in m_plots.columns and "enumerator_y" in m_plots.columns:
-        # Use the one from subplots (y) as it's more specific, fallback to plots (x)
-        m_plots["enumerator"] = m_plots["enumerator_y"].fillna(m_plots["enumerator_x"])
-        m_plots = m_plots.drop(columns=["enumerator_x", "enumerator_y"])
-    elif "enumerator_x" in m_plots.columns:
-        m_plots["enumerator"] = m_plots["enumerator_x"]
-        m_plots = m_plots.drop(columns=["enumerator_x"])
-    elif "enumerator_y" in m_plots.columns:
-        m_plots["enumerator"] = m_plots["enumerator_y"]
-        m_plots = m_plots.drop(columns=["enumerator_y"])
+    # Handle duplicate columns
+    # Enumerator
+    if "enumerator_subplot" in m_plots.columns and "enumerator_plot" in m_plots.columns:
+        m_plots["enumerator"] = m_plots["enumerator_subplot"].fillna(m_plots["enumerator_plot"])
+        m_plots = m_plots.drop(columns=["enumerator_plot", "enumerator_subplot"])
+    elif "enumerator_plot" in m_plots.columns:
+        m_plots["enumerator"] = m_plots["enumerator_plot"]
+        m_plots = m_plots.drop(columns=["enumerator_plot"])
+    elif "enumerator_subplot" in m_plots.columns:
+        m_plots["enumerator"] = m_plots["enumerator_subplot"]
+        m_plots = m_plots.drop(columns=["enumerator_subplot"])
+
+    # KEY and PARENT_KEY - keep subplot version
+    if "KEY_subplot" in m_plots.columns:
+        m_plots["KEY"] = m_plots["KEY_subplot"]
+        m_plots = m_plots.drop(columns=["KEY_subplot"], errors="ignore")
+    if "KEY_plot" in m_plots.columns:
+        m_plots = m_plots.drop(columns=["KEY_plot"], errors="ignore")
+    if "PARENT_KEY_subplot" in m_plots.columns:
+        m_plots["PARENT_KEY"] = m_plots["PARENT_KEY_subplot"]
+        m_plots = m_plots.drop(columns=["PARENT_KEY_subplot"], errors="ignore")
+    if "PARENT_KEY_plot" in m_plots.columns:
+        m_plots = m_plots.drop(columns=["PARENT_KEY_plot"], errors="ignore")
 
     # Convert submission date if exists
     if "SubmissionDate" in m_plots.columns:
@@ -111,19 +123,46 @@ def merge_all_data(sheets_dict):
     if vegetation_df is not None:
         # INNER JOIN - only subplots WITH vegetation (matches notebook)
         # This ensures m_veg only contains subplots that have vegetation records
-        m_veg = pd.merge(m_plots, vegetation_df, how="inner", on="SUBPLOT_KEY")
+        m_veg = pd.merge(m_plots, vegetation_df, how="inner", on="SUBPLOT_KEY", suffixes=("", "_veg"))
+
+        # Clean up duplicate KEY/PARENT_KEY columns - keep vegetation version
+        if "KEY_veg" in m_veg.columns:
+            m_veg["KEY"] = m_veg["KEY_veg"]
+            m_veg = m_veg.drop(columns=["KEY_veg"], errors="ignore")
+        if "PARENT_KEY_veg" in m_veg.columns:
+            m_veg["PARENT_KEY"] = m_veg["PARENT_KEY_veg"]
+            m_veg = m_veg.drop(columns=["PARENT_KEY_veg"], errors="ignore")
+
         merged["plots_subplots_vegetation"] = m_veg
 
         # Merge with measurements if available
         if measurement_df is not None:
-            m_mea = pd.merge(m_veg, measurement_df, how="left", on="VEGETATION_KEY")
+            m_mea = pd.merge(m_veg, measurement_df, how="left", on="VEGETATION_KEY", suffixes=("", "_mea"))
+
+            # Clean up duplicate KEY/PARENT_KEY columns - keep measurement version
+            if "KEY_mea" in m_mea.columns:
+                m_mea["KEY"] = m_mea["KEY_mea"]
+                m_mea = m_mea.drop(columns=["KEY_mea"], errors="ignore")
+            if "PARENT_KEY_mea" in m_mea.columns:
+                m_mea["PARENT_KEY"] = m_mea["PARENT_KEY_mea"]
+                m_mea = m_mea.drop(columns=["PARENT_KEY_mea"], errors="ignore")
+
             merged["plots_subplots_vegetation_measurements"] = m_mea
 
             # Merge with circumference if available
             if circumference_df is not None:
                 m_cir = pd.merge(
-                    m_mea, circumference_df, how="left", on="MEASUREMENT_KEY"
+                    m_mea, circumference_df, how="left", on="MEASUREMENT_KEY", suffixes=("", "_cir")
                 )
+
+                # Clean up duplicate KEY/PARENT_KEY columns - keep circumference version
+                if "KEY_cir" in m_cir.columns:
+                    m_cir["KEY"] = m_cir["KEY_cir"]
+                    m_cir = m_cir.drop(columns=["KEY_cir"], errors="ignore")
+                if "PARENT_KEY_cir" in m_cir.columns:
+                    m_cir["PARENT_KEY"] = m_cir["PARENT_KEY_cir"]
+                    m_cir = m_cir.drop(columns=["PARENT_KEY_cir"], errors="ignore")
+
                 merged["complete"] = m_cir
 
     return merged
@@ -734,11 +773,16 @@ def read_json_to_sheets(json_data):
 
         for num in sorted(subplot_nums):
             gt_subplot_val = row.get(f"gt_subplot_{num}")
-            # Only add if gt_subplot exists and is not null
-            if pd.notna(gt_subplot_val):
+            # Only add if gt_subplot exists, is not null, and is not empty string
+            if pd.notna(gt_subplot_val) and str(gt_subplot_val).strip():
+                # Match Excel format: uuid:xxx/sub_plot[1] (with brackets!)
+                subplot_key = f"{plot_key}/sub_plot[{num}]"
+
                 subplot_rec = {
                     "PLOT_KEY": plot_key,
-                    "SUBPLOT_KEY": f"{plot_key}/subplot_{num}",
+                    "SUBPLOT_KEY": subplot_key,
+                    "KEY": subplot_key,  # Add KEY column to match Excel
+                    "PARENT_KEY": plot_key,  # Add PARENT_KEY to match Excel
                     "gt_subplot": gt_subplot_val,
                     "subplot_comments": row.get(f"subplot_comments_{num}", ""),
                     "starttime": starttime,
@@ -751,7 +795,7 @@ def read_json_to_sheets(json_data):
 
     # Sheet 2: Vegetation (extract from nested repeat groups)
     vegetation_records = []
-    vegetation_keys_found = set()  # Track which (subplot_num, veg_num) combinations we've seen
+    vegetation_keys_found = set()  # Track which (plot_key, subplot_num, veg_num) combinations we've seen
 
     for idx, row in df_main.iterrows():
         plot_key = row.get("KEY")
@@ -770,10 +814,17 @@ def read_json_to_sheets(json_data):
                 # Add if vegetation_type_number exists and is not null
                 if pd.notna(veg_type_num):
                     # Only mark as found if we're actually adding the record
-                    vegetation_keys_found.add((subplot_num, veg_num))
+                    vegetation_keys_found.add((plot_key, subplot_num, veg_num))
+
+                    # Match Excel format: uuid:xxx/sub_plot[1]/new_vegetation[1]
+                    subplot_key = f"{plot_key}/sub_plot[{subplot_num}]"
+                    veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
+
                     veg_rec = {
-                        "SUBPLOT_KEY": f"{plot_key}/subplot_{subplot_num}",
-                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
+                        "SUBPLOT_KEY": subplot_key,
+                        "PARENT_KEY": subplot_key,  # Match Excel
+                        "VEGETATION_KEY": veg_key,
+                        "KEY": veg_key,  # Match Excel
                         "vegetation_type_number": veg_type_num,
                         "vegetation_type_height": row.get(
                             f"vegetation_type_height_{subplot_num}_{veg_num}"
@@ -845,7 +896,7 @@ def read_json_to_sheets(json_data):
                 veg_num = int(match.group(2))
 
                 # Skip if we already found this vegetation record in first pass
-                if (subplot_num, veg_num) in vegetation_keys_found:
+                if (plot_key, subplot_num, veg_num) in vegetation_keys_found:
                     continue
 
                 # Check if this record has coverage data
@@ -855,11 +906,17 @@ def read_json_to_sheets(json_data):
 
                 # Only add if at least one coverage field exists
                 if pd.notna(has_coverage) or pd.notna(has_non_woody) or pd.notna(has_veg_height):
-                    vegetation_keys_found.add((subplot_num, veg_num))
+                    vegetation_keys_found.add((plot_key, subplot_num, veg_num))
+
+                    # Match Excel format: uuid:xxx/sub_plot[1]/new_vegetation[1]
+                    subplot_key = f"{plot_key}/sub_plot[{subplot_num}]"
+                    veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
 
                     veg_rec = {
-                        "SUBPLOT_KEY": f"{plot_key}/subplot_{subplot_num}",
-                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
+                        "SUBPLOT_KEY": subplot_key,
+                        "PARENT_KEY": subplot_key,  # Match Excel
+                        "VEGETATION_KEY": veg_key,
+                        "KEY": veg_key,  # Match Excel
                         "vegetation_type_number": None,  # Coverage-only has no tree count
                         "vegetation_type_height": row.get(
                             f"vegetation_type_height_{subplot_num}_{veg_num}"
@@ -955,9 +1012,15 @@ def read_json_to_sheets(json_data):
                 )
                 # Only add if tree_height exists and is not null
                 if pd.notna(tree_height):
+                    # Match Excel format: uuid:xxx/sub_plot[1]/new_vegetation[1]/vegetation_measurements[1]
+                    veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
+                    mea_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+
                     mea_rec = {
-                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
-                        "MEASUREMENT_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}",
+                        "VEGETATION_KEY": veg_key,
+                        "PARENT_KEY": veg_key,  # Match Excel
+                        "MEASUREMENT_KEY": mea_key,
+                        "KEY": mea_key,  # Match Excel
                         "tree_height_m": tree_height,
                         "tree_prune": row.get(
                             f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"
@@ -993,8 +1056,12 @@ def read_json_to_sheets(json_data):
 
     # Sheet 4: Circumference
     circumference_records = []
+    circumference_keys_found = set()  # Track which (plot_key, subplot, veg, mea, cir) we've seen
+
     for idx, row in df_main.iterrows():
         plot_key = row.get("KEY")
+
+        # First pass: Extract from circumference_bh columns
         for col in df_main.columns:
             match = re.match(r"circumference_bh_(\d+)_(\d+)_(\d+)_(\d+)$", col)
             if match:
@@ -1003,15 +1070,63 @@ def read_json_to_sheets(json_data):
                 mea_num = int(match.group(3))
                 cir_num = int(match.group(4))
 
-                circumference = row.get(
+                circumference_bh = row.get(
                     f"circumference_bh_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
                 )
-                # Only add if circumference exists and is not null
-                if pd.notna(circumference):
+                circumference_10cm = row.get(
+                    f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
+                )
+
+                # Only add if at least one circumference exists and is not null
+                if pd.notna(circumference_bh) or pd.notna(circumference_10cm):
+                    circumference_keys_found.add((plot_key, subplot_num, veg_num, mea_num, cir_num))
+
+                    # Match Excel format: uuid:xxx/sub_plot[1]/new_vegetation[1]/vegetation_measurements[1]/circumference_bh_group[1]
+                    mea_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                    cir_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]/circumference_bh_group[{cir_num}]"
+
                     cir_rec = {
-                        "MEASUREMENT_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}",
-                        "CIRCUMFERENCE_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}/cir_{cir_num}",
-                        "circumference_bh": circumference,
+                        "MEASUREMENT_KEY": mea_key,
+                        "PARENT_KEY": mea_key,  # Match Excel
+                        "CIRCUMFERENCE_KEY": cir_key,
+                        "KEY": cir_key,  # Match Excel
+                        "circumference_bh": circumference_bh,
+                        "circumference_10cm": circumference_10cm,
+                    }
+                    circumference_records.append(cir_rec)
+
+        # Second pass: Find circumference_10cm-only records (no circumference_bh column exists)
+        for col in df_main.columns:
+            match = re.match(r"circumference_10cm_(\d+)_(\d+)_(\d+)_(\d+)$", col)
+            if match:
+                subplot_num = int(match.group(1))
+                veg_num = int(match.group(2))
+                mea_num = int(match.group(3))
+                cir_num = int(match.group(4))
+
+                # Skip if we already processed this circumference in first pass
+                if (plot_key, subplot_num, veg_num, mea_num, cir_num) in circumference_keys_found:
+                    continue
+
+                circumference_10cm = row.get(
+                    f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
+                )
+
+                # Only add if circumference_10cm exists and is not null
+                if pd.notna(circumference_10cm):
+                    circumference_keys_found.add((plot_key, subplot_num, veg_num, mea_num, cir_num))
+
+                    # Match Excel format
+                    mea_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                    cir_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]/circumference_bh_group[{cir_num}]"
+
+                    cir_rec = {
+                        "MEASUREMENT_KEY": mea_key,
+                        "PARENT_KEY": mea_key,
+                        "CIRCUMFERENCE_KEY": cir_key,
+                        "KEY": cir_key,
+                        "circumference_bh": None,  # No circumference_bh for these records
+                        "circumference_10cm": circumference_10cm,
                     }
                     circumference_records.append(cir_rec)
 
@@ -1024,6 +1139,10 @@ def read_json_to_sheets(json_data):
         if "circumference_bh" in circumference_df.columns:
             circumference_df["circumference_bh"] = pd.to_numeric(
                 circumference_df["circumference_bh"], errors="coerce"
+            )
+        if "circumference_10cm" in circumference_df.columns:
+            circumference_df["circumference_10cm"] = pd.to_numeric(
+                circumference_df["circumference_10cm"], errors="coerce"
             )
 
     return {
