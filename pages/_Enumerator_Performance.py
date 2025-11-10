@@ -260,12 +260,122 @@ def create_enumerator_map(enum_data, enumerator_name):
         return None
 
 
-def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
+def capture_map_as_image(enum_data, enumerator_name):
     """
-    Generate comprehensive PDF report for enumerator with charts and analysis
+    Capture Folium map as a static image for PDF
+    Returns PIL Image or None
     """
     try:
-        from reportlab.lib.pagesizes import A4
+        import folium
+        from PIL import Image
+        import base64
+        from io import BytesIO
+
+        # Create the map
+        map_obj = create_enumerator_map(enum_data, enumerator_name)
+        if not map_obj:
+            return None
+
+        # Save map to HTML
+        map_html = map_obj._repr_html_()
+
+        # Try to use selenium for high-quality capture
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+            import tempfile
+            import time
+
+            # Chrome options for headless mode
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--window-size=1200,800")
+
+            # Save map to temp HTML file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+                map_obj.save(f.name)
+                temp_file = f.name
+
+            # Capture with selenium
+            driver = webdriver.Chrome(options=chrome_options)
+            driver.get(f'file://{temp_file}')
+            time.sleep(2)  # Wait for map to load
+            screenshot = driver.get_screenshot_as_png()
+            driver.quit()
+
+            # Clean up
+            import os
+            os.unlink(temp_file)
+
+            # Convert to PIL Image
+            img = Image.open(BytesIO(screenshot))
+            return img
+
+        except Exception:
+            # Fallback: Create a simple static map using matplotlib
+            try:
+                import matplotlib.pyplot as plt
+                import matplotlib.patches as mpatches
+                from io import BytesIO
+
+                # Filter valid geometries
+                map_data = enum_data[~enum_data.geometry.is_empty].copy()
+                if len(map_data) == 0:
+                    return None
+
+                # Create figure
+                fig, ax = plt.subplots(figsize=(10, 8))
+
+                # Plot valid and invalid subplots with different colors
+                valid_data = map_data[map_data["geom_valid"]]
+                invalid_data = map_data[~map_data["geom_valid"]]
+
+                if len(valid_data) > 0:
+                    valid_data.plot(ax=ax, color='green', alpha=0.6, edgecolor='darkgreen', linewidth=1)
+
+                if len(invalid_data) > 0:
+                    invalid_data.plot(ax=ax, color='red', alpha=0.6, edgecolor='darkred', linewidth=1)
+
+                # Add title and legend
+                ax.set_title(f"Subplot Locations - {enumerator_name}", fontsize=14, fontweight='bold')
+                ax.set_xlabel("Longitude")
+                ax.set_ylabel("Latitude")
+
+                # Create legend
+                valid_patch = mpatches.Patch(color='green', alpha=0.6, label=f'Valid ({len(valid_data)})')
+                invalid_patch = mpatches.Patch(color='red', alpha=0.6, label=f'Invalid ({len(invalid_data)})')
+                ax.legend(handles=[valid_patch, invalid_patch], loc='upper right')
+
+                # Remove axis spines for cleaner look
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+
+                plt.tight_layout()
+
+                # Convert to PIL Image
+                buf = BytesIO()
+                plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                plt.close()
+                buf.seek(0)
+                img = Image.open(buf)
+
+                return img
+
+            except Exception:
+                return None
+
+    except Exception:
+        return None
+
+
+def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
+    """
+    Generate comprehensive PDF report for enumerator with charts, analysis, and map
+    """
+    try:
+        from reportlab.lib.pagesizes import A4, letter
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import inch
         from reportlab.platypus import (
@@ -275,11 +385,13 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
             Paragraph,
             Spacer,
             PageBreak,
+            Image as RLImage,
         )
         from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
         from reportlab.graphics.shapes import Drawing
         from reportlab.graphics.charts.piecharts import Pie
+        from reportlab.graphics.charts.barcharts import VerticalBarChart
         from datetime import datetime
 
         buffer = BytesIO()
@@ -396,25 +508,129 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
         story.append(summary_table)
         story.append(Spacer(1, 0.3 * inch))
 
-        # Pie chart
+        # Pie chart - Improved
         story.append(Paragraph("Performance Visualization", section_style))
-        drawing = Drawing(400, 200)
+        drawing = Drawing(500, 250)
         pie = Pie()
-        pie.x, pie.y, pie.width, pie.height = 150, 50, 100, 100
+        pie.x, pie.y, pie.width, pie.height = 180, 50, 140, 140
         pie.data = [valid, invalid]
-        pie.labels = ["Valid", "Invalid"]
-        pie.slices[0].fillColor = colors.green
-        pie.slices[1].fillColor = colors.red
-        pie.slices[0].popout = 5
+        pie.labels = [f"Valid\n{valid}\n({valid/total*100:.1f}%)", f"Invalid\n{invalid}\n({error_rate:.1f}%)"]
+        pie.slices[0].fillColor = colors.HexColor("#4CAF50")
+        pie.slices[1].fillColor = colors.HexColor("#F44336")
+        pie.slices[0].popout = 8
+        pie.slices[0].fontColor = colors.white
+        pie.slices[1].fontColor = colors.white
+        pie.slices[0].fontSize = 10
+        pie.slices[1].fontSize = 10
         drawing.add(pie)
         story.append(drawing)
+        story.append(Spacer(1, 0.4 * inch))
+
+        # Add MAP SNAPSHOT
+        story.append(Paragraph("Geographic Distribution", section_style))
+
+        map_img = capture_map_as_image(enum_data, enumerator_name)
+
+        if map_img:
+            # Save PIL image to BytesIO
+            map_buffer = BytesIO()
+            map_img.save(map_buffer, format='PNG')
+            map_buffer.seek(0)
+
+            # Add to PDF with proper sizing
+            img_width = 6 * inch
+            img_height = 4.5 * inch
+
+            rl_image = RLImage(map_buffer, width=img_width, height=img_height)
+            story.append(rl_image)
+
+            # Add caption
+            caption_style = ParagraphStyle(
+                "Caption",
+                parent=styles["Normal"],
+                fontSize=9,
+                textColor=colors.grey,
+                alignment=TA_CENTER,
+                spaceAfter=6,
+            )
+            story.append(Spacer(1, 0.1 * inch))
+            story.append(Paragraph(
+                f"<i>Map showing {len(enum_data[~enum_data.geometry.is_empty])} subplot locations</i>",
+                caption_style
+            ))
+        else:
+            # If map capture fails, add a note
+            note_style = ParagraphStyle(
+                "Note",
+                parent=styles["Normal"],
+                fontSize=10,
+                textColor=colors.grey,
+                alignment=TA_CENTER,
+                spaceAfter=12,
+            )
+            story.append(Paragraph(
+                "<i>Map visualization not available - install matplotlib for static maps</i>",
+                note_style
+            ))
+
         story.append(Spacer(1, 0.3 * inch))
+        story.append(PageBreak())
+
+        # Additional Quality Metrics
+        story.append(Paragraph("Quality Metrics Breakdown", section_style))
+
+        # Calculate area statistics if available
+        quality_metrics = []
+        if "area_m2" in enum_data.columns:
+            avg_area = enum_data["area_m2"].mean()
+            min_area = enum_data["area_m2"].min()
+            max_area = enum_data["area_m2"].max()
+            quality_metrics.append(["Average Area", f"{avg_area:.1f} m²"])
+            quality_metrics.append(["Area Range", f"{min_area:.1f} - {max_area:.1f} m²"])
+
+        if "nr_vertices" in enum_data.columns:
+            avg_vertices = enum_data["nr_vertices"].mean()
+            quality_metrics.append(["Average Vertices", f"{avg_vertices:.1f}"])
+
+        if quality_metrics:
+            metrics_data = [["Metric", "Value"]] + quality_metrics
+            metrics_table = Table(metrics_data, colWidths=[3 * inch, 3 * inch])
+            metrics_table.setStyle(
+                TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1565C0")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("PADDING", (0, 0), (-1, -1), 10),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8F4F8")),
+                    ("GRID", (0, 0), (-1, -1), 0.75, colors.grey),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ])
+            )
+            story.append(metrics_table)
+            story.append(Spacer(1, 0.3 * inch))
 
         # Error analysis
         invalid_data = enum_data[~enum_data["geom_valid"]]
 
         if len(invalid_data) > 0:
-            story.append(Paragraph("Error Details", section_style))
+            story.append(PageBreak())
+            story.append(Paragraph("Detailed Error Analysis", section_style))
+
+            # Add error summary box
+            error_summary_style = ParagraphStyle(
+                "ErrorSummary",
+                parent=styles["Normal"],
+                fontSize=11,
+                textColor=colors.HexColor("#D32F2F"),
+                spaceBefore=6,
+                spaceAfter=12,
+                leftIndent=20,
+            )
+
+            story.append(Paragraph(
+                f"⚠️ <b>{len(invalid_data)} subplots ({error_rate:.1f}%)</b> require attention",
+                error_summary_style
+            ))
 
             error_types = {}
             for reasons in invalid_data["reasons"].dropna():
@@ -427,33 +643,84 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
                 sorted_errors = sorted(
                     error_types.items(), key=lambda x: x[1], reverse=True
                 )
-                error_breakdown = [["Error Type", "Count", "% of Errors"]]
+                error_breakdown = [["Error Type", "Occurrences", "% of Total", "% of Errors"]]
                 for error_type, count in sorted_errors[:10]:
-                    pct = count / len(invalid_data) * 100
-                    error_breakdown.append([error_type[:50], str(count), f"{pct:.1f}%"])
+                    pct_total = count / total * 100
+                    pct_errors = count / len(invalid_data) * 100
+                    # Truncate long error messages
+                    error_display = error_type[:45] + "..." if len(error_type) > 45 else error_type
+                    error_breakdown.append([
+                        error_display,
+                        str(count),
+                        f"{pct_total:.1f}%",
+                        f"{pct_errors:.1f}%"
+                    ])
 
                 error_table = Table(
-                    error_breakdown, colWidths=[3.5 * inch, 1 * inch, 1.5 * inch]
+                    error_breakdown,
+                    colWidths=[3 * inch, 1.2 * inch, 1 * inch, 1 * inch]
                 )
                 error_table.setStyle(
-                    TableStyle(
-                        [
-                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D32F2F")),
-                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                            ("PADDING", (0, 0), (-1, 0), 10),
-                            (
-                                "BACKGROUND",
-                                (0, 1),
-                                (-1, -1),
-                                colors.HexColor("#FFEBEE"),
-                            ),
-                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ]
-                    )
+                    TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D32F2F")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("PADDING", (0, 0), (-1, 0), 12),
+                        ("PADDING", (0, 1), (-1, -1), 8),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFEBEE")),
+                        ("GRID", (0, 0), (-1, -1), 0.75, colors.grey),
+                        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+                        ("FONTSIZE", (0, 1), (-1, -1), 9),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FFEBEE"), colors.white]),
+                    ])
                 )
 
                 story.append(error_table)
+                story.append(Spacer(1, 0.3 * inch))
+
+                # Add recommendations box
+                rec_style = ParagraphStyle(
+                    "Recommendations",
+                    parent=styles["Normal"],
+                    fontSize=10,
+                    spaceBefore=12,
+                    spaceAfter=6,
+                    leftIndent=20,
+                    rightIndent=20,
+                )
+
+                story.append(Paragraph("<b>📋 Recommendations:</b>", section_style))
+
+                recommendations = []
+                if error_rate > 30:
+                    recommendations.append("• Enumerator requires immediate retraining on data collection procedures")
+                    recommendations.append("• Review subplot boundary marking technique and GPS accuracy")
+                elif error_rate > 15:
+                    recommendations.append("• Schedule refresher training session")
+                    recommendations.append("• Monitor next data collection closely")
+                else:
+                    recommendations.append("• Performance is satisfactory")
+                    recommendations.append("• Continue with regular quality monitoring")
+
+                for rec in recommendations:
+                    story.append(Paragraph(rec, rec_style))
+
+        else:
+            # No errors found
+            success_style = ParagraphStyle(
+                "Success",
+                parent=styles["Normal"],
+                fontSize=12,
+                textColor=colors.HexColor("#4CAF50"),
+                alignment=TA_CENTER,
+                spaceBefore=20,
+                spaceAfter=20,
+            )
+            story.append(Paragraph(
+                "✓ <b>Excellent Work!</b> All subplots are valid with no errors detected.",
+                success_style
+            ))
 
         doc.build(story)
         buffer.seek(0)
