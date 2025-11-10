@@ -6,7 +6,7 @@ Removed Plotly fallback as it causes hanging
 import streamlit as st
 import pandas as pd
 import config
-from ui.components import show_header, create_sidebar_filters
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info
 from utils.data_processor import get_validation_summary
 
 # Import folium
@@ -62,6 +62,9 @@ gdf_subplots = st.session_state.data["subplots"]
 
 # Sidebar filters
 with st.sidebar:
+    # Show common sidebar info (partner, data status)
+    show_sidebar_info()
+
     st.markdown("## 🎨 Map Options")
 
     show_valid = st.checkbox("Show Valid Subplots", value=True)

@@ -6,7 +6,7 @@ Shows plots with ≥8 invalid subplots and detailed error breakdown
 import streamlit as st
 import pandas as pd
 import config
-from ui.components import show_header, create_sidebar_filters
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info
 
 # Page config
 st.set_page_config(
@@ -34,6 +34,9 @@ st.caption("Focus on plots with validation errors (≥8 invalid subplots)")
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
 raw_data = st.session_state.data.get("raw_data", {})
+
+# Show sidebar info
+show_sidebar_info()
 
 # ============================================
 # VEGETATION VALIDATION

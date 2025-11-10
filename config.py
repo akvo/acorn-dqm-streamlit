@@ -57,7 +57,7 @@ def get_active_partner():
         # st.query_params works differently in different Streamlit versions
 
         # For Streamlit >= 1.22
-        if hasattr(st, 'query_params'):
+        if hasattr(st, "query_params"):
             query_params = st.query_params
 
             # st.query_params is a dict-like object
@@ -77,11 +77,15 @@ def get_active_partner():
                         return "COMACO"
 
         # Fallback: try experimental API for older Streamlit versions
-        elif hasattr(st, 'experimental_get_query_params'):
+        elif hasattr(st, "experimental_get_query_params"):
             query_params = st.experimental_get_query_params()
 
             if "partner" in query_params:
-                partner_param = query_params["partner"][0] if isinstance(query_params["partner"], list) else query_params["partner"]
+                partner_param = (
+                    query_params["partner"][0]
+                    if isinstance(query_params["partner"], list)
+                    else query_params["partner"]
+                )
 
                 if partner_param:
                     partner_param = str(partner_param).upper()
@@ -119,13 +123,23 @@ GT_FORM_ID = PARTNER_CONFIG["gtID"]
 
 def refresh_partner_config():
     """
-    Refresh partner configuration based on current URL query parameters.
+    Refresh partner configuration based on current URL query parameters or session state.
     Call this from the app after Streamlit is fully initialized.
     """
+    import streamlit as st
+
     global ACTIVE_PARTNER, PARTNER, PARTNER_CONFIG, COUNTRY, COUNTRY_ISO3
     global DESCRIPTION, DQ_FORM_ID, GT_FORM_ID, APP_TITLE, APP_SUBTITLE, MAP_CENTER
 
+    # Get partner from URL or session state
     new_partner = get_active_partner()
+
+    # Store in session state for persistence across page navigation
+    if "partner" not in st.session_state or st.session_state.partner != new_partner:
+        st.session_state.partner = new_partner
+
+    # Use session state value if available
+    new_partner = st.session_state.get("partner", new_partner)
 
     # Only update if partner changed
     if new_partner != ACTIVE_PARTNER:
@@ -141,7 +155,29 @@ def refresh_partner_config():
         APP_SUBTITLE = f"Data Quality Management for {COUNTRY}"
         MAP_CENTER = PARTNER_CONFIG["map_center"]
 
+        # Update query params to match session state (Streamlit 1.50.0 syntax)
+        try:
+            st.query_params.update({"partner": new_partner})
+        except Exception:
+            # If query params can't be updated, that's ok - session state will persist
+            pass
+
     return ACTIVE_PARTNER
+
+
+def switch_page_with_query_params(page_path):
+    """
+    Switch to a page while preserving query parameters.
+
+    Args:
+        page_path: Path to the page (e.g., "pages/_Overview.py")
+    """
+    import streamlit as st
+
+    # Streamlit 1.50.0 should preserve query params automatically
+    # Just call switch_page directly
+    st.switch_page(page_path)
+
 
 # ============================================
 # VALIDATION THRESHOLDS

@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import config
-from ui.components import show_header, create_sidebar_filters
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info
 from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
@@ -54,6 +54,9 @@ st.caption("Error-focused analysis with adjustable thresholds")
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
 raw_data = st.session_state.data.get("raw_data", {})
+
+# Show sidebar info
+show_sidebar_info()
 
 # Apply filters
 filtered_gdf = create_sidebar_filters(gdf_subplots)

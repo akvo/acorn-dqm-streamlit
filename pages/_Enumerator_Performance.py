@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import json
 from io import BytesIO
 import config
-from ui.components import show_header
+from ui.components import show_header, show_sidebar_info
 
 # Try to import folium (optional for maps)
 try:
@@ -46,6 +46,9 @@ st.markdown("Track validation errors and quality issues by enumerator")
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
 raw_data = st.session_state.data.get("raw_data", {})
+
+# Show sidebar info
+show_sidebar_info()
 
 # Check if vegetation data available
 has_vegetation = "plots_subplots_vegetation" in raw_data

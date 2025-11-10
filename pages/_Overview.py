@@ -9,6 +9,7 @@ from ui.components import (
     show_metrics_row,
     show_status_message,
     create_sidebar_filters,
+    show_sidebar_info,
 )
 from ui.charts import (
     create_validation_pie_chart,
@@ -40,6 +41,9 @@ show_header()
 
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
+
+# Show sidebar info
+show_sidebar_info()
 
 # Apply filters
 filtered_gdf = create_sidebar_filters(gdf_subplots)

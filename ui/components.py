@@ -120,6 +120,38 @@ def show_status_message(summary):
         )
 
 
+def show_sidebar_info():
+    """
+    Show common sidebar information at the top of all pages.
+    Displays active partner and data status.
+    """
+    # Show active partner
+    active_partner = st.session_state.get("partner", config.PARTNER)
+    url_partner = st.query_params.get("partner", "None")
+
+    st.sidebar.info(f"🔗 **Partner:** {active_partner}")
+
+    # Debug info (can be removed later)
+    with st.sidebar.expander("🔍 Debug Info"):
+        st.caption(f"URL param: `{url_partner}`")
+        st.caption(f"Session state: `{active_partner}`")
+        st.caption(f"Config.PARTNER: `{config.PARTNER}`")
+
+    # Show data status if data is loaded
+    if st.session_state.get("data") is not None:
+        subplots = st.session_state.data.get("subplots")
+        if subplots is not None:
+            total = len(subplots)
+            valid = subplots["geom_valid"].sum() if "geom_valid" in subplots.columns else 0
+            st.sidebar.success(f"✅ {total} subplots loaded ({valid} valid)")
+    else:
+        st.sidebar.warning("⚠️ No data loaded")
+        if st.sidebar.button("← Go to Home"):
+            st.switch_page("app.py")
+
+    st.sidebar.markdown("---")
+
+
 def create_sidebar_filters(gdf):
     """Create sidebar filters and return filtered data"""
     st.sidebar.markdown("## 🔍 Filters")

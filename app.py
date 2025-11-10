@@ -56,27 +56,58 @@ if "data" not in st.session_state:
     st.session_state.data = None
 if "filename" not in st.session_state:
     st.session_state.filename = None
+if "server_name" not in st.session_state:
+    st.session_state.server_name = "akvofoundation"
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "password" not in st.session_state:
+    st.session_state.password = ""
 
 # Header
 show_header()
 
 # Sidebar - API Configuration
 with st.sidebar:
+    # Show active partner with debugging info
+    active_partner = st.session_state.get("partner", config.PARTNER)
+    url_partner = st.query_params.get("partner", "None")
+
+    st.info(f"🔗 **Active Partner:** {active_partner}")
+
+    # Debug info (can be removed later)
+    with st.expander("🔍 Debug Info"):
+        st.caption(f"URL param: `{url_partner}`")
+        st.caption(f"Session state: `{active_partner}`")
+        st.caption(f"Config.PARTNER: `{config.PARTNER}`")
+
     st.markdown("## 🌐 Data Source: API")
     st.markdown("### 🔐 SurveyCTO Credentials")
 
-    # Manual credential inputs
+    # Manual credential inputs (persisted in session state)
     server_name = st.text_input(
         "Server Name",
-        value="akvofoundation",
+        value=st.session_state.server_name,
+        key="server_name_input",
         help="Your SurveyCTO server name (e.g., akvofoundation)",
     )
+    st.session_state.server_name = server_name
 
-    username = st.text_input("Username", help="Your SurveyCTO username")
+    username = st.text_input(
+        "Username",
+        value=st.session_state.username,
+        key="username_input",
+        help="Your SurveyCTO username"
+    )
+    st.session_state.username = username
 
     password = st.text_input(
-        "Password", type="password", help="Your SurveyCTO password"
+        "Password",
+        value=st.session_state.password,
+        key="password_input",
+        type="password",
+        help="Your SurveyCTO password"
     )
+    st.session_state.password = password
 
     credentials_configured = bool(server_name and username and password)
 
@@ -226,7 +257,7 @@ if st.session_state.data is not None:
             unsafe_allow_html=True,
         )
         if st.button("Go to Overview →", key="nav_overview", use_container_width=True):
-            st.switch_page("pages/_Overview.py")
+            config.switch_page_with_query_params("pages/_Overview.py")
 
     with col2:
         st.markdown(
@@ -239,7 +270,7 @@ if st.session_state.data is not None:
             unsafe_allow_html=True,
         )
         if st.button("Go to Map →", key="nav_map", use_container_width=True):
-            st.switch_page("pages/_Map_View.py")
+            config.switch_page_with_query_params("pages/_Map_View.py")
 
     with col3:
         st.markdown(
@@ -252,7 +283,7 @@ if st.session_state.data is not None:
             unsafe_allow_html=True,
         )
         if st.button("Go to Issues →", key="nav_issues", use_container_width=True):
-            st.switch_page("pages/_Plot_Issues.py")
+            config.switch_page_with_query_params("pages/_Plot_Issues.py")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -269,7 +300,7 @@ if st.session_state.data is not None:
             unsafe_allow_html=True,
         )
         if st.button("Go to Details →", key="nav_details", use_container_width=True):
-            st.switch_page("pages/_Subplot_Details.py")
+            config.switch_page_with_query_params("pages/_Subplot_Details.py")
 
     with col5:
         st.markdown(
@@ -282,7 +313,7 @@ if st.session_state.data is not None:
             unsafe_allow_html=True,
         )
         if st.button("Go to Performance →", key="nav_enum", use_container_width=True):
-            st.switch_page("pages/_Enumerator_Performance.py")
+            config.switch_page_with_query_params("pages/_Enumerator_Performance.py")
 
 else:
     # Welcome screen
