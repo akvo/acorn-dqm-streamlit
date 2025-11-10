@@ -751,9 +751,12 @@ def read_json_to_sheets(json_data):
 
     # Sheet 2: Vegetation (extract from nested repeat groups)
     vegetation_records = []
+    vegetation_keys_found = set()  # Track which (subplot_num, veg_num) combinations we've seen
+
     for idx, row in df_main.iterrows():
         plot_key = row.get("KEY")
-        # Find all subplot and vegetation combinations
+
+        # First pass: Find all vegetation records by looking for vegetation_type_number
         for col in df_main.columns:
             # Match patterns like vegetation_type_number_1_1, vegetation_type_number_1_2, etc.
             match = re.match(r"vegetation_type_number_(\d+)_(\d+)$", col)
@@ -764,8 +767,10 @@ def read_json_to_sheets(json_data):
                 veg_type_num = row.get(
                     f"vegetation_type_number_{subplot_num}_{veg_num}"
                 )
-                # Only add if vegetation_type_number exists and is not null
+                # Add if vegetation_type_number exists and is not null
                 if pd.notna(veg_type_num):
+                    # Only mark as found if we're actually adding the record
+                    vegetation_keys_found.add((subplot_num, veg_num))
                     veg_rec = {
                         "SUBPLOT_KEY": f"{plot_key}/subplot_{subplot_num}",
                         "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
@@ -782,20 +787,136 @@ def read_json_to_sheets(json_data):
                         "vegetation_type_dbh": row.get(
                             f"vegetation_type_dbh_{subplot_num}_{veg_num}"
                         ),
+                        "tree_year_planted": row.get(
+                            f"tree_year_planted_{subplot_num}_{veg_num}"
+                        ),
                         "woody_species": row.get(
                             f"woody_species_{subplot_num}_{veg_num}"
                         ),
                         "non_woody_species": row.get(
                             f"non_woody_species_{subplot_num}_{veg_num}"
                         ),
+                        "bamboo_species": row.get(
+                            f"bamboo_species_{subplot_num}_{veg_num}"
+                        ),
+                        "banana_species": row.get(
+                            f"banana_species_{subplot_num}_{veg_num}"
+                        ),
+                        "palm_species": row.get(
+                            f"palm_species_{subplot_num}_{veg_num}"
+                        ),
+                        "other_species": row.get(
+                            f"other_species_{subplot_num}_{veg_num}"
+                        ),
+                        "language_other_species": row.get(
+                            f"language_other_species_{subplot_num}_{veg_num}"
+                        ),
                         "coverage_vegetation": row.get(
                             f"coverage_vegetation_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_height": row.get(
+                            f"coverage_height_{subplot_num}_{veg_num}"
+                        ),
+                        "crop_prune": row.get(
+                            f"crop_prune_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_prune_height": row.get(
+                            f"coverage_prune_height_{subplot_num}_{veg_num}"
+                        ),
+                        "crop_comments": row.get(
+                            f"crop_comments_{subplot_num}_{veg_num}"
                         ),
                         "vegetation_type_youngtree": row.get(
                             f"vegetation_type_youngtree_{subplot_num}_{veg_num}"
                         ),
                         "vegetation_species_type": row.get(
                             f"vegetation_species_type_{subplot_num}_{veg_num}"
+                        ),
+                    }
+                    vegetation_records.append(veg_rec)
+
+        # Second pass: Find coverage-only records (those without vegetation_type_number)
+        # Look for non_woody_species or coverage_vegetation patterns
+        for col in df_main.columns:
+            # Match patterns like non_woody_species_1_3, coverage_vegetation_1_3, etc.
+            match = re.match(r"(?:non_woody_species|coverage_vegetation)_(\d+)_(\d+)$", col)
+            if match:
+                subplot_num = int(match.group(1))
+                veg_num = int(match.group(2))
+
+                # Skip if we already found this vegetation record in first pass
+                if (subplot_num, veg_num) in vegetation_keys_found:
+                    continue
+
+                # Check if this record has coverage data
+                has_coverage = row.get(f"coverage_vegetation_{subplot_num}_{veg_num}")
+                has_non_woody = row.get(f"non_woody_species_{subplot_num}_{veg_num}")
+                has_veg_height = row.get(f"vegetation_type_height_{subplot_num}_{veg_num}")
+
+                # Only add if at least one coverage field exists
+                if pd.notna(has_coverage) or pd.notna(has_non_woody) or pd.notna(has_veg_height):
+                    vegetation_keys_found.add((subplot_num, veg_num))
+
+                    veg_rec = {
+                        "SUBPLOT_KEY": f"{plot_key}/subplot_{subplot_num}",
+                        "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
+                        "vegetation_type_number": None,  # Coverage-only has no tree count
+                        "vegetation_type_height": row.get(
+                            f"vegetation_type_height_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_species_type": row.get(
+                            f"vegetation_species_type_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_woody": row.get(
+                            f"vegetation_type_woody_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_primary": row.get(
+                            f"vegetation_type_primary_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_dbh": row.get(
+                            f"vegetation_type_dbh_{subplot_num}_{veg_num}"
+                        ),
+                        "tree_year_planted": row.get(
+                            f"tree_year_planted_{subplot_num}_{veg_num}"
+                        ),
+                        "woody_species": row.get(
+                            f"woody_species_{subplot_num}_{veg_num}"
+                        ),
+                        "non_woody_species": row.get(
+                            f"non_woody_species_{subplot_num}_{veg_num}"
+                        ),
+                        "bamboo_species": row.get(
+                            f"bamboo_species_{subplot_num}_{veg_num}"
+                        ),
+                        "banana_species": row.get(
+                            f"banana_species_{subplot_num}_{veg_num}"
+                        ),
+                        "palm_species": row.get(
+                            f"palm_species_{subplot_num}_{veg_num}"
+                        ),
+                        "other_species": row.get(
+                            f"other_species_{subplot_num}_{veg_num}"
+                        ),
+                        "language_other_species": row.get(
+                            f"language_other_species_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_vegetation": row.get(
+                            f"coverage_vegetation_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_height": row.get(
+                            f"coverage_height_{subplot_num}_{veg_num}"
+                        ),
+                        "crop_prune": row.get(
+                            f"crop_prune_{subplot_num}_{veg_num}"
+                        ),
+                        "coverage_prune_height": row.get(
+                            f"coverage_prune_height_{subplot_num}_{veg_num}"
+                        ),
+                        "crop_comments": row.get(
+                            f"crop_comments_{subplot_num}_{veg_num}"
+                        ),
+                        "vegetation_type_youngtree": row.get(
+                            f"vegetation_type_youngtree_{subplot_num}_{veg_num}"
                         ),
                     }
                     vegetation_records.append(veg_rec)
@@ -809,7 +930,14 @@ def read_json_to_sheets(json_data):
         numeric_cols = ["vegetation_type_number"]
         for col in numeric_cols:
             if col in vegetation_df.columns:
+                # Convert to numeric, None/NaN will remain as NaN (for coverage-only records)
                 vegetation_df[col] = pd.to_numeric(vegetation_df[col], errors="coerce")
+
+        # Parse tree_year_planted as datetime if it exists
+        if "tree_year_planted" in vegetation_df.columns:
+            vegetation_df["tree_year_planted"] = pd.to_datetime(
+                vegetation_df["tree_year_planted"], format="mixed", errors="coerce"
+            )
 
     # Sheet 3: Measurements
     measurement_records = []
@@ -831,14 +959,21 @@ def read_json_to_sheets(json_data):
                         "VEGETATION_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}",
                         "MEASUREMENT_KEY": f"{plot_key}/subplot_{subplot_num}/veg_{veg_num}/mea_{mea_num}",
                         "tree_height_m": tree_height,
-                        "nr_stems_bh": row.get(
-                            f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
                         "tree_prune": row.get(
                             f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"
                         ),
-                        "prune_heigth": row.get(
+                        # NOTE: API has typo "prune_heigth" instead of "prune_height"
+                        "prune_height": row.get(
                             f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                        "nr_stems_bh": row.get(
+                            f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                        "nr_stems_10cm": row.get(
+                            f"nr_stems_10cm_{subplot_num}_{veg_num}_{mea_num}"
+                        ),
+                        "tree_comments": row.get(
+                            f"tree_comments_{subplot_num}_{veg_num}_{mea_num}"
                         ),
                     }
                     measurement_records.append(mea_rec)
@@ -849,7 +984,7 @@ def read_json_to_sheets(json_data):
 
     # Convert numeric columns to proper types
     if len(measurement_df) > 0:
-        numeric_cols = ["tree_height_m", "nr_stems_bh", "prune_heigth"]
+        numeric_cols = ["tree_height_m", "nr_stems_bh", "nr_stems_10cm", "prune_height"]
         for col in numeric_cols:
             if col in measurement_df.columns:
                 measurement_df[col] = pd.to_numeric(

@@ -12,7 +12,6 @@ from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
     get_species_column,
-    debug_enumerator_data,
 )
 from utils.vegetation_validation import (
     get_missing_subplots,
@@ -29,11 +28,6 @@ from utils.vegetation_validation import (
     detect_suspicious_circumference_by_age,
     check_tall_trees,
 )
-
-
-def build_display_cols(df, base_cols):
-    """Build display columns list, only including columns that exist"""
-    return [col for col in base_cols if col in df.columns]
 
 
 # Page config
@@ -204,6 +198,31 @@ def extract_year_from_planted(series):
     return series.apply(parse_year)
 
 
+def calculate_tree_age_corrected(df, year_column="tree_year_planted"):
+    """
+    Calculate tree age from planting year
+    Handles epoch timestamps, direct years, and date strings
+
+    Parameters:
+    - df: DataFrame
+    - year_column: Column name containing planting year/date
+
+    Returns: DataFrame with 'tree_age' column added
+    """
+    if year_column not in df.columns:
+        return df
+
+    current_year = datetime.now().year
+
+    # Extract year (handles multiple formats)
+    planted_years = extract_year_from_planted(df[year_column])
+
+    # Calculate age
+    df["tree_age"] = current_year - planted_years
+
+    return df
+
+
 # ============================================
 # TABS
 # ============================================
@@ -225,35 +244,18 @@ tabs = st.tabs(
 with tabs[0]:
     st.markdown("### 🚫 Missing Vegetation and Measurement Data")
 
-    # CHECK 1: Missing vegetation records
-    st.markdown("#### 1️⃣ Subplots WITHOUT Vegetation Records")
-
-    # Filter veg_df to only actual vegetation (non-null VEGETATION_KEY)
+    # FILTER veg_df to only actual vegetation (non-null VEGETATION_KEY)
+    # This is needed if data_processor uses LEFT JOIN
     if "VEGETATION_KEY" in veg_df.columns:
         veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
     else:
         veg_df_actual = veg_df.copy()
 
-    # Get subplot_id values directly from filtered_gdf (before renaming)
-    filtered_subplot_keys = filtered_gdf["subplot_id"].unique()
+    # CHECK 1: Missing vegetation records
+    st.markdown("#### 1️⃣ Subplots WITHOUT Vegetation Records")
 
-    # Filter vegetation to only these subplots
-    veg_df_filtered = veg_df_actual[
-        veg_df_actual["SUBPLOT_KEY"].isin(filtered_subplot_keys)
-    ].copy()
-
-    # Prepare filtered_gdf for comparison with get_missing_subplots
-    plots_df_filtered = filtered_gdf.copy()
-
-    # Remove SUBPLOT_KEY if it already exists to avoid duplicates
-    if "SUBPLOT_KEY" in plots_df_filtered.columns:
-        plots_df_filtered = plots_df_filtered.drop(columns=["SUBPLOT_KEY"])
-
-    # Now rename subplot_id to SUBPLOT_KEY
-    plots_df_filtered = plots_df_filtered.rename(columns={"subplot_id": "SUBPLOT_KEY"})
-
-    # Get missing subplots
-    missing_veg = get_missing_subplots(plots_df_filtered, veg_df_filtered)
+    # Use utility function with filtered veg_df
+    missing_veg = get_missing_subplots(plots_df, veg_df_actual)
 
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -303,14 +305,12 @@ with tabs[0]:
     ]
 
     # Check if all columns exist
-    available_cols = [
-        col for col in density_parameters if col in veg_df_filtered.columns
-    ]
+    available_cols = [col for col in density_parameters if col in veg_df_actual.columns]
 
     if (
         len(available_cols) >= 3
     ):  # Need at least SUBPLOT_KEY, vegetation_type_number, coverage_vegetation
-        density = veg_df_filtered[available_cols].copy()
+        density = veg_df_actual[available_cols].copy()
 
         # Group by subplot
         agg_dict = {}
@@ -319,14 +319,18 @@ with tabs[0]:
         if "coverage_vegetation" in density.columns:
             agg_dict["coverage_vegetation"] = "sum"
         if "enumerator" in density.columns:
-            agg_dict["enumerator"] = "first"
+            agg_dict["enumerator"] = "unique"
         if "subplot_comments" in density.columns:
-            agg_dict["subplot_comments"] = "first"
+            agg_dict["subplot_comments"] = "unique"
 
         density_df = density.groupby("SUBPLOT_KEY").agg(agg_dict).reset_index()
 
         # Subplots with 0 trees (but have vegetation records - coverage only)
-        subplots_coverage = density_df[density_df["vegetation_type_number"] == 0]
+        # Include both 0 and NaN (API coverage-only records have no vegetation_type_number)
+        subplots_coverage = density_df[
+            (density_df["vegetation_type_number"] == 0) |
+            (density_df["vegetation_type_number"].isna())
+        ]
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -378,7 +382,7 @@ with tabs[0]:
 
     else:
         st.error("❌ Required columns not found for density analysis")
-        st.write(f"Available columns: {veg_df_filtered.columns.tolist()[:20]}")
+        st.write(f"Available columns: {veg_df_actual.columns.tolist()[:20]}")
 
     st.markdown("---")
 
@@ -389,8 +393,46 @@ with tabs[0]:
     )
 
     if has_measurements:
-        # Coverage-only subplots: just reuse the already calculated subplots_coverage
-        coverage_only = subplots_coverage.copy()
+        # Coverage-only subplots: subplots with 0 trees
+        # Try to use previously calculated subplots_coverage if available
+        coverage_only = pd.DataFrame()
+
+        try:
+            if "subplots_coverage" in locals() and len(subplots_coverage) > 0:
+                coverage_only = subplots_coverage.copy()
+        except:
+            pass
+
+        # If not available, recalculate with aggregation matching density_df
+        if len(coverage_only) == 0:
+            if "vegetation_type_number" in veg_df_actual.columns:
+                # Aggregate like density_df does
+                agg_dict = {"vegetation_type_number": "sum"}
+
+                # Add optional columns with same aggregation as density_df
+                if "coverage_vegetation" in veg_df_actual.columns:
+                    agg_dict["coverage_vegetation"] = "sum"
+                if "enumerator" in veg_df_actual.columns:
+                    agg_dict["enumerator"] = "unique"
+                if "subplot_comments" in veg_df_actual.columns:
+                    agg_dict["subplot_comments"] = "unique"
+                if "non_woody_species" in veg_df_actual.columns:
+                    agg_dict["non_woody_species"] = "unique"
+
+                temp_density = (
+                    veg_df_actual.groupby("SUBPLOT_KEY")
+                    .agg(agg_dict)
+                    .reset_index()
+                )
+
+                # Filter to coverage-only (0 trees OR NaN/null)
+                # API data: coverage-only records don't have vegetation_type_number field (will be NaN after sum)
+                coverage_only = temp_density[
+                    (temp_density["vegetation_type_number"] == 0) |
+                    (temp_density["vegetation_type_number"].isna())
+                ].copy()
+            else:
+                coverage_only = pd.DataFrame()
 
         # Missing measurements calculation
         if "plots_subplots_vegetation_measurements" in raw_data:
@@ -406,10 +448,10 @@ with tabs[0]:
         else:
             # Fallback: Do INNER JOIN ourselves
             if (
-                "VEGETATION_KEY" in veg_df_filtered.columns
+                "VEGETATION_KEY" in veg_df_actual.columns
                 and "VEGETATION_KEY" in meas_df.columns
             ):
-                m_mea_temp = veg_df_filtered.merge(
+                m_mea_temp = veg_df_actual.merge(
                     meas_df[["VEGETATION_KEY"]].drop_duplicates(),
                     on="VEGETATION_KEY",
                     how="inner",
@@ -418,18 +460,36 @@ with tabs[0]:
             else:
                 veg_mea = set()
 
-        # All subplots with vegetation (FILTERED)
-        reference_veg = set(veg_df_filtered["SUBPLOT_KEY"].unique())
+        # All subplots with vegetation
+        reference_veg = set(veg_df_actual["SUBPLOT_KEY"].unique())
 
         # Subplots missing measurements
         missing_veg_keys = reference_veg - veg_mea
 
         # Get one record per missing subplot for display
         missing_veg_df = (
-            veg_df_filtered[veg_df_filtered["SUBPLOT_KEY"].isin(missing_veg_keys)]
+            veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(missing_veg_keys)]
             .drop_duplicates(subset=["SUBPLOT_KEY"])
             .copy()
         )
+
+        # Debug info
+        with st.expander("🔍 Debug: Coverage vs Measurements Calculation"):
+            st.write(f"**Coverage-only subplots calculation:**")
+            st.write(f"- Total vegetation records: {len(veg_df_actual)}")
+            if "vegetation_type_number" in veg_df_actual.columns:
+                temp_debug = veg_df_actual.groupby("SUBPLOT_KEY")["vegetation_type_number"].sum().reset_index()
+                zero_trees = temp_debug[temp_debug["vegetation_type_number"] == 0]
+                null_trees = temp_debug[temp_debug["vegetation_type_number"].isna()]
+                st.write(f"- Subplots with 0 trees: {len(zero_trees)}")
+                st.write(f"- Subplots with NULL/NaN trees: {len(null_trees)}")
+                st.write(f"- Coverage-only result (0 OR NaN): {len(coverage_only)}")
+
+            st.write(f"\n**Missing measurements calculation:**")
+            st.write(f"- Total subplots with vegetation: {len(reference_veg)}")
+            st.write(f"- Subplots with measurements: {len(veg_mea)}")
+            st.write(f"- Subplots missing measurements: {len(missing_veg_keys)}")
+            st.write(f"- Missing veg dataframe: {len(missing_veg_df)}")
 
         col1, col2 = st.columns(2)
 
@@ -534,11 +594,17 @@ with tabs[1]:
 
     # Merge with enumerator for display
     if len(young_trees_other) > 0:
-        young_trees_other = merge_with_enumerator(young_trees_other, filtered_gdf)
+        young_trees_other = merge_with_enumerator(
+            young_trees_other, filtered_gdf, subplot_key_col="SUBPLOT_KEY"
+        )
     if len(primary_trees) > 0:
-        primary_trees = merge_with_enumerator(primary_trees, filtered_gdf)
+        primary_trees = merge_with_enumerator(
+            primary_trees, filtered_gdf, subplot_key_col="SUBPLOT_KEY"
+        )
     if len(non_primary_trees) > 0:
-        non_primary_trees = merge_with_enumerator(non_primary_trees, filtered_gdf)
+        non_primary_trees = merge_with_enumerator(
+            non_primary_trees, filtered_gdf, subplot_key_col="SUBPLOT_KEY"
+        )
 
     # Calculate totals
     col1, col2, col3 = st.columns(3)
@@ -566,11 +632,9 @@ with tabs[1]:
         if len(primary_trees) > 0:
             # Use notebook's collector_primary_list columns
             display_cols = []
-            if "enumerator" in primary_trees.columns:
-                display_cols.append("enumerator")
-            if "SUBPLOT_KEY" in primary_trees.columns:
-                display_cols.append("SUBPLOT_KEY")
             for col in [
+                "enumerator",
+                "SUBPLOT_KEY",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -578,9 +642,13 @@ with tabs[1]:
                 if col in primary_trees.columns:
                     display_cols.append(col)
 
-            st.dataframe(
-                primary_trees[display_cols], use_container_width=True, height=400
-            )
+            if len(display_cols) > 0:
+                st.dataframe(
+                    primary_trees[display_cols], use_container_width=True, height=400
+                )
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(primary_trees.columns)}")
         else:
             st.info(
                 "No primary trees with 'other' species found - check debug expander above"
@@ -595,12 +663,9 @@ with tabs[1]:
         if len(young_trees_other) > 0:
             # Use notebook's collector_list_trees_young columns
             display_cols = []
-            if "enumerator" in young_trees_other.columns:
-                display_cols.append("enumerator")
-            if "SUBPLOT_KEY" in young_trees_other.columns:
-                display_cols.append("SUBPLOT_KEY")
-
             for col in [
+                "enumerator",
+                "SUBPLOT_KEY",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -608,9 +673,13 @@ with tabs[1]:
                 if col in young_trees_other.columns:
                     display_cols.append(col)
 
-            st.dataframe(
-                young_trees_other[display_cols], use_container_width=True, height=400
-            )
+            if len(display_cols) > 0:
+                st.dataframe(
+                    young_trees_other[display_cols], use_container_width=True, height=400
+                )
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(young_trees_other.columns)}")
         else:
             st.warning("⚠️ No young trees with 'other' woody species found")
             st.info("Check the debug expander above to see the actual data values")
@@ -624,11 +693,9 @@ with tabs[1]:
         if len(non_primary_trees) > 0:
             # Use notebook's collector_list_trees columns
             display_cols = []
-            if "enumerator" in non_primary_trees.columns:
-                display_cols.append("enumerator")
-            if "SUBPLOT_KEY" in non_primary_trees.columns:
-                display_cols.append("SUBPLOT_KEY")
             for col in [
+                "enumerator",
+                "SUBPLOT_KEY",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -636,9 +703,13 @@ with tabs[1]:
                 if col in non_primary_trees.columns:
                     display_cols.append(col)
 
-            st.dataframe(
-                non_primary_trees[display_cols], use_container_width=True, height=400
-            )
+            if len(display_cols) > 0:
+                st.dataframe(
+                    non_primary_trees[display_cols], use_container_width=True, height=400
+                )
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(non_primary_trees.columns)}")
         else:
             st.info("No non-primary trees with 'other' species found")
 
@@ -678,52 +749,68 @@ with tabs[2]:
     with species_tabs[0]:
         if len(woody) > 0:
             st.markdown(f"**Woody Species List** ({len(woody)} records)")
-            display_cols = ["VEGETATION_KEY"]
-            if "enumerator" in woody.columns:
-                display_cols.append("enumerator")
-            display_cols.append("woody_species")
-            if "vegetation_type_number" in woody.columns:
-                display_cols.append("vegetation_type_number")
-            st.dataframe(woody[display_cols], use_container_width=True, height=400)
+            # Only include columns that exist
+            display_cols = []
+            for col in ["VEGETATION_KEY", "enumerator", "woody_species", "vegetation_type_number"]:
+                if col in woody.columns:
+                    display_cols.append(col)
+
+            if len(display_cols) > 0:
+                st.dataframe(woody[display_cols], use_container_width=True, height=400)
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(woody.columns)}")
         else:
             st.info("No woody species found")
 
     with species_tabs[1]:
         if len(palm) > 0:
             st.markdown(f"**Palm Species List** ({len(palm)} records)")
-            display_cols = ["VEGETATION_KEY"]
-            if "enumerator" in palm.columns:
-                display_cols.append("enumerator")
-            display_cols.append("palm_species")
-            if "vegetation_type_number" in palm.columns:
-                display_cols.append("vegetation_type_number")
-            st.dataframe(palm[display_cols], use_container_width=True, height=400)
+            # Only include columns that exist
+            display_cols = []
+            for col in ["VEGETATION_KEY", "enumerator", "palm_species", "vegetation_type_number"]:
+                if col in palm.columns:
+                    display_cols.append(col)
+
+            if len(display_cols) > 0:
+                st.dataframe(palm[display_cols], use_container_width=True, height=400)
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(palm.columns)}")
         else:
             st.info("No palm species found")
 
     with species_tabs[2]:
         if len(bamboo) > 0:
             st.markdown(f"**Bamboo Species List** ({len(bamboo)} records)")
-            display_cols = ["VEGETATION_KEY"]
-            if "enumerator" in bamboo.columns:
-                display_cols.append("enumerator")
-            display_cols.append("bamboo_species")
-            if "vegetation_type_number" in bamboo.columns:
-                display_cols.append("vegetation_type_number")
-            st.dataframe(bamboo[display_cols], use_container_width=True, height=400)
+            # Only include columns that exist
+            display_cols = []
+            for col in ["VEGETATION_KEY", "enumerator", "bamboo_species", "vegetation_type_number"]:
+                if col in bamboo.columns:
+                    display_cols.append(col)
+
+            if len(display_cols) > 0:
+                st.dataframe(bamboo[display_cols], use_container_width=True, height=400)
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(bamboo.columns)}")
         else:
             st.info("No bamboo species found")
 
     with species_tabs[3]:
         if len(banana) > 0:
             st.markdown(f"**Banana Species List** ({len(banana)} records)")
-            display_cols = ["VEGETATION_KEY"]
-            if "enumerator" in banana.columns:
-                display_cols.append("enumerator")
-            display_cols.append("banana_species")
-            if "vegetation_type_number" in banana.columns:
-                display_cols.append("vegetation_type_number")
-            st.dataframe(banana[display_cols], use_container_width=True, height=400)
+            # Only include columns that exist
+            display_cols = []
+            for col in ["VEGETATION_KEY", "enumerator", "banana_species", "vegetation_type_number"]:
+                if col in banana.columns:
+                    display_cols.append(col)
+
+            if len(display_cols) > 0:
+                st.dataframe(banana[display_cols], use_container_width=True, height=400)
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(banana.columns)}")
         else:
             st.info("No banana species found")
 
@@ -841,35 +928,33 @@ with tabs[3]:
         st.metric("Missing Height", len(missing_height))
         if len(missing_height) > 0:
             with st.expander(f"View {len(missing_height)} trees missing height"):
-                display_cols = ["VEGETATION_KEY"]
-            if (
-                "enumerator" in locals()
-                and hasattr(locals()[list(locals().keys())[-1]], "columns")
-                and "enumerator" in locals()[list(locals().keys())[-1]].columns
-            ):
-                display_cols.append("enumerator")
-                if species_col:
-                    display_cols.append(species_col)
-                st.dataframe(
-                    missing_height[display_cols], use_container_width=True, height=300
-                )
+                display_cols = []
+                for col in ["VEGETATION_KEY", "enumerator", species_col]:
+                    if col and col in missing_height.columns:
+                        display_cols.append(col)
+
+                if len(display_cols) > 0:
+                    st.dataframe(
+                        missing_height[display_cols], use_container_width=True, height=300
+                    )
+                else:
+                    st.warning("No displayable columns")
 
     with col2:
         st.metric("Missing Circumference", len(missing_circ))
         if len(missing_circ) > 0:
             with st.expander(f"View {len(missing_circ)} trees missing circumference"):
-                display_cols = ["VEGETATION_KEY"]
-            if (
-                "enumerator" in locals()
-                and hasattr(locals()[list(locals().keys())[-1]], "columns")
-                and "enumerator" in locals()[list(locals().keys())[-1]].columns
-            ):
-                display_cols.append("enumerator")
-                if species_col:
-                    display_cols.append(species_col)
-                st.dataframe(
-                    missing_circ[display_cols], use_container_width=True, height=300
-                )
+                display_cols = []
+                for col in ["VEGETATION_KEY", "enumerator", species_col]:
+                    if col and col in missing_circ.columns:
+                        display_cols.append(col)
+
+                if len(display_cols) > 0:
+                    st.dataframe(
+                        missing_circ[display_cols], use_container_width=True, height=300
+                    )
+                else:
+                    st.warning("No displayable columns")
 
     st.markdown("---")
 
@@ -903,30 +988,21 @@ with tabs[3]:
                         f"⚠️ {len(super_tall)} trees exceed {tall_tree_threshold}m - verify planting age is realistic"
                     )
 
-                    # Display columns
-                    display_cols = [
+                    # Display columns - build safely
+                    display_cols = []
+                    for col in [
                         "enumerator",
                         "VEGETATION_KEY",
                         "SUBPLOT_KEY",
                         "tree_height_m",
-                    ]
-
-                    # Add optional columns
-                    for col in [
                         "tree_year_planted",
                         "vegetation_type_number",
                         "tree_prune",
                         "tree_coppiced",
+                        species_col,
                     ]:
-                        if col in super_tall.columns:
+                        if col and col in super_tall.columns:
                             display_cols.append(col)
-
-                    if species_col and species_col in super_tall.columns:
-                        display_cols.append(species_col)
-
-                    display_cols = [
-                        col for col in display_cols if col in super_tall.columns
-                    ]
 
                     # Add row numbers
                     display_df = super_tall[display_cols].copy()
@@ -971,27 +1047,24 @@ with tabs[3]:
     if len(high_stems) > 0:
         st.warning(f"⚠️ {len(high_stems)} trees with unusually high stem counts")
 
-        display_cols = ["VEGETATION_KEY"]
-        if "enumerator" in high_stems.columns:
-            display_cols.append("enumerator")
-        display_cols.append("nr_stems_bh")
-        if "nr_stems_10cm" in high_stems.columns:
-            display_cols.append("nr_stems_10cm")
-        if species_col and species_col in high_stems.columns:
-            display_cols.append(species_col)
-        if "tree_year_planted" in high_stems.columns:
-            display_cols.append("tree_year_planted")
+        display_cols = []
+        for col in ["VEGETATION_KEY", "enumerator", "nr_stems_bh", "nr_stems_10cm", species_col, "tree_year_planted"]:
+            if col and col in high_stems.columns:
+                display_cols.append(col)
 
-        # Add row numbers
-        display_df = high_stems[display_cols].copy()
-        display_df.insert(0, "#", range(1, len(display_df) + 1))
+        if len(display_cols) > 0:
+            # Add row numbers
+            display_df = high_stems[display_cols].copy()
+            display_df.insert(0, "#", range(1, len(display_df) + 1))
 
-        st.dataframe(
-            display_df.sort_values("nr_stems_bh", ascending=False),
-            use_container_width=True,
-            height=min(400, len(high_stems) * 35 + 38),
-            hide_index=True,
-        )
+            st.dataframe(
+                display_df.sort_values("nr_stems_bh", ascending=False) if "nr_stems_bh" in display_df.columns else display_df,
+                use_container_width=True,
+                height=min(400, len(high_stems) * 35 + 38),
+                hide_index=True,
+            )
+        else:
+            st.warning("No displayable columns")
     else:
         st.success(f"✅ No trees exceed {stem_threshold} stems")
 
@@ -1096,7 +1169,9 @@ with tabs[3]:
                     )
 
                     with st.expander(f"View {len(any_outlier)} height outliers"):
-                        display_cols = [
+                        # Build display columns safely
+                        display_cols = []
+                        for col in [
                             "enumerator",
                             "VEGETATION_KEY",
                             "SUBPLOT_KEY",
@@ -1104,20 +1179,12 @@ with tabs[3]:
                             "median_height",
                             "Upper_outliers",
                             "Lower_outliers",
-                        ]
-
-                        # Add pruning/coppicing info if available
-                        for col in [
                             "tree_prune",
                             "tree_coppiced",
                             "vegetation_type_number",
                         ]:
-                            if col in any_outlier.columns:
+                            if col and col in any_outlier.columns:
                                 display_cols.append(col)
-
-                        display_cols = [
-                            col for col in display_cols if col in any_outlier.columns
-                        ]
 
                         st.dataframe(
                             any_outlier[display_cols].sort_values(
@@ -1200,7 +1267,9 @@ with tabs[3]:
             if has_bh or has_10cm:
                 # Add tree age calculation
                 if "tree_year_planted" in circumference_list.columns:
-                    circumference_list = calculate_tree_age(circumference_list)
+                    circumference_list = calculate_tree_age_corrected(
+                        circumference_list
+                    )
 
                 # Calculate median circumference per MEASUREMENT_KEY
                 # Use circumference_bh for median calculation (notebook logic)
@@ -1292,7 +1361,9 @@ with tabs[3]:
 
                         # Calculate tree age
                         if "tree_year_planted" in large_bh.columns:
-                            large_bh = calculate_tree_age(large_bh, "tree_year_planted")
+                            large_bh = calculate_tree_age_corrected(
+                                large_bh, "tree_year_planted"
+                            )
 
                         # Display columns
                         display_cols = [
@@ -1356,7 +1427,7 @@ with tabs[3]:
 
                         # Calculate tree age
                         if "tree_year_planted" in large_10cm.columns:
-                            large_10cm = calculate_tree_age(large_10cm)
+                            large_10cm = calculate_tree_age_corrected(large_10cm)
 
                         # Display columns
                         display_cols = [
@@ -1449,28 +1520,31 @@ with tabs[4]:
                 f"❌ {len(height_outliers)} height measurements are outliers for their species"
             )
 
-            display_cols = ["VEGETATION_KEY"]
-            if "enumerator" in height_outliers.columns:
-                display_cols.append("enumerator")
-            display_cols.extend(
-                [
-                    species_col,
-                    "tree_height_m",
-                    "median_height",
-                    "Upper_outliers",
-                    "Lower_outliers",
-                ]
-            )
-            if "tree_year_planted" in height_outliers.columns:
-                display_cols.append("tree_year_planted")
+            # Build display columns safely
+            display_cols = []
+            for col in [
+                "VEGETATION_KEY",
+                "enumerator",
+                species_col,
+                "tree_height_m",
+                "median_height",
+                "Upper_outliers",
+                "Lower_outliers",
+                "tree_year_planted",
+            ]:
+                if col and col in height_outliers.columns:
+                    display_cols.append(col)
 
-            st.dataframe(
-                height_outliers[display_cols].sort_values(
-                    "tree_height_m", ascending=False
-                ),
-                use_container_width=True,
-                height=min(400, len(height_outliers) * 35 + 38),
-            )
+            if len(display_cols) > 0:
+                st.dataframe(
+                    height_outliers[display_cols].sort_values(
+                        "tree_height_m", ascending=False
+                    ) if "tree_height_m" in display_cols else height_outliers[display_cols],
+                    use_container_width=True,
+                    height=min(400, len(height_outliers) * 35 + 38),
+                )
+            else:
+                st.warning("No displayable columns available")
         else:
             st.success("✅ No height outliers detected")
     else:
@@ -1512,57 +1586,34 @@ with tabs[4]:
 
             st.metric("Circumference Outliers", len(circ_outliers))
 
-            if (
-                "enumerator_x" in circ_outliers.columns
-                and "enumerator_y" in circ_outliers.columns
-            ):
-                circ_outliers["enumerator"] = circ_outliers["enumerator_y"].fillna(
-                    circ_outliers["enumerator_x"]
-                )
-                circ_outliers = circ_outliers.drop(
-                    columns=["enumerator_x", "enumerator_y"]
-                )
-            elif "enumerator_x" in circ_outliers.columns:
-                circ_outliers["enumerator"] = circ_outliers["enumerator_x"]
-                circ_outliers = circ_outliers.drop(columns=["enumerator_x"])
-            elif "enumerator_y" in circ_outliers.columns:
-                circ_outliers["enumerator"] = circ_outliers["enumerator_y"]
-                circ_outliers = circ_outliers.drop(columns=["enumerator_y"])
-
             if len(circ_outliers) > 0:
                 st.error(
                     f"❌ {len(circ_outliers)} circumference measurements are outliers for their species"
                 )
 
-                display_cols = ["VEGETATION_KEY"]
-                if "enumerator" in circ_outliers.columns:
-                    display_cols.append("enumerator")
-                display_cols.extend(
-                    [
-                        species_col,
-                        circ_col,
-                        "median_cir",
-                        "Upper_outliers",
-                        "Lower_outliers",
-                    ]
-                )
-                if "tree_year_planted" in circ_outliers.columns:
-                    display_cols.append("tree_year_planted")
+                # Build display columns safely
+                display_cols = []
+                for col in [
+                    "VEGETATION_KEY",
+                    "enumerator",
+                    species_col,
+                    circ_col,
+                    "median_cir",
+                    "Upper_outliers",
+                    "Lower_outliers",
+                    "tree_year_planted",
+                ]:
+                    if col and col in circ_outliers.columns:
+                        display_cols.append(col)
 
-                # DEBUG
-                print(f"display_cols: {display_cols}")
-                print(f"circ_outliers.columns: {circ_outliers.columns.tolist()}")
-                # Filter display_cols to only include columns that actually exist
-                display_cols = [
-                    col for col in display_cols if col in circ_outliers.columns
-                ]
-                print(f"filtered display_cols: {display_cols}")
-
-                st.dataframe(
-                    circ_outliers[display_cols].sort_values(circ_col, ascending=False),
-                    use_container_width=True,
-                    height=min(400, len(circ_outliers) * 35 + 38),
-                )
+                if len(display_cols) > 0:
+                    st.dataframe(
+                        circ_outliers[display_cols].sort_values(circ_col, ascending=False) if circ_col in display_cols else circ_outliers[display_cols],
+                        use_container_width=True,
+                        height=min(400, len(circ_outliers) * 35 + 38),
+                    )
+                else:
+                    st.warning("No displayable columns available")
             else:
                 st.success("✅ No circumference outliers detected")
         else:
@@ -1615,23 +1666,28 @@ with tabs[4]:
                         f"❌ {len(suspicious)} trees have unrealistic circumference for their age"
                     )
 
-                    display_cols = [
+                    # Build display columns safely
+                    display_cols = []
+                    for col in [
                         "VEGETATION_KEY",
                         "enumerator",
                         circ_col,
                         "tree_year_planted",
                         "tree_age",
-                    ]
-                    if "tree_height_m" in suspicious.columns:
-                        display_cols.append("tree_height_m")
-                    if species_col and species_col in suspicious.columns:
-                        display_cols.append(species_col)
+                        "tree_height_m",
+                        species_col,
+                    ]:
+                        if col and col in suspicious.columns:
+                            display_cols.append(col)
 
-                    st.dataframe(
-                        suspicious[display_cols].sort_values(circ_col, ascending=False),
-                        use_container_width=True,
-                        height=min(400, len(suspicious) * 35 + 38),
-                    )
+                    if len(display_cols) > 0:
+                        st.dataframe(
+                            suspicious[display_cols].sort_values(circ_col, ascending=False) if circ_col in display_cols else suspicious[display_cols],
+                            use_container_width=True,
+                            height=min(400, len(suspicious) * 35 + 38),
+                        )
+                    else:
+                        st.warning("No displayable columns available")
                 else:
                     st.success(
                         "✅ No suspicious circumference-age combinations detected"
@@ -1651,15 +1707,47 @@ with tabs[4]:
         "Interactive scatter plot: Height vs Circumference, sized by stem count, colored by species"
     )
 
-    # Around line 1690-1755 in Tab 5
     if has_complete and species_col:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
+
+        # Debug: Show what's in complete dataset
+        with st.expander("🔍 Debug: Complete Dataset Info"):
+            st.write(f"Total rows in complete dataset: {len(complete_with_enum)}")
+            st.write(f"Total columns: {len(complete_with_enum.columns)}")
+
+            # Check for tree_year_planted
+            if "tree_year_planted" in complete_with_enum.columns:
+                non_null = complete_with_enum["tree_year_planted"].notna().sum()
+                st.success(f"✅ tree_year_planted exists: {non_null} non-null values out of {len(complete_with_enum)}")
+
+                # Show sample values
+                sample_vals = complete_with_enum["tree_year_planted"].dropna().head(5).tolist()
+                st.write(f"Sample values: {sample_vals}")
+                st.write(f"Data type: {complete_with_enum['tree_year_planted'].dtype}")
+            else:
+                st.error("❌ tree_year_planted column NOT FOUND")
+                st.write("Available columns (first 30):")
+                st.write(list(complete_with_enum.columns[:30]))
+
+                # Check for similar column names
+                similar_cols = [col for col in complete_with_enum.columns if 'plant' in col.lower() or 'year' in col.lower() or 'age' in col.lower()]
+                if similar_cols:
+                    st.info(f"Similar columns found: {similar_cols}")
 
         # Calculate tree age
         current_year = datetime.now().year
 
         if "tree_year_planted" in complete_with_enum.columns:
-            complete_with_enum = calculate_tree_age(complete_with_enum)
+            complete_with_enum = calculate_tree_age_corrected(complete_with_enum)
+
+            # Debug: Check if tree_age was created
+            if "tree_age" in complete_with_enum.columns:
+                non_null_age = complete_with_enum["tree_age"].notna().sum()
+                st.success(f"✅ tree_age calculated: {non_null_age} non-null values")
+            else:
+                st.error("❌ tree_age was NOT created after calculation")
+        else:
+            st.warning("⚠️ Skipping tree_age calculation - tree_year_planted not found")
 
         # Determine circumference column
         circ_col = None
@@ -1668,13 +1756,14 @@ with tabs[4]:
         elif "circumference_10cm" in complete_with_enum.columns:
             circ_col = "circumference_10cm"
 
-        # Check required columns - BUILD LIST BASED ON WHAT EXISTS
-        required_cols = ["tree_height_m", circ_col, "nr_stems_bh", species_col]
-
-        # Only add tree_age if it exists
-        if "tree_age" in complete_with_enum.columns:
-            required_cols.append("tree_age")
-
+        # Check required columns
+        required_cols = [
+            "tree_height_m",
+            circ_col,
+            "nr_stems_bh",
+            species_col,
+            "tree_age",
+        ]
         available_cols = [
             col for col in required_cols if col and col in complete_with_enum.columns
         ]
@@ -1689,17 +1778,27 @@ with tabs[4]:
             )
 
             if len(plot_data) > 0:
-                # User controls - BUILD OPTIONS BASED ON WHAT'S AVAILABLE
+                # Debug info to help understand available data
+                with st.expander("🔍 Debug: Available Plot Columns"):
+                    st.write(f"Columns in plot data: {list(plot_data.columns)}")
+                    st.write(f"Number of rows: {len(plot_data)}")
+                    if "tree_age" in plot_data.columns:
+                        non_null_age = plot_data["tree_age"].notna().sum()
+                        st.write(f"tree_age: {non_null_age} non-null values out of {len(plot_data)}")
+
+                # User controls
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    # X-axis options
+                    # Build X-axis options from available columns
                     x_options = []
-                    if "tree_age" in plot_data.columns:
-                        x_options.append("tree_age")
-                    if circ_col:
-                        x_options.append(circ_col)
-                    x_options.append("nr_stems_bh")
+                    for col in ["tree_age", circ_col, "nr_stems_bh"]:
+                        if col and col in plot_data.columns:
+                            x_options.append(col)
+
+                    if len(x_options) == 0:
+                        st.error("No valid X-axis options available")
+                        st.stop()
 
                     x_axis = st.selectbox(
                         "X-axis",
@@ -1709,17 +1808,37 @@ with tabs[4]:
                     )
 
                 with col2:
+                    # Build Y-axis options from available columns
+                    y_options = []
+                    for col in ["tree_height_m", circ_col, "nr_stems_bh"]:
+                        if col and col in plot_data.columns:
+                            y_options.append(col)
+
+                    if len(y_options) == 0:
+                        st.error("No valid Y-axis options available")
+                        st.stop()
+
                     y_axis = st.selectbox(
                         "Y-axis",
-                        options=["tree_height_m", circ_col, "nr_stems_bh"],
+                        options=y_options,
                         index=0,
                         help="Select variable for Y-axis",
                     )
 
                 with col3:
+                    # Build Size options from available columns
+                    size_options = []
+                    for col in ["nr_stems_bh", circ_col, "tree_height_m"]:
+                        if col and col in plot_data.columns:
+                            size_options.append(col)
+
+                    if len(size_options) == 0:
+                        st.error("No valid size options available")
+                        st.stop()
+
                     size_var = st.selectbox(
                         "Size by",
-                        options=["nr_stems_bh", circ_col, "tree_height_m"],
+                        options=size_options,
                         index=0,
                         help="Select variable for point size",
                     )
@@ -1729,13 +1848,6 @@ with tabs[4]:
 
                 # Clean data for selected variables
                 plot_cols = [x_axis, y_axis, size_var, species_col]
-                # Filter out any None values
-                plot_cols = [
-                    col
-                    for col in plot_cols
-                    if col is not None and col in plot_data.columns
-                ]
-
                 plot_subset = plot_data[plot_cols].dropna()
 
                 if len(plot_subset) > 0:
