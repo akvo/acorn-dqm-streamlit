@@ -15,13 +15,17 @@ import pandas as pd
 import requests
 from io import BytesIO
 
-# Page config
+# Page config (must be first)
 st.set_page_config(
-    page_title=config.APP_TITLE,
-    page_icon=config.APP_ICON,
+    page_title="Ground Truth DQM",
+    page_icon="🌳",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Refresh partner configuration based on URL parameter
+# This must be called AFTER set_page_config and BEFORE anything else
+config.refresh_partner_config()
 
 # Custom CSS
 st.markdown(
@@ -85,11 +89,15 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📋 Form ID")
 
+    # Show current partner's form ID
+    st.info(f"📋 **Active Partner**: {config.PARTNER}\n\n"
+            f"**Form ID**: `{config.DQ_FORM_ID}`")
+
     form_id = st.text_input(
-        "Enter form ID:",
-        value="data_quality_ground_truth_collection_afoco_2025",
-        help="Your SurveyCTO form ID",
-        placeholder="data_quality_ground_truth_collection_afoco_2025",
+        "Form ID (auto-filled based on partner):",
+        value=config.DQ_FORM_ID,
+        help=f"Form ID for {config.PARTNER} - Change URL ?partner= to switch partners",
+        placeholder=config.DQ_FORM_ID,
     )
 
     if form_id:

@@ -10,10 +10,13 @@ from ui.components import show_header, create_sidebar_filters
 
 # Page config
 st.set_page_config(
-    page_title="Plot Issues - " + config.APP_TITLE,
+    page_title="Plot Issues - Ground Truth DQM",
     page_icon="⚠️",
     layout="wide",
 )
+
+# Refresh partner config from URL
+config.refresh_partner_config()
 
 # Check if data exists
 if "data" not in st.session_state or st.session_state.data is None:

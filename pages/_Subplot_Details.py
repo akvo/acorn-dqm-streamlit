@@ -31,10 +31,13 @@ from utils.vegetation_validation import (
 
 # Page config
 st.set_page_config(
-    page_title="Subplot Details - " + config.APP_TITLE,
+    page_title="Subplot Details - Ground Truth DQM",
     page_icon="🌳",
     layout="wide",
 )
+
+# Refresh partner config from URL
+config.refresh_partner_config()
 
 # Check if data exists
 if "data" not in st.session_state or st.session_state.data is None:

@@ -23,10 +23,13 @@ except ImportError:
 
 # Page config
 st.set_page_config(
-    page_title="Enumerator Performance - " + config.APP_TITLE,
+    page_title="Enumerator Performance - Ground Truth DQM",
     page_icon="👥",
     layout="wide",
 )
+
+# Refresh partner config from URL
+config.refresh_partner_config()
 
 # Check if data exists
 if "data" not in st.session_state or st.session_state.data is None:

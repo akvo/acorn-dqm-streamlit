@@ -8,20 +8,64 @@ import pandas as pd
 
 
 def show_header():
-    """Display app header"""
+    """Display app header with partner information"""
     st.markdown(
         f"""
-        <div style="background: linear-gradient(90deg, #2E7D32 0%, #388E3C 100%); 
+        <div style="background: linear-gradient(90deg, #2E7D32 0%, #388E3C 100%);
                     padding: 2rem; border-radius: 10px; margin-bottom: 2rem;">
             <h1 style="color: white; margin: 0;">
                 {config.APP_ICON} {config.APP_TITLE}
             </h1>
-            <p style="color: #E8F5E9; margin-top: 0.5rem;">
-                Country: {config.COUNTRY} | Partner: {config.PARTNER} | Year: {config.YEAR}
+            <p style="color: #E8F5E9; margin-top: 0.5rem; font-size: 1.1em;">
+                {config.APP_SUBTITLE}
+            </p>
+            <p style="color: #C8E6C9; margin-top: 0.3rem; font-size: 0.9em;">
+                Active Partner: <strong>{config.PARTNER}</strong> | Country: <strong>{config.COUNTRY}</strong> | Year: {config.YEAR}
             </p>
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+
+def show_partner_selector():
+    """Display partner selection info and available partners"""
+    st.markdown("### 🌍 Available Partners")
+
+    st.info(
+        """
+        💡 **How to switch partners:** Add `?partner=PARTNER_NAME` to the URL
+
+        Example URLs:
+        - **IORA (India)**: `?partner=IORA`
+        - **AFOCO (Kyrgyzstan)**: `?partner=AFOCO`
+        - **COMACO (Zambia)**: `?partner=COMACO`
+        """
+    )
+
+    # Show available partners in a nice table
+    partner_data = []
+    for partner_code, partner_info in config.PARTNERS.items():
+        is_active = "✅ Active" if partner_code == config.PARTNER else ""
+        partner_data.append({
+            "Partner": partner_code,
+            "Description": partner_info["description"],
+            "Country": partner_info["country"],
+            "Status": is_active
+        })
+
+    df = pd.DataFrame(partner_data)
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Partner": st.column_config.TextColumn("Partner Code", width="small"),
+            "Description": st.column_config.TextColumn("Description", width="medium"),
+            "Country": st.column_config.TextColumn("Country", width="small"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+        }
     )
 
 
