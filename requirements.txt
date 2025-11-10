@@ -7,6 +7,8 @@ pyproj==3.6.1
 utm==0.7.0
 geojson-rewind==1.0.3
 plotly==5.18.0
+matplotlib>=3.9.0
 folium==0.15.1
 streamlit-folium==0.15.1
 reportlab>=3.6.0
+requests>=2.31.0
