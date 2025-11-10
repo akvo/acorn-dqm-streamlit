@@ -317,10 +317,9 @@ def capture_map_as_image(enum_data, enumerator_name):
             return img
 
         except Exception:
-            # Fallback: Create a simple static map using matplotlib
+            # Fallback: Create a simple info graphic using Pillow
             try:
-                import matplotlib.pyplot as plt
-                import matplotlib.patches as mpatches
+                from PIL import Image, ImageDraw, ImageFont
                 from io import BytesIO
 
                 # Filter valid geometries
@@ -328,41 +327,69 @@ def capture_map_as_image(enum_data, enumerator_name):
                 if len(map_data) == 0:
                     return None
 
-                # Create figure
-                fig, ax = plt.subplots(figsize=(10, 8))
+                # Count valid/invalid
+                valid_count = map_data["geom_valid"].sum()
+                invalid_count = (~map_data["geom_valid"]).sum()
+                total_count = len(map_data)
 
-                # Plot valid and invalid subplots with different colors
-                valid_data = map_data[map_data["geom_valid"]]
-                invalid_data = map_data[~map_data["geom_valid"]]
+                # Create image
+                width, height = 800, 600
+                img = Image.new('RGB', (width, height), color='#F5F5F5')
+                draw = ImageDraw.Draw(img)
 
-                if len(valid_data) > 0:
-                    valid_data.plot(ax=ax, color='green', alpha=0.6, edgecolor='darkgreen', linewidth=1)
+                # Try to use a nice font, fall back to default if not available
+                try:
+                    title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+                    text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+                    label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+                except:
+                    # Fall back to default font
+                    title_font = ImageFont.load_default()
+                    text_font = ImageFont.load_default()
+                    label_font = ImageFont.load_default()
 
-                if len(invalid_data) > 0:
-                    invalid_data.plot(ax=ax, color='red', alpha=0.6, edgecolor='darkred', linewidth=1)
+                # Draw title
+                title = f"Subplot Distribution - {enumerator_name}"
+                title_bbox = draw.textbbox((0, 0), title, font=title_font)
+                title_width = title_bbox[2] - title_bbox[0]
+                draw.text(((width - title_width) // 2, 40), title, fill='#1565C0', font=title_font)
 
-                # Add title and legend
-                ax.set_title(f"Subplot Locations - {enumerator_name}", fontsize=14, fontweight='bold')
-                ax.set_xlabel("Longitude")
-                ax.set_ylabel("Latitude")
+                # Draw statistics box
+                box_y = 120
+                box_height = 350
+                draw.rectangle([100, box_y, width-100, box_y+box_height], fill='white', outline='#1565C0', width=3)
 
-                # Create legend
-                valid_patch = mpatches.Patch(color='green', alpha=0.6, label=f'Valid ({len(valid_data)})')
-                invalid_patch = mpatches.Patch(color='red', alpha=0.6, label=f'Invalid ({len(invalid_data)})')
-                ax.legend(handles=[valid_patch, invalid_patch], loc='upper right')
+                # Draw statistics
+                y_pos = box_y + 60
 
-                # Remove axis spines for cleaner look
-                ax.spines['top'].set_visible(False)
-                ax.spines['right'].set_visible(False)
+                # Total subplots
+                draw.text((width//2 - 150, y_pos), f"Total Subplots:", fill='#333333', font=text_font)
+                draw.text((width//2 + 50, y_pos), f"{total_count}", fill='#1565C0', font=text_font)
+                y_pos += 80
 
-                plt.tight_layout()
+                # Valid subplots (green)
+                draw.rectangle([width//2 - 180, y_pos-5, width//2 - 160, y_pos+20], fill='#4CAF50')
+                draw.text((width//2 - 150, y_pos), f"Valid Subplots:", fill='#333333', font=text_font)
+                draw.text((width//2 + 50, y_pos), f"{valid_count}", fill='#4CAF50', font=text_font)
+                y_pos += 80
 
-                # Convert to PIL Image
-                buf = BytesIO()
-                plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-                plt.close()
-                buf.seek(0)
-                img = Image.open(buf)
+                # Invalid subplots (red)
+                draw.rectangle([width//2 - 180, y_pos-5, width//2 - 160, y_pos+20], fill='#F44336')
+                draw.text((width//2 - 150, y_pos), f"Invalid Subplots:", fill='#333333', font=text_font)
+                draw.text((width//2 + 50, y_pos), f"{invalid_count}", fill='#F44336', font=text_font)
+                y_pos += 80
+
+                # Success rate
+                success_rate = (valid_count / total_count * 100) if total_count > 0 else 0
+                draw.text((width//2 - 150, y_pos), f"Success Rate:", fill='#333333', font=text_font)
+                color = '#4CAF50' if success_rate >= 85 else '#F44336'
+                draw.text((width//2 + 50, y_pos), f"{success_rate:.1f}%", fill=color, font=text_font)
+
+                # Add footer note
+                note = "Note: Interactive map available in web interface"
+                note_bbox = draw.textbbox((0, 0), note, font=label_font)
+                note_width = note_bbox[2] - note_bbox[0]
+                draw.text(((width - note_width) // 2, height - 50), note, fill='#757575', font=label_font)
 
                 return img
 
@@ -572,7 +599,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
                 spaceAfter=12,
             )
             story.append(Paragraph(
-                "<i>Map visualization not available - install matplotlib for static maps</i>",
+                "<i>Map visualization not available - view interactive map in web interface</i>",
                 note_style
             ))
 
