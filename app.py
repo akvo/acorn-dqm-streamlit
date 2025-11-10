@@ -90,14 +90,16 @@ with st.sidebar:
     st.markdown("### 📋 Form ID")
 
     # Show current partner's form ID
-    st.info(f"📋 **Active Partner**: {config.PARTNER}\n\n"
-            f"**Form ID**: `{config.DQ_FORM_ID}`")
+    st.info(
+        f"📋 **Active Partner**: {config.PARTNER}\n\n"
+        f"**Form ID**: `{config.GT_FORM_ID}`"
+    )
 
     form_id = st.text_input(
         "Form ID (auto-filled based on partner):",
-        value=config.DQ_FORM_ID,
+        value=config.GT_FORM_ID,
         help=f"Form ID for {config.PARTNER} - Change URL ?partner= to switch partners",
-        placeholder=config.DQ_FORM_ID,
+        placeholder=config.GT_FORM_ID,
     )
 
     if form_id:
