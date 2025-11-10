@@ -123,23 +123,24 @@ GT_FORM_ID = PARTNER_CONFIG["gtID"]
 
 def refresh_partner_config():
     """
-    Refresh partner configuration based on current URL query parameters or session state.
+    Refresh partner configuration based on session state or URL query parameters.
     Call this from the app after Streamlit is fully initialized.
+
+    Priority: Session State > URL Parameter > Default
     """
     import streamlit as st
 
     global ACTIVE_PARTNER, PARTNER, PARTNER_CONFIG, COUNTRY, COUNTRY_ISO3
     global DESCRIPTION, DQ_FORM_ID, GT_FORM_ID, APP_TITLE, APP_SUBTITLE, MAP_CENTER
 
-    # Get partner from URL or session state
-    new_partner = get_active_partner()
-
-    # Store in session state for persistence across page navigation
-    if "partner" not in st.session_state or st.session_state.partner != new_partner:
+    # Priority 1: Use session state if it exists (for navigation persistence)
+    if "partner" in st.session_state and st.session_state.partner:
+        new_partner = st.session_state.partner
+    else:
+        # Priority 2: Read from URL parameter (for initial load)
+        new_partner = get_active_partner()
+        # Store in session state for future navigation
         st.session_state.partner = new_partner
-
-    # Use session state value if available
-    new_partner = st.session_state.get("partner", new_partner)
 
     # Only update if partner changed
     if new_partner != ACTIVE_PARTNER:
