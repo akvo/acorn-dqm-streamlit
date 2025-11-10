@@ -204,31 +204,6 @@ def extract_year_from_planted(series):
     return series.apply(parse_year)
 
 
-def calculate_tree_age_corrected(df, year_column="tree_year_planted"):
-    """
-    Calculate tree age from planting year
-    Handles epoch timestamps, direct years, and date strings
-
-    Parameters:
-    - df: DataFrame
-    - year_column: Column name containing planting year/date
-
-    Returns: DataFrame with 'tree_age' column added
-    """
-    if year_column not in df.columns:
-        return df
-
-    current_year = datetime.now().year
-
-    # Extract year (handles multiple formats)
-    planted_years = extract_year_from_planted(df[year_column])
-
-    # Calculate age
-    df["tree_age"] = current_year - planted_years
-
-    return df
-
-
 # ============================================
 # TABS
 # ============================================
@@ -250,18 +225,35 @@ tabs = st.tabs(
 with tabs[0]:
     st.markdown("### 🚫 Missing Vegetation and Measurement Data")
 
-    # FILTER veg_df to only actual vegetation (non-null VEGETATION_KEY)
-    # This is needed if data_processor uses LEFT JOIN
+    # CHECK 1: Missing vegetation records
+    st.markdown("#### 1️⃣ Subplots WITHOUT Vegetation Records")
+
+    # Filter veg_df to only actual vegetation (non-null VEGETATION_KEY)
     if "VEGETATION_KEY" in veg_df.columns:
         veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
     else:
         veg_df_actual = veg_df.copy()
 
-    # CHECK 1: Missing vegetation records
-    st.markdown("#### 1️⃣ Subplots WITHOUT Vegetation Records")
+    # Get subplot_id values directly from filtered_gdf (before renaming)
+    filtered_subplot_keys = filtered_gdf["subplot_id"].unique()
 
-    # Use utility function with filtered veg_df
-    missing_veg = get_missing_subplots(plots_df, veg_df_actual)
+    # Filter vegetation to only these subplots
+    veg_df_filtered = veg_df_actual[
+        veg_df_actual["SUBPLOT_KEY"].isin(filtered_subplot_keys)
+    ].copy()
+
+    # Prepare filtered_gdf for comparison with get_missing_subplots
+    plots_df_filtered = filtered_gdf.copy()
+
+    # Remove SUBPLOT_KEY if it already exists to avoid duplicates
+    if "SUBPLOT_KEY" in plots_df_filtered.columns:
+        plots_df_filtered = plots_df_filtered.drop(columns=["SUBPLOT_KEY"])
+
+    # Now rename subplot_id to SUBPLOT_KEY
+    plots_df_filtered = plots_df_filtered.rename(columns={"subplot_id": "SUBPLOT_KEY"})
+
+    # Get missing subplots
+    missing_veg = get_missing_subplots(plots_df_filtered, veg_df_filtered)
 
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -311,12 +303,14 @@ with tabs[0]:
     ]
 
     # Check if all columns exist
-    available_cols = [col for col in density_parameters if col in veg_df_actual.columns]
+    available_cols = [
+        col for col in density_parameters if col in veg_df_filtered.columns
+    ]
 
     if (
         len(available_cols) >= 3
     ):  # Need at least SUBPLOT_KEY, vegetation_type_number, coverage_vegetation
-        density = veg_df_actual[available_cols].copy()
+        density = veg_df_filtered[available_cols].copy()
 
         # Group by subplot
         agg_dict = {}
@@ -325,9 +319,9 @@ with tabs[0]:
         if "coverage_vegetation" in density.columns:
             agg_dict["coverage_vegetation"] = "sum"
         if "enumerator" in density.columns:
-            agg_dict["enumerator"] = "unique"
+            agg_dict["enumerator"] = "first"
         if "subplot_comments" in density.columns:
-            agg_dict["subplot_comments"] = "unique"
+            agg_dict["subplot_comments"] = "first"
 
         density_df = density.groupby("SUBPLOT_KEY").agg(agg_dict).reset_index()
 
@@ -384,7 +378,7 @@ with tabs[0]:
 
     else:
         st.error("❌ Required columns not found for density analysis")
-        st.write(f"Available columns: {veg_df_actual.columns.tolist()[:20]}")
+        st.write(f"Available columns: {veg_df_filtered.columns.tolist()[:20]}")
 
     st.markdown("---")
 
@@ -395,24 +389,8 @@ with tabs[0]:
     )
 
     if has_measurements:
-        # Coverage-only subplots: subplots with 0 trees
-        if "subplots_coverage" in locals() and len(density_df) > 0:
-            coverage_only = subplots_coverage.copy()
-        else:
-            if "vegetation_type_number" in veg_df_actual.columns:
-                temp_density = (
-                    veg_df_actual.groupby("SUBPLOT_KEY")
-                    .agg({"vegetation_type_number": "sum"})
-                    .reset_index()
-                )
-                coverage_only_keys = temp_density[
-                    temp_density["vegetation_type_number"] == 0
-                ]["SUBPLOT_KEY"]
-                coverage_only = veg_df_actual[
-                    veg_df_actual["SUBPLOT_KEY"].isin(coverage_only_keys)
-                ].copy()
-            else:
-                coverage_only = pd.DataFrame()
+        # Coverage-only subplots: just reuse the already calculated subplots_coverage
+        coverage_only = subplots_coverage.copy()
 
         # Missing measurements calculation
         if "plots_subplots_vegetation_measurements" in raw_data:
@@ -428,10 +406,10 @@ with tabs[0]:
         else:
             # Fallback: Do INNER JOIN ourselves
             if (
-                "VEGETATION_KEY" in veg_df_actual.columns
+                "VEGETATION_KEY" in veg_df_filtered.columns
                 and "VEGETATION_KEY" in meas_df.columns
             ):
-                m_mea_temp = veg_df_actual.merge(
+                m_mea_temp = veg_df_filtered.merge(
                     meas_df[["VEGETATION_KEY"]].drop_duplicates(),
                     on="VEGETATION_KEY",
                     how="inner",
@@ -440,15 +418,15 @@ with tabs[0]:
             else:
                 veg_mea = set()
 
-        # All subplots with vegetation
-        reference_veg = set(veg_df_actual["SUBPLOT_KEY"].unique())
+        # All subplots with vegetation (FILTERED)
+        reference_veg = set(veg_df_filtered["SUBPLOT_KEY"].unique())
 
         # Subplots missing measurements
         missing_veg_keys = reference_veg - veg_mea
 
         # Get one record per missing subplot for display
         missing_veg_df = (
-            veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(missing_veg_keys)]
+            veg_df_filtered[veg_df_filtered["SUBPLOT_KEY"].isin(missing_veg_keys)]
             .drop_duplicates(subset=["SUBPLOT_KEY"])
             .copy()
         )
@@ -1222,9 +1200,7 @@ with tabs[3]:
             if has_bh or has_10cm:
                 # Add tree age calculation
                 if "tree_year_planted" in circumference_list.columns:
-                    circumference_list = calculate_tree_age_corrected(
-                        circumference_list
-                    )
+                    circumference_list = calculate_tree_age(circumference_list)
 
                 # Calculate median circumference per MEASUREMENT_KEY
                 # Use circumference_bh for median calculation (notebook logic)
@@ -1316,9 +1292,7 @@ with tabs[3]:
 
                         # Calculate tree age
                         if "tree_year_planted" in large_bh.columns:
-                            large_bh = calculate_tree_age_corrected(
-                                large_bh, "tree_year_planted"
-                            )
+                            large_bh = calculate_tree_age(large_bh, "tree_year_planted")
 
                         # Display columns
                         display_cols = [
@@ -1382,7 +1356,7 @@ with tabs[3]:
 
                         # Calculate tree age
                         if "tree_year_planted" in large_10cm.columns:
-                            large_10cm = calculate_tree_age_corrected(large_10cm)
+                            large_10cm = calculate_tree_age(large_10cm)
 
                         # Display columns
                         display_cols = [
@@ -1677,6 +1651,7 @@ with tabs[4]:
         "Interactive scatter plot: Height vs Circumference, sized by stem count, colored by species"
     )
 
+    # Around line 1690-1755 in Tab 5
     if has_complete and species_col:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
 
@@ -1684,7 +1659,7 @@ with tabs[4]:
         current_year = datetime.now().year
 
         if "tree_year_planted" in complete_with_enum.columns:
-            complete_with_enum = calculate_tree_age_corrected(complete_with_enum)
+            complete_with_enum = calculate_tree_age(complete_with_enum)
 
         # Determine circumference column
         circ_col = None
@@ -1693,14 +1668,13 @@ with tabs[4]:
         elif "circumference_10cm" in complete_with_enum.columns:
             circ_col = "circumference_10cm"
 
-        # Check required columns
-        required_cols = [
-            "tree_height_m",
-            circ_col,
-            "nr_stems_bh",
-            species_col,
-            "tree_age",
-        ]
+        # Check required columns - BUILD LIST BASED ON WHAT EXISTS
+        required_cols = ["tree_height_m", circ_col, "nr_stems_bh", species_col]
+
+        # Only add tree_age if it exists
+        if "tree_age" in complete_with_enum.columns:
+            required_cols.append("tree_age")
+
         available_cols = [
             col for col in required_cols if col and col in complete_with_enum.columns
         ]
@@ -1715,14 +1689,22 @@ with tabs[4]:
             )
 
             if len(plot_data) > 0:
-                # User controls
+                # User controls - BUILD OPTIONS BASED ON WHAT'S AVAILABLE
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
+                    # X-axis options
+                    x_options = []
+                    if "tree_age" in plot_data.columns:
+                        x_options.append("tree_age")
+                    if circ_col:
+                        x_options.append(circ_col)
+                    x_options.append("nr_stems_bh")
+
                     x_axis = st.selectbox(
                         "X-axis",
-                        options=["tree_age", circ_col, "nr_stems_bh"],
-                        index=0 if "tree_age" in plot_data.columns else 1,
+                        options=x_options,
+                        index=0,
                         help="Select variable for X-axis",
                     )
 
@@ -1747,6 +1729,13 @@ with tabs[4]:
 
                 # Clean data for selected variables
                 plot_cols = [x_axis, y_axis, size_var, species_col]
+                # Filter out any None values
+                plot_cols = [
+                    col
+                    for col in plot_cols
+                    if col is not None and col in plot_data.columns
+                ]
+
                 plot_subset = plot_data[plot_cols].dropna()
 
                 if len(plot_subset) > 0:

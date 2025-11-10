@@ -92,9 +92,61 @@ def add_enumerator_to_dataframe(df, subplots_gdf, subplot_key_col="SUBPLOT_KEY")
     return result
 
 
+def extract_year_from_planted(series):
+    """
+    Extract year from tree_year_planted column
+    Handles both formats:
+    - Direct year (e.g., 2020, 2015)
+    - Epoch timestamp (converts to year)
+    - Date strings (extracts year)
+
+    Returns: Series of years (integers)
+    """
+
+    def parse_year(value):
+        if pd.isna(value):
+            return None
+
+        try:
+            # First, try to convert to numeric
+            num_val = float(value)
+
+            # If it's a large number (>10000), it's likely an epoch timestamp
+            if num_val > 10000:
+                # Try different epoch units
+                # Milliseconds (most common)
+                if num_val > 1e12:
+                    dt = pd.to_datetime(num_val, unit="ms", errors="coerce")
+                else:
+                    # Seconds
+                    dt = pd.to_datetime(num_val, unit="s", errors="coerce")
+
+                if pd.notna(dt):
+                    return dt.year
+                return None
+            else:
+                # It's already a year (between 1900-2100)
+                year = int(num_val)
+                if 1900 <= year <= 2100:
+                    return year
+                return None
+        except:
+            # If numeric conversion fails, try parsing as date string
+            try:
+                dt = pd.to_datetime(value, errors="coerce")
+                if pd.notna(dt):
+                    return dt.year
+            except:
+                pass
+            return None
+
+    return series.apply(parse_year)
+
+
 def calculate_tree_age(df, planting_year_col="tree_year_planted", reference_year=None):
     """
     Calculate tree age from planting year
+    Handles epoch timestamps, direct years, and date strings
 
     Args:
         df: DataFrame with planting year column
@@ -116,28 +168,11 @@ def calculate_tree_age(df, planting_year_col="tree_year_planted", reference_year
     if reference_year is None:
         reference_year = datetime.now().year
 
+    # Extract year (handles multiple formats)
+    planted_years = extract_year_from_planted(result[planting_year_col])
+
     # Calculate age
-    def get_age(year_value):
-        try:
-            if pd.isna(year_value):
-                return None
-
-            # Handle datetime objects
-            if isinstance(year_value, (pd.Timestamp, datetime)):
-                year = year_value.year
-            # Handle string dates
-            elif isinstance(year_value, str):
-                year = pd.to_datetime(year_value).year
-            # Handle numeric years
-            else:
-                year = int(year_value)
-
-            age = reference_year - year
-            return age if age >= 0 else None
-        except:
-            return None
-
-    result["tree_age"] = result[planting_year_col].apply(get_age)
+    result["tree_age"] = reference_year - planted_years
 
     return result
 
@@ -304,9 +339,6 @@ def debug_enumerator_data(gdf, context=""):
     else:
         print("✗ GDF is None or empty", file=sys.stderr)
         return False
-        cies_str.replace("_", " ").title()
-
-    return formatted
 
 
 def get_primary_species(df):
