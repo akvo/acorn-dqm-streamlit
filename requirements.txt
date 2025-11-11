@@ -10,3 +10,6 @@ plotly==5.18.0
 folium==0.15.1
 streamlit-folium==0.15.1
 reportlab>=3.6.0
+html2image==2.0.4.3
+matplotlib==3.8.2
+Pillow>=10.0.0

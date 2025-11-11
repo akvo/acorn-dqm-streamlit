@@ -273,57 +273,215 @@ def capture_map_as_image(enum_data, enumerator_name):
     """
     try:
         import folium
-        from PIL import Image
-        import base64
+        from PIL import Image, ImageDraw, ImageFont
         from io import BytesIO
+        import geopandas as gpd
+        from shapely.geometry import box
 
         # Create the map
         map_obj = create_enumerator_map(enum_data, enumerator_name)
         if not map_obj:
             return None
 
-        # Save map to HTML
-        map_html = map_obj._repr_html_()
+        # Try different screenshot methods in order of preference
+        screenshot_bytes = None
 
-        # Try to use selenium for high-quality capture
+        # METHOD 1: html2image (easiest - automatically uses Chrome)
+        try:
+            from html2image import Html2Image
+            import tempfile
+            import os
+
+            # Save map to temporary HTML file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+                map_obj.save(f.name)
+                temp_html = f.name
+
+            # Create output directory
+            temp_dir = tempfile.gettempdir()
+            output_file = 'folium_map_snapshot.png'
+
+            # Initialize Html2Image
+            hti = Html2Image(output_path=temp_dir)
+
+            # Capture screenshot
+            hti.screenshot(
+                html_file=temp_html,
+                save_as=output_file,
+                size=(1200, 800)
+            )
+
+            # Read the generated image
+            output_path = os.path.join(temp_dir, output_file)
+            if os.path.exists(output_path):
+                img = Image.open(output_path)
+                img_copy = img.copy()  # Make a copy before closing
+                img.close()
+
+                # Clean up temporary files
+                os.unlink(temp_html)
+                os.unlink(output_path)
+
+                return img_copy
+
+        except Exception as e:
+            # Clean up on error
+            try:
+                if 'temp_html' in locals() and os.path.exists(temp_html):
+                    os.unlink(temp_html)
+                if 'output_path' in locals() and os.path.exists(output_path):
+                    os.unlink(output_path)
+            except:
+                pass
+
+        # METHOD 2: Try selenium (fallback if html2image not available)
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.options import Options
             import tempfile
             import time
+            import os
 
-            # Chrome options for headless mode
             chrome_options = Options()
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1200,800")
 
-            # Save map to temp HTML file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
                 map_obj.save(f.name)
                 temp_file = f.name
 
-            # Capture with selenium
             driver = webdriver.Chrome(options=chrome_options)
             driver.get(f'file://{temp_file}')
-            time.sleep(2)  # Wait for map to load
-            screenshot = driver.get_screenshot_as_png()
+            time.sleep(2)
+            screenshot_bytes = driver.get_screenshot_as_png()
             driver.quit()
 
-            # Clean up
-            import os
             os.unlink(temp_file)
 
-            # Convert to PIL Image
-            img = Image.open(BytesIO(screenshot))
-            return img
+            if screenshot_bytes:
+                img = Image.open(BytesIO(screenshot_bytes))
+                return img
 
         except Exception:
-            # Fallback: Create a simple info graphic using Pillow
+            pass
+
+        # METHOD 3: Matplotlib-based geographic visualization
+        try:
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend
+            import matplotlib.pyplot as plt
+            from matplotlib.patches import Polygon
+            import numpy as np
+
+            # Filter valid geometries
+            map_data = enum_data[~enum_data.geometry.is_empty].copy()
+            if len(map_data) == 0:
+                return None
+
+            # Count valid/invalid
+            valid_count = map_data["geom_valid"].sum()
+            invalid_count = (~map_data["geom_valid"]).sum()
+            total_count = len(map_data)
+
+            # Create figure with high DPI for quality
+            fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+            fig.patch.set_facecolor('white')
+
+            # Extract coordinates for valid and invalid subplots
+            valid_data = map_data[map_data["geom_valid"]]
+            invalid_data = map_data[~map_data["geom_valid"]]
+
+            # Plot subplot polygons or points
+            for idx, row in valid_data.iterrows():
+                geom = row['geometry']
+                if geom.geom_type == 'Polygon':
+                    # Plot polygon outline
+                    x, y = geom.exterior.xy
+                    ax.fill(x, y, color='#4CAF50', alpha=0.3, edgecolor='#2E7D32', linewidth=1.5)
+                    # Add centroid marker
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#2E7D32', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                else:
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#4CAF50', markersize=10, markeredgecolor='white', markeredgewidth=2)
+
+            for idx, row in invalid_data.iterrows():
+                geom = row['geometry']
+                if geom.geom_type == 'Polygon':
+                    # Plot polygon outline
+                    x, y = geom.exterior.xy
+                    ax.fill(x, y, color='#F44336', alpha=0.3, edgecolor='#C62828', linewidth=1.5)
+                    # Add centroid marker
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#C62828', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                else:
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#F44336', markersize=10, markeredgecolor='white', markeredgewidth=2)
+
+            # Set title
+            ax.set_title(f'Geographic Distribution - {enumerator_name}',
+                        fontsize=18, fontweight='bold', color='#1565C0', pad=20)
+
+            # Set labels
+            ax.set_xlabel('Longitude', fontsize=12, fontweight='bold')
+            ax.set_ylabel('Latitude', fontsize=12, fontweight='bold')
+
+            # Add grid
+            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.set_axisbelow(True)
+
+            # Equal aspect ratio for proper geographic display
+            ax.set_aspect('equal', adjustable='box')
+
+            # Add legend
+            from matplotlib.patches import Patch
+            legend_elements = [
+                Patch(facecolor='#4CAF50', edgecolor='#2E7D32', label=f'Valid Subplots ({valid_count})'),
+                Patch(facecolor='#F44336', edgecolor='#C62828', label=f'Invalid Subplots ({invalid_count})')
+            ]
+            ax.legend(handles=legend_elements, loc='upper right', fontsize=11, framealpha=0.95)
+
+            # Add statistics text box
+            success_rate = (valid_count / total_count * 100) if total_count > 0 else 0
+            if success_rate >= 95:
+                rating = "EXCELLENT"
+            elif success_rate >= 85:
+                rating = "GOOD"
+            elif success_rate >= 70:
+                rating = "FAIR"
+            else:
+                rating = "NEEDS WORK"
+
+            stats_text = f"Total Subplots: {total_count}\n"
+            stats_text += f"Success Rate: {success_rate:.1f}%\n"
+            stats_text += f"Quality Rating: {rating}"
+
+            # Position text box in lower left
+            ax.text(0.02, 0.02, stats_text,
+                   transform=ax.transAxes,
+                   fontsize=10,
+                   verticalalignment='bottom',
+                   bbox=dict(boxstyle='round', facecolor='white', edgecolor='#1565C0', linewidth=2, alpha=0.95))
+
+            # Tight layout
+            plt.tight_layout()
+
+            # Convert to PIL Image
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+            buf.seek(0)
+            img = Image.open(buf)
+            plt.close(fig)
+
+            return img
+
+        except Exception as e:
+            # Fallback to PIL-only version if matplotlib fails
             try:
                 from PIL import Image, ImageDraw, ImageFont
-                from io import BytesIO
 
                 # Filter valid geometries
                 map_data = enum_data[~enum_data.geometry.is_empty].copy()
@@ -335,21 +493,18 @@ def capture_map_as_image(enum_data, enumerator_name):
                 invalid_count = (~map_data["geom_valid"]).sum()
                 total_count = len(map_data)
 
-                # Create image
+                # Create simple statistics graphic
                 width, height = 800, 600
                 img = Image.new('RGB', (width, height), color='#F5F5F5')
                 draw = ImageDraw.Draw(img)
 
-                # Try to use a nice font, fall back to default if not available
+                # Load fonts
                 try:
                     title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
                     text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-                    label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
                 except:
-                    # Fall back to default font
                     title_font = ImageFont.load_default()
                     text_font = ImageFont.load_default()
-                    label_font = ImageFont.load_default()
 
                 # Draw title
                 title = f"Subplot Distribution - {enumerator_name}"
@@ -387,12 +542,6 @@ def capture_map_as_image(enum_data, enumerator_name):
                 draw.text((width//2 - 150, y_pos), f"Success Rate:", fill='#333333', font=text_font)
                 color = '#4CAF50' if success_rate >= 85 else '#F44336'
                 draw.text((width//2 + 50, y_pos), f"{success_rate:.1f}%", fill=color, font=text_font)
-
-                # Add footer note
-                note = "Note: Interactive map available in web interface"
-                note_bbox = draw.textbbox((0, 0), note, font=label_font)
-                note_width = note_bbox[2] - note_bbox[0]
-                draw.text(((width - note_width) // 2, height - 50), note, fill='#757575', font=label_font)
 
                 return img
 
