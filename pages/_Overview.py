@@ -61,6 +61,449 @@ show_metrics_row(summary)
 st.markdown("---")
 show_status_message(summary)
 
+# Export section
+st.markdown("---")
+st.markdown("## 📥 Export All Quality Checks")
+st.caption("Download comprehensive quality report with all validation checks")
+
+if st.button("📥 Generate Complete Quality Report (Excel)", use_container_width=True, type="primary"):
+    with st.spinner("Generating comprehensive quality report..."):
+        try:
+            from io import BytesIO
+            from utils.data_merge_utils import (
+                merge_with_enumerator,
+                calculate_tree_age,
+                get_species_column,
+                add_tree_name_column,
+            )
+            from utils.vegetation_validation import (
+                get_missing_subplots,
+                check_coverage_only_subplots,
+                get_young_trees_with_other,
+                get_primary_trees_with_other,
+                get_non_primary_trees_with_other,
+                validate_species_lists,
+                detect_stem_outliers,
+                detect_height_outliers,
+                detect_circumference_outliers,
+                detect_suspicious_circumference_by_age,
+            )
+
+            # Get raw data
+            raw_data = st.session_state.data.get("raw_data", {})
+
+            # Check data availability
+            has_vegetation = "plots_subplots_vegetation" in raw_data
+            has_measurements = "plots_subplots_vegetation_measurements" in raw_data
+            has_complete = "complete" in raw_data
+
+            if not has_vegetation:
+                st.error("❌ Vegetation data not available for export")
+                st.stop()
+
+            # Extract data
+            plots_df = raw_data.get("plots_subplots", pd.DataFrame())
+            veg_df = raw_data["plots_subplots_vegetation"].copy()
+            meas_df = (
+                raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
+                if has_measurements
+                else pd.DataFrame()
+            )
+            complete_df = (
+                raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
+            )
+
+            # Merge with enumerator
+            veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
+            veg_with_enum = add_tree_name_column(veg_with_enum)
+
+            if has_measurements:
+                meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
+                meas_with_enum = add_tree_name_column(meas_with_enum)
+            else:
+                meas_with_enum = pd.DataFrame()
+
+            species_col = get_species_column(veg_with_enum)
+
+            # Helper function to format dataframe for export
+            def format_for_export(df, issue_type, issue_description_col=None, additional_cols=None):
+                """
+                Format dataframe according to user's specification:
+                Plot id | Subplot id | Data collector name | Issue type | Issue description | Empty | Clarification
+                """
+                if df is None or len(df) == 0:
+                    return pd.DataFrame()
+
+                result = pd.DataFrame()
+
+                # Plot ID (from SUBPLOT_KEY - extract plot portion)
+                if "SUBPLOT_KEY" in df.columns:
+                    result["Plot ID"] = df["SUBPLOT_KEY"].apply(lambda x: str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x))
+                elif "PLOT_KEY" in df.columns:
+                    result["Plot ID"] = df["PLOT_KEY"]
+                else:
+                    result["Plot ID"] = ""
+
+                # Subplot ID
+                if "SUBPLOT_KEY" in df.columns:
+                    result["Subplot ID"] = df["SUBPLOT_KEY"]
+                elif "subplot_id" in df.columns:
+                    result["Subplot ID"] = df["subplot_id"]
+                else:
+                    result["Subplot ID"] = ""
+
+                # Data collector name
+                if "enumerator" in df.columns:
+                    result["Data Collector Name"] = df["enumerator"]
+                else:
+                    result["Data Collector Name"] = ""
+
+                # Issue type
+                result["Issue Type"] = issue_type
+
+                # Issue description
+                if issue_description_col and issue_description_col in df.columns:
+                    result["Issue Description"] = df[issue_description_col]
+                elif additional_cols:
+                    # Build description from multiple columns row-wise
+                    available_cols = [col for col in additional_cols if col in df.columns]
+                    if available_cols:
+                        # Convert first column to string
+                        result["Issue Description"] = df[available_cols[0]].astype(str)
+                        # Concatenate remaining columns with " | " separator
+                        for col in available_cols[1:]:
+                            result["Issue Description"] = result["Issue Description"] + " | " + df[col].astype(str)
+                    else:
+                        result["Issue Description"] = ""
+                else:
+                    result["Issue Description"] = ""
+
+                # Empty column for notes
+                result["Notes"] = ""
+
+                # Clarification
+                result["Clarification"] = ""
+
+                return result
+
+            # Create Excel file
+            output = BytesIO()
+            sheets_created = 0
+
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+
+                # SHEET 1: Missing Vegetation Records
+                try:
+                    if "VEGETATION_KEY" in veg_df.columns:
+                        veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
+                    else:
+                        veg_df_actual = veg_df.copy()
+
+                    missing_veg = get_missing_subplots(plots_df, veg_df_actual)
+
+                    if len(missing_veg) > 0:
+                        export_df = format_for_export(
+                            missing_veg,
+                            issue_type="Missing Vegetation Records",
+                            issue_description_col="subplot_comments"
+                        )
+                        export_df.to_excel(writer, sheet_name='Missing Vegetation', index=False)
+                        sheets_created += 1
+                except Exception as e:
+                    st.warning(f"Could not export Missing Vegetation: {str(e)}")
+
+                # SHEET 2: Coverage-Only Subplots
+                try:
+                    if "vegetation_type_number" in veg_df_actual.columns:
+                        veg_check = veg_df_actual.groupby("SUBPLOT_KEY")["vegetation_type_number"].agg([
+                            ("has_trees", lambda x: x.notna().any())
+                        ]).reset_index()
+
+                        coverage_only_keys = veg_check[~veg_check["has_trees"]]["SUBPLOT_KEY"]
+
+                        if len(coverage_only_keys) > 0:
+                            coverage_only = veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(coverage_only_keys)]
+
+                            export_df = format_for_export(
+                                coverage_only,
+                                issue_type="Coverage Only Subplot",
+                                additional_cols=["coverage_vegetation", "non_woody_species"]
+                            )
+                            export_df.to_excel(writer, sheet_name='Coverage Only', index=False)
+                            sheets_created += 1
+                except Exception as e:
+                    st.warning(f"Could not export Coverage Only: {str(e)}")
+
+                # SHEET 3: Primary Trees with 'other'
+                try:
+                    primary_trees = get_primary_trees_with_other(veg_df, primary_value="yes_primary_group")
+                    if len(primary_trees) > 0:
+                        primary_trees = merge_with_enumerator(primary_trees, filtered_gdf)
+                        primary_trees = add_tree_name_column(primary_trees)
+
+                        export_df = format_for_export(
+                            primary_trees,
+                            issue_type="Primary Tree - Other Species",
+                            additional_cols=["tree_name", "other_species", "language_other_species"]
+                        )
+                        export_df.to_excel(writer, sheet_name='Primary Trees Other', index=False)
+                        sheets_created += 1
+                except Exception as e:
+                    st.warning(f"Could not export Primary Trees: {str(e)}")
+
+                # SHEET 4: Young Trees with 'other'
+                try:
+                    young_trees = get_young_trees_with_other(veg_df, young_tree_value="yes_groupbelow1.3")
+                    if len(young_trees) > 0:
+                        young_trees = merge_with_enumerator(young_trees, filtered_gdf)
+                        young_trees = add_tree_name_column(young_trees)
+
+                        export_df = format_for_export(
+                            young_trees,
+                            issue_type="Young Tree - Other Species",
+                            additional_cols=["tree_name", "other_species", "language_other_species"]
+                        )
+                        export_df.to_excel(writer, sheet_name='Young Trees Other', index=False)
+                        sheets_created += 1
+                except Exception as e:
+                    st.warning(f"Could not export Young Trees: {str(e)}")
+
+                # SHEET 5: Non-Primary Trees with 'other'
+                try:
+                    non_primary = get_non_primary_trees_with_other(veg_df, non_primary_value="no")
+                    if len(non_primary) > 0:
+                        non_primary = merge_with_enumerator(non_primary, filtered_gdf)
+                        non_primary = add_tree_name_column(non_primary)
+
+                        export_df = format_for_export(
+                            non_primary,
+                            issue_type="Non-Primary Tree - Other Species",
+                            additional_cols=["tree_name", "other_species", "language_other_species"]
+                        )
+                        export_df.to_excel(writer, sheet_name='Non-Primary Trees Other', index=False)
+                        sheets_created += 1
+                except Exception as e:
+                    st.warning(f"Could not export Non-Primary Trees: {str(e)}")
+
+                # SHEET 6: Missing Height
+                if has_measurements and len(meas_with_enum) > 0:
+                    try:
+                        missing_height = meas_with_enum[meas_with_enum["tree_height_m"].isna()]
+
+                        if len(missing_height) > 0:
+                            export_df = format_for_export(
+                                missing_height,
+                                issue_type="Missing Height Measurement",
+                                additional_cols=["VEGETATION_KEY", "tree_name", species_col]
+                            )
+                            export_df.to_excel(writer, sheet_name='Missing Height', index=False)
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Missing Height: {str(e)}")
+
+                # SHEET 7: Missing Circumference
+                if has_measurements and len(meas_with_enum) > 0:
+                    try:
+                        has_circ_bh = "circumference_bh" in meas_with_enum.columns
+                        has_circ_10 = "circumference_10cm" in meas_with_enum.columns
+
+                        if has_circ_bh and has_circ_10:
+                            missing_circ = meas_with_enum[
+                                meas_with_enum["circumference_bh"].isna() &
+                                meas_with_enum["circumference_10cm"].isna()
+                            ]
+                        elif has_circ_bh:
+                            missing_circ = meas_with_enum[meas_with_enum["circumference_bh"].isna()]
+                        elif has_circ_10:
+                            missing_circ = meas_with_enum[meas_with_enum["circumference_10cm"].isna()]
+                        else:
+                            missing_circ = pd.DataFrame()
+
+                        if len(missing_circ) > 0:
+                            export_df = format_for_export(
+                                missing_circ,
+                                issue_type="Missing Circumference Measurement",
+                                additional_cols=["VEGETATION_KEY", "tree_name", species_col]
+                            )
+                            export_df.to_excel(writer, sheet_name='Missing Circumference', index=False)
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Missing Circumference: {str(e)}")
+
+                # SHEET 8: Super Tall Trees (>25m)
+                if has_measurements:
+                    try:
+                        m_mea = raw_data["plots_subplots_vegetation_measurements"]
+                        if "MEASUREMENT_KEY" in m_mea.columns:
+                            m_mea_actual = m_mea[m_mea["MEASUREMENT_KEY"].notna()].copy()
+                        else:
+                            m_mea_actual = m_mea.copy()
+
+                        if "tree_height_m" in m_mea_actual.columns:
+                            super_tall = m_mea_actual[m_mea_actual["tree_height_m"] > 25].copy()
+
+                            if len(super_tall) > 0:
+                                super_tall = merge_with_enumerator(super_tall, filtered_gdf)
+                                super_tall = add_tree_name_column(super_tall)
+
+                                export_df = format_for_export(
+                                    super_tall,
+                                    issue_type="Super Tall Tree (>25m)",
+                                    additional_cols=["tree_height_m", "tree_name", "tree_year_planted"]
+                                )
+                                export_df.to_excel(writer, sheet_name='Super Tall Trees', index=False)
+                                sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Super Tall Trees: {str(e)}")
+
+                # SHEET 9: High Stem Counts (>20)
+                if has_measurements and len(meas_with_enum) > 0:
+                    try:
+                        meas_with_stems = detect_stem_outliers(meas_with_enum, threshold=20)
+                        high_stems = meas_with_stems[meas_with_stems["high_stems_bh"] == True]
+
+                        if len(high_stems) > 0:
+                            export_df = format_for_export(
+                                high_stems,
+                                issue_type="High Stem Count (>20)",
+                                additional_cols=["nr_stems_bh", "tree_name", species_col]
+                            )
+                            export_df.to_excel(writer, sheet_name='High Stem Counts', index=False)
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export High Stem Counts: {str(e)}")
+
+                # SHEET 10: Height Outliers
+                if has_measurements and len(meas_with_enum) > 0 and species_col:
+                    try:
+                        meas_outliers = detect_height_outliers(
+                            meas_with_enum,
+                            height_col="tree_height_m",
+                            species_col=species_col,
+                            upper_threshold=3.0,
+                            lower_threshold=1/3.0,
+                        )
+
+                        height_outliers = meas_outliers[
+                            (meas_outliers["Upper_outliers"] == "outlier") |
+                            (meas_outliers["Lower_outliers"] == "outlier")
+                        ]
+
+                        if len(height_outliers) > 0:
+                            export_df = format_for_export(
+                                height_outliers,
+                                issue_type="Height Outlier",
+                                additional_cols=["tree_height_m", "median_height", "tree_name", "Upper_outliers", "Lower_outliers"]
+                            )
+                            export_df.to_excel(writer, sheet_name='Height Outliers', index=False)
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Height Outliers: {str(e)}")
+
+                # SHEET 11: Circumference Outliers
+                if has_complete and species_col:
+                    try:
+                        complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
+                        complete_with_enum = add_tree_name_column(complete_with_enum)
+
+                        if "circumference_bh" in complete_with_enum.columns:
+                            circ_col = "circumference_bh"
+                        elif "circumference_10cm" in complete_with_enum.columns:
+                            circ_col = "circumference_10cm"
+                        else:
+                            circ_col = None
+
+                        if circ_col:
+                            circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
+
+                            if len(circ_data) > 0:
+                                circ_outliers_df = detect_circumference_outliers(
+                                    circ_data,
+                                    circ_col=circ_col,
+                                    species_col=species_col,
+                                    upper_threshold=4.0,
+                                    lower_threshold=1/4.0,
+                                )
+
+                                circ_outliers = circ_outliers_df[
+                                    (circ_outliers_df["Upper_outliers"] == "outlier") |
+                                    (circ_outliers_df["Lower_outliers"] == "outlier")
+                                ]
+
+                                if len(circ_outliers) > 0:
+                                    export_df = format_for_export(
+                                        circ_outliers,
+                                        issue_type="Circumference Outlier",
+                                        additional_cols=[circ_col, "median_circ", "tree_name", "Upper_outliers", "Lower_outliers"]
+                                    )
+                                    export_df.to_excel(writer, sheet_name='Circumference Outliers', index=False)
+                                    sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Circumference Outliers: {str(e)}")
+
+                # SHEET 12: Suspicious Circumference by Age
+                if has_complete:
+                    try:
+                        complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
+                        complete_with_enum = add_tree_name_column(complete_with_enum)
+
+                        if "circumference_bh" in complete_with_enum.columns:
+                            circ_col = "circumference_bh"
+                        elif "circumference_10cm" in complete_with_enum.columns:
+                            circ_col = "circumference_10cm"
+                        else:
+                            circ_col = None
+
+                        if circ_col and "tree_year_planted" in complete_with_enum.columns:
+                            circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
+                            circ_data = calculate_tree_age(circ_data)
+
+                            if circ_data["tree_age"].notna().any():
+                                circ_data = detect_suspicious_circumference_by_age(
+                                    circ_data,
+                                    circ_col=circ_col,
+                                    young_tree_circ_threshold=50,
+                                    young_tree_age_threshold=5,
+                                    large_circ_threshold=300,
+                                    large_circ_age_threshold=15,
+                                )
+
+                                suspicious = circ_data[circ_data["suspicious"] == True]
+
+                                if len(suspicious) > 0:
+                                    export_df = format_for_export(
+                                        suspicious,
+                                        issue_type="Suspicious Circ vs Age",
+                                        additional_cols=[circ_col, "tree_age", "tree_year_planted", "tree_name"]
+                                    )
+                                    export_df.to_excel(writer, sheet_name='Suspicious Circ by Age', index=False)
+                                    sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Suspicious Circ by Age: {str(e)}")
+
+                # Summary sheet if no data
+                if sheets_created == 0:
+                    summary_df = pd.DataFrame({
+                        'Note': ['No quality issues found - all checks passed!']
+                    })
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+            output.seek(0)
+
+            st.success(f"✅ Generated quality report with {sheets_created} sheet(s)")
+
+            st.download_button(
+                label="💾 Download Complete Quality Report",
+                data=output.getvalue(),
+                file_name=f"{config.PARTNER}_complete_quality_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        except Exception as e:
+            st.error(f"❌ Error generating report: {str(e)}")
+            st.exception(e)
+
 # Charts
 st.markdown("---")
 st.markdown("## 📈 Validation Analysis")
