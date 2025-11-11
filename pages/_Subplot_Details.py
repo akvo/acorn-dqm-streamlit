@@ -2010,10 +2010,103 @@ with tabs[4]:
         st.info("ℹ️ Complete dataset or species column not available for visualization")
 
 st.markdown("---")
-st.markdown("### 📊 Export Options")
+st.markdown("### 📥 Export Quality Check Results")
 
-# Export filtered data
-if st.button("📥 Export All Quality Check Results", use_container_width=True):
-    st.info(
-        "Export functionality coming soon - will include all flagged records from above checks"
-    )
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("📥 Export to Excel (All Checks)", use_container_width=True, type="primary"):
+        try:
+            from io import BytesIO
+
+            # Create Excel writer
+            output = BytesIO()
+            sheets_created = 0
+
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+
+                # Sheet 1: Coverage-only subplots
+                try:
+                    if 'coverage_only' in locals() and len(coverage_only) > 0:
+                        export_df = coverage_only.copy()
+                        if 'geometry' in export_df.columns:
+                            export_df = export_df.drop(columns=['geometry'])
+                        export_df.to_excel(writer, sheet_name='Coverage Only', index=False)
+                        sheets_created += 1
+                except: pass
+
+                # Sheet 2: Primary trees with 'other'
+                try:
+                    if 'primary_trees' in locals() and len(primary_trees) > 0:
+                        export_df = primary_trees.copy()
+                        if 'geometry' in export_df.columns:
+                            export_df = export_df.drop(columns=['geometry'])
+                        export_df.to_excel(writer, sheet_name='Primary Trees Other', index=False)
+                        sheets_created += 1
+                except: pass
+
+                # Sheet 3: Young trees with 'other'
+                try:
+                    if 'young_trees_other' in locals() and len(young_trees_other) > 0:
+                        export_df = young_trees_other.copy()
+                        if 'geometry' in export_df.columns:
+                            export_df = export_df.drop(columns=['geometry'])
+                        export_df.to_excel(writer, sheet_name='Young Trees Other', index=False)
+                        sheets_created += 1
+                except: pass
+
+                # Sheet 4: Non-primary trees with 'other'
+                try:
+                    if 'non_primary_trees' in locals() and len(non_primary_trees) > 0:
+                        export_df = non_primary_trees.copy()
+                        if 'geometry' in export_df.columns:
+                            export_df = export_df.drop(columns=['geometry'])
+                        export_df.to_excel(writer, sheet_name='Non-Primary Trees Other', index=False)
+                        sheets_created += 1
+                except: pass
+
+                # Summary sheet if no data
+                if sheets_created == 0:
+                    summary_df = pd.DataFrame({
+                        'Note': ['No flagged records found in quality checks']
+                    })
+                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+            output.seek(0)
+
+            st.success(f"✅ Created Excel file with {sheets_created} sheet(s)")
+
+            st.download_button(
+                label="💾 Download Excel File",
+                data=output.getvalue(),
+                file_name=f"{config.PARTNER}_quality_checks_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        except Exception as e:
+            st.error(f"Error creating export: {str(e)}")
+
+with col2:
+    if st.button("📥 Export Filtered Vegetation Data (CSV)", use_container_width=True):
+        try:
+            # Export the filtered vegetation data
+            export_df = veg_with_enum.copy()
+
+            # Remove geometry column if exists
+            if 'geometry' in export_df.columns:
+                export_df = export_df.drop(columns=['geometry'])
+
+            # Convert to CSV
+            csv = export_df.to_csv(index=False)
+
+            st.download_button(
+                label="💾 Download CSV File",
+                data=csv,
+                file_name=f"{config.PARTNER}_vegetation_data_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        except Exception as e:
+            st.error(f"Error creating CSV export: {str(e)}")
