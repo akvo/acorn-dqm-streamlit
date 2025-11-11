@@ -12,6 +12,7 @@ from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
     get_species_column,
+    add_tree_name_column,
 )
 from utils.vegetation_validation import (
     get_missing_subplots,
@@ -143,8 +144,11 @@ complete_df = (
 
 # Merge with enumerator (for filtered analysis)
 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
+veg_with_enum = add_tree_name_column(veg_with_enum)
+
 if has_measurements:
     meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
+    meas_with_enum = add_tree_name_column(meas_with_enum)
 else:
     meas_with_enum = pd.DataFrame()
 
@@ -624,14 +628,17 @@ with tabs[1]:
         young_trees_other = merge_with_enumerator(
             young_trees_other, filtered_gdf
         )
+        young_trees_other = add_tree_name_column(young_trees_other)
     if len(primary_trees) > 0:
         primary_trees = merge_with_enumerator(
             primary_trees, filtered_gdf
         )
+        primary_trees = add_tree_name_column(primary_trees)
     if len(non_primary_trees) > 0:
         non_primary_trees = merge_with_enumerator(
             non_primary_trees, filtered_gdf
         )
+        non_primary_trees = add_tree_name_column(non_primary_trees)
 
     # Calculate totals
     col1, col2, col3 = st.columns(3)
@@ -660,8 +667,8 @@ with tabs[1]:
             # Use notebook's collector_primary_list columns
             display_cols = []
             for col in [
-                "enumerator",
                 "SUBPLOT_KEY",
+                "tree_name",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -689,8 +696,8 @@ with tabs[1]:
             # Use notebook's collector_list_trees_young columns
             display_cols = []
             for col in [
-                "enumerator",
                 "SUBPLOT_KEY",
+                "tree_name",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -720,8 +727,8 @@ with tabs[1]:
             # Use notebook's collector_list_trees columns
             display_cols = []
             for col in [
-                "enumerator",
                 "SUBPLOT_KEY",
+                "tree_name",
                 "other_species",
                 "language_other_species",
                 "vegetation_type_number",
@@ -751,22 +758,35 @@ with tabs[2]:
 
     species_lists = validate_species_lists(veg_with_enum)
 
+    # Add tree_name column to all species lists
+    woody = species_lists.get("woody", pd.DataFrame())
+    if len(woody) > 0:
+        woody = add_tree_name_column(woody)
+
+    palm = species_lists.get("palm", pd.DataFrame())
+    if len(palm) > 0:
+        palm = add_tree_name_column(palm)
+
+    bamboo = species_lists.get("bamboo", pd.DataFrame())
+    if len(bamboo) > 0:
+        bamboo = add_tree_name_column(bamboo)
+
+    banana = species_lists.get("banana", pd.DataFrame())
+    if len(banana) > 0:
+        banana = add_tree_name_column(banana)
+
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        woody = species_lists.get("woody", pd.DataFrame())
         st.metric("Woody Species", len(woody))
 
     with col2:
-        palm = species_lists.get("palm", pd.DataFrame())
         st.metric("Palm Species", len(palm))
 
     with col3:
-        bamboo = species_lists.get("bamboo", pd.DataFrame())
         st.metric("Bamboo Species", len(bamboo))
 
     with col4:
-        banana = species_lists.get("banana", pd.DataFrame())
         st.metric("Banana Species", len(banana))
 
     st.markdown("---")
@@ -782,6 +802,7 @@ with tabs[2]:
             for col in [
                 "VEGETATION_KEY",
                 "enumerator",
+                "tree_name",
                 "woody_species",
                 "vegetation_type_number",
             ]:
@@ -804,6 +825,7 @@ with tabs[2]:
             for col in [
                 "VEGETATION_KEY",
                 "enumerator",
+                "tree_name",
                 "palm_species",
                 "vegetation_type_number",
             ]:
@@ -826,6 +848,7 @@ with tabs[2]:
             for col in [
                 "VEGETATION_KEY",
                 "enumerator",
+                "tree_name",
                 "bamboo_species",
                 "vegetation_type_number",
             ]:
@@ -848,6 +871,7 @@ with tabs[2]:
             for col in [
                 "VEGETATION_KEY",
                 "enumerator",
+                "tree_name",
                 "banana_species",
                 "vegetation_type_number",
             ]:
@@ -881,10 +905,14 @@ with tabs[2]:
     coverage = veg_df_actual[coverage_filter].copy()
 
     if len(coverage) > 0:
+        # Add tree_name column
+        coverage = add_tree_name_column(coverage)
+
         # Filter to records with 'other_species'
         collector_list_coverage = [
             "enumerator",
             "SUBPLOT_KEY",
+            "tree_name",
             "other_species",
             "language_other_species",
             "coverage_vegetation",
@@ -977,7 +1005,7 @@ with tabs[3]:
         if len(missing_height) > 0:
             with st.expander(f"View {len(missing_height)} trees missing height"):
                 display_cols = []
-                for col in ["VEGETATION_KEY", "enumerator", species_col]:
+                for col in ["VEGETATION_KEY", "enumerator", "tree_name", species_col]:
                     if col and col in missing_height.columns:
                         display_cols.append(col)
 
@@ -995,7 +1023,7 @@ with tabs[3]:
         if len(missing_circ) > 0:
             with st.expander(f"View {len(missing_circ)} trees missing circumference"):
                 display_cols = []
-                for col in ["VEGETATION_KEY", "enumerator", species_col]:
+                for col in ["VEGETATION_KEY", "enumerator", "tree_name", species_col]:
                     if col and col in missing_circ.columns:
                         display_cols.append(col)
 
@@ -1044,6 +1072,7 @@ with tabs[3]:
                         "enumerator",
                         "VEGETATION_KEY",
                         "SUBPLOT_KEY",
+                        "tree_name",
                         "tree_height_m",
                         "tree_year_planted",
                         "vegetation_type_number",
@@ -1101,6 +1130,7 @@ with tabs[3]:
         for col in [
             "VEGETATION_KEY",
             "enumerator",
+            "tree_name",
             "nr_stems_bh",
             "nr_stems_10cm",
             species_col,
@@ -1236,6 +1266,7 @@ with tabs[3]:
                             "enumerator",
                             "VEGETATION_KEY",
                             "SUBPLOT_KEY",
+                            "tree_name",
                             "tree_height_m",
                             "median_height",
                             "Upper_outliers",
@@ -1586,6 +1617,7 @@ with tabs[4]:
             for col in [
                 "VEGETATION_KEY",
                 "enumerator",
+                "tree_name",
                 species_col,
                 "tree_height_m",
                 "median_height",
@@ -1661,6 +1693,7 @@ with tabs[4]:
                 for col in [
                     "VEGETATION_KEY",
                     "enumerator",
+                    "tree_name",
                     species_col,
                     circ_col,
                     "median_cir",
@@ -1742,6 +1775,7 @@ with tabs[4]:
                     for col in [
                         "VEGETATION_KEY",
                         "enumerator",
+                        "tree_name",
                         circ_col,
                         "tree_year_planted",
                         "tree_age",

@@ -403,3 +403,62 @@ def get_species_column(df: pd.DataFrame) -> Optional[str]:
             return col
 
     return None
+
+
+def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add a 'tree_name' column that is the union of all species columns.
+
+    Logic:
+    1. First check language_other_species (Latin/scientific name)
+    2. Then check other_species (local name)
+    3. Then check species columns (woody, bamboo, palm, banana, non_woody)
+    4. Skip any values that are exactly "other"
+
+    This ensures when woody_species="other", we use the actual name from
+    language_other_species or other_species instead.
+
+    Args:
+        df: DataFrame with species columns
+
+    Returns:
+        DataFrame with tree_name column added
+    """
+    if df is None or len(df) == 0:
+        return df
+
+    result = df.copy()
+
+    # Priority order: specific names first, then general species columns
+    species_cols = [
+        "language_other_species",  # Scientific/Latin name (highest priority)
+        "other_species",           # Local name
+        "non_woody_species",
+        "woody_species",
+        "bamboo_species",
+        "banana_species",
+        "palm_species",
+    ]
+
+    # Filter to only columns that exist in the dataframe
+    available_cols = [col for col in species_cols if col in result.columns]
+
+    if not available_cols:
+        # No species columns found, return as-is
+        return result
+
+    # Initialize tree_name with None
+    result["tree_name"] = None
+
+    # Go through columns in priority order and fill tree_name
+    for col in available_cols:
+        # Create a mask for rows where tree_name is still None
+        mask = result["tree_name"].isna()
+
+        # For this column, get non-null values that are NOT "other"
+        valid_values = result[col].notna() & (result[col] != "other")
+
+        # Fill tree_name where it's None and we have a valid value
+        result.loc[mask & valid_values, "tree_name"] = result.loc[mask & valid_values, col]
+
+    return result
