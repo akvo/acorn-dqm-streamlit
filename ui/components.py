@@ -127,15 +127,7 @@ def show_sidebar_info():
     """
     # Show active partner
     active_partner = st.session_state.get("partner", config.PARTNER)
-    url_partner = st.query_params.get("partner", "None")
-
     st.sidebar.info(f"🔗 **Partner:** {active_partner}")
-
-    # Debug info (can be removed later)
-    with st.sidebar.expander("🔍 Debug Info"):
-        st.caption(f"URL param: `{url_partner}`")
-        st.caption(f"Session state: `{active_partner}`")
-        st.caption(f"Config.PARTNER: `{config.PARTNER}`")
 
     # Show data status if data is loaded
     if st.session_state.get("data") is not None:

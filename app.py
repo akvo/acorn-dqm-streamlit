@@ -68,17 +68,9 @@ show_header()
 
 # Sidebar - API Configuration
 with st.sidebar:
-    # Show active partner with debugging info
+    # Show active partner
     active_partner = st.session_state.get("partner", config.PARTNER)
-    url_partner = st.query_params.get("partner", "None")
-
     st.info(f"🔗 **Active Partner:** {active_partner}")
-
-    # Debug info (can be removed later)
-    with st.expander("🔍 Debug Info"):
-        st.caption(f"URL param: `{url_partner}`")
-        st.caption(f"Session state: `{active_partner}`")
-        st.caption(f"Config.PARTNER: `{config.PARTNER}`")
 
     st.markdown("## 🌐 Data Source: API")
     st.markdown("### 🔐 SurveyCTO Credentials")
