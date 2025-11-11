@@ -168,7 +168,120 @@ if process_btn and credentials_configured:
             response = requests.get(
                 url, auth=(username, password), params=params, timeout=60
             )
+
+            # Check for specific HTTP errors
+            if response.status_code == 417:
+                # SurveyCTO rate limit response
+                progress_bar.empty()
+                try:
+                    error_data = response.json()
+                    wait_seconds = error_data.get("error", {}).get("message", "")
+
+                    # Extract wait time from message
+                    import re
+                    match = re.search(r'(\d+)\s*seconds', wait_seconds)
+                    if match:
+                        wait_time = int(match.group(1))
+                        wait_minutes = wait_time // 60
+                        wait_remaining = wait_time % 60
+
+                        st.error("🚫 **SurveyCTO Rate Limit**")
+                        st.warning(
+                            f"⏱️ **Please wait {wait_minutes} minutes and {wait_remaining} seconds before retrying.**\n\n"
+                            f"Exact wait time: {wait_time} seconds"
+                        )
+                    else:
+                        st.error("🚫 **SurveyCTO Rate Limit**")
+                        st.warning(
+                            f"⏱️ {wait_seconds}\n\n"
+                            "Please wait before retrying."
+                        )
+                except:
+                    st.error("🚫 **SurveyCTO Rate Limit**")
+                    st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
+
+                st.info(
+                    "📘 **About SurveyCTO Rate Limits**\n\n"
+                    "When downloading **all data** (`date=0`), SurveyCTO enforces a **5-minute quiet period** "
+                    "between requests to prevent server overload.\n\n"
+                    "**Options:**\n"
+                    "- ⏰ Wait the specified time and try again\n"
+                    "- 📥 Use Excel export for frequent testing\n"
+                    "- 📅 Use incremental downloads with a date filter (if supported)"
+                )
+                st.stop()
+
+            elif response.status_code == 429:
+                progress_bar.empty()
+                st.error("🚫 **Rate Limit Exceeded**")
+                st.warning(
+                    "⏱️ SurveyCTO API has a rate limit. You can only fetch data once per minute.\n\n"
+                    "**Please wait 60 seconds before trying again.**"
+                )
+                st.info(
+                    "💡 **Tip:** The API limits are per form and per user. "
+                    "If you need to fetch data more frequently, consider:\n"
+                    "- Waiting a minute between requests\n"
+                    "- Using Excel export for frequent testing\n"
+                    "- Contacting SurveyCTO support for higher limits"
+                )
+                st.stop()
+
+            elif response.status_code == 503:
+                progress_bar.empty()
+                st.error("🚫 **Service Temporarily Unavailable**")
+                st.warning(
+                    "⏱️ SurveyCTO API is temporarily unavailable (possibly due to rate limiting).\n\n"
+                    "**Please wait 60-120 seconds before trying again.**"
+                )
+                st.stop()
+
+            elif response.status_code == 401:
+                progress_bar.empty()
+                st.error("🔐 **Authentication Failed**")
+                st.warning(
+                    "❌ Your username or password is incorrect.\n\n"
+                    "**Please check your credentials and try again.**"
+                )
+                st.stop()
+
+            elif response.status_code == 403:
+                progress_bar.empty()
+                st.error("🚫 **Access Denied**")
+                st.warning(
+                    "❌ You don't have permission to access this form.\n\n"
+                    "**Possible reasons:**\n"
+                    "- The form ID is incorrect\n"
+                    "- Your account doesn't have access to this form\n"
+                    "- The form is archived or deleted"
+                )
+                st.stop()
+
+            elif response.status_code == 404:
+                progress_bar.empty()
+                st.error("📋 **Form Not Found**")
+                st.warning(
+                    f"❌ Form ID `{form_id}` does not exist on server `{server_name}`.\n\n"
+                    "**Please check:**\n"
+                    "- The form ID is correct\n"
+                    "- You selected the right partner (which auto-fills the form ID)\n"
+                    "- The form exists on your SurveyCTO server"
+                )
+                st.stop()
+
+            elif response.status_code >= 500:
+                progress_bar.empty()
+                st.error("⚠️ **Server Error**")
+                st.warning(
+                    f"❌ SurveyCTO server returned an error (Status: {response.status_code}).\n\n"
+                    "**This is a problem with SurveyCTO's servers, not this app.**\n\n"
+                    "Please try again in a few minutes."
+                )
+                st.stop()
+
+            # Raise for any other HTTP errors
             response.raise_for_status()
+
             json_data = response.json()
 
             st.success(f"✅ Fetched {len(json_data)} submissions")
@@ -186,8 +299,47 @@ if process_btn and credentials_configured:
             st.success(f"✅ Processed {len(data['subplots'])} subplots successfully!")
             progress_bar.empty()
 
+        except requests.exceptions.Timeout:
+            st.error("⏱️ **Request Timeout**")
+            st.warning(
+                "❌ The request took too long to complete (>60 seconds).\n\n"
+                "**Possible causes:**\n"
+                "- Slow internet connection\n"
+                "- Large form with many submissions\n"
+                "- SurveyCTO server is slow\n\n"
+                "**Please try again.**"
+            )
+            progress_bar.empty()
+
+        except requests.exceptions.ConnectionError:
+            st.error("🌐 **Connection Error**")
+            st.warning(
+                "❌ Could not connect to SurveyCTO server.\n\n"
+                "**Possible causes:**\n"
+                "- No internet connection\n"
+                "- Server name is incorrect\n"
+                "- SurveyCTO is down\n\n"
+                "**Please check your connection and try again.**"
+            )
+            progress_bar.empty()
+
+        except ValueError as e:
+            st.error("📄 **Invalid Response**")
+            st.warning(
+                "❌ Could not parse the API response.\n\n"
+                "**This might mean:**\n"
+                "- The API returned invalid JSON\n"
+                "- The form has no data\n\n"
+                f"**Error details:** {str(e)}"
+            )
+            progress_bar.empty()
+
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            st.error(f"❌ **Unexpected Error**")
+            st.warning(
+                "An unexpected error occurred while fetching data.\n\n"
+                f"**Error details:** {str(e)}"
+            )
             st.exception(e)
             progress_bar.empty()
 
