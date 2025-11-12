@@ -446,18 +446,10 @@ def capture_map_as_image(enum_data, enumerator_name):
 
             # Add statistics text box
             success_rate = (valid_count / total_count * 100) if total_count > 0 else 0
-            if success_rate >= 95:
-                rating = "EXCELLENT"
-            elif success_rate >= 85:
-                rating = "GOOD"
-            elif success_rate >= 70:
-                rating = "FAIR"
-            else:
-                rating = "NEEDS WORK"
 
             stats_text = f"Total Subplots: {total_count}\n"
-            stats_text += f"Success Rate: {success_rate:.1f}%\n"
-            stats_text += f"Quality Rating: {rating}"
+            stats_text += f"Valid: {valid_count} ({success_rate:.1f}%)\n"
+            stats_text += f"Invalid: {invalid_count} ({100-success_rate:.1f}%)"
 
             # Position text box in lower left
             ax.text(0.02, 0.02, stats_text,
@@ -643,36 +635,23 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
 
-        # Performance rating
-        if error_rate <= 5:
-            rating, rating_color = "EXCELLENT", colors.green
-        elif error_rate <= 15:
-            rating, rating_color = "GOOD", colors.orange
-        elif error_rate <= 30:
-            rating, rating_color = "NEEDS IMPROVEMENT", colors.orange
-        else:
-            rating, rating_color = "CRITICAL", colors.red
-
         story.append(Paragraph("Executive Summary", section_style))
 
         summary_data = [
-            ["METRIC", "VALUE", "STATUS"],
-            ["Total Subplots", str(total), "—"],
+            ["METRIC", "VALUE"],
+            ["Total Subplots", str(total)],
             [
                 "Valid Subplots",
                 f"{valid} ({valid/total*100:.1f}%)",
-                "✓" if valid / total > 0.85 else "⚠",
             ],
             [
                 "Invalid Subplots",
                 f"{invalid} ({error_rate:.1f}%)",
-                "✓" if error_rate < 15 else "✗",
             ],
-            ["Performance Rating", rating, ""],
         ]
 
         summary_table = Table(
-            summary_data, colWidths=[2.5 * inch, 2.5 * inch, 1 * inch]
+            summary_data, colWidths=[3 * inch, 3 * inch]
         )
         summary_table.setStyle(
             TableStyle(
@@ -860,49 +839,6 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name):
 
                 story.append(error_table)
                 story.append(Spacer(1, 0.3 * inch))
-
-                # Add recommendations box
-                rec_style = ParagraphStyle(
-                    "Recommendations",
-                    parent=styles["Normal"],
-                    fontSize=10,
-                    spaceBefore=12,
-                    spaceAfter=6,
-                    leftIndent=20,
-                    rightIndent=20,
-                )
-
-                story.append(Paragraph("<b>📋 Recommendations:</b>", section_style))
-
-                recommendations = []
-                if error_rate > 30:
-                    recommendations.append("• Enumerator requires immediate retraining on data collection procedures")
-                    recommendations.append("• Review subplot boundary marking technique and GPS accuracy")
-                elif error_rate > 15:
-                    recommendations.append("• Schedule refresher training session")
-                    recommendations.append("• Monitor next data collection closely")
-                else:
-                    recommendations.append("• Performance is satisfactory")
-                    recommendations.append("• Continue with regular quality monitoring")
-
-                for rec in recommendations:
-                    story.append(Paragraph(rec, rec_style))
-
-        else:
-            # No errors found
-            success_style = ParagraphStyle(
-                "Success",
-                parent=styles["Normal"],
-                fontSize=12,
-                textColor=colors.HexColor("#4CAF50"),
-                alignment=TA_CENTER,
-                spaceBefore=20,
-                spaceAfter=20,
-            )
-            story.append(Paragraph(
-                "✓ <b>Excellent Work!</b> All subplots are valid with no errors detected.",
-                success_style
-            ))
 
         doc.build(story)
         buffer.seek(0)

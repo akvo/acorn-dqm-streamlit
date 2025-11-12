@@ -375,14 +375,12 @@ if st.session_state.data is not None:
     st.markdown("---")
     valid_pct = summary["valid_pct"]
 
-    if valid_pct >= 95:
-        st.success(f"🎉 Excellent! {valid_pct:.1f}% of subplots are valid")
-    elif valid_pct >= 90:
-        st.success(f"✅ Very good! {valid_pct:.1f}% of subplots are valid")
-    elif valid_pct >= 80:
-        st.warning(f"⚠️ Good, but {summary['invalid']} subplots need attention")
+    if valid_pct >= 90:
+        st.success(f"✅ {valid_pct:.1f}% of subplots are valid")
+    elif valid_pct >= 70:
+        st.warning(f"⚠️ {summary['invalid']} subplots need attention ({100-valid_pct:.1f}% invalid)")
     else:
-        st.error(f"❌ Critical: {summary['invalid']} subplots invalid")
+        st.error(f"❌ {summary['invalid']} subplots invalid ({100-valid_pct:.1f}%)")
 
     # Navigation cards
     st.markdown("---")
@@ -466,64 +464,3 @@ else:
     st.info(
         "👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data"
     )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown(
-            """
-        ### 📋 How It Works
-        
-        This application validates ground truth forestry data:
-        
-        1. **Fetch** - Automatically get latest data from SurveyCTO API
-        2. **Parse** - Read and structure the data
-        3. **Create Geometries** - Convert GPS coordinates
-        4. **Fix Geometries** - Apply 13 correction operations
-        5. **Validate** - Check area, vertices, overlaps
-        6. **Report** - Generate comprehensive results
-        
-        ### ✅ What Gets Validated
-        
-        - ✓ GPS accuracy (≤10m threshold)
-        - ✓ Subplot area (450-750 m²)
-        - ✓ Plot area (1,000-300,000 m²)
-        - ✓ Geometry validity and structure
-        - ✓ Vertex count (minimum 4)
-        - ✓ Shape analysis (not too elongated)
-        - ✓ Radius constraints
-        - ✓ Overlapping boundaries
-        """
-        )
-
-    with col2:
-        st.markdown(
-            """
-        ### 🌐 API Setup
-        
-        Enter your credentials in the sidebar:
-        
-        1. **Server Name** - Your SurveyCTO server (e.g., akvofoundation)
-        2. **Username** - Your SurveyCTO username
-        3. **Password** - Your SurveyCTO password
-        4. **Form ID** - Your form ID
-        
-        ### 📊 After Processing
-        
-        - **Overview Dashboard** - Statistics and charts
-        - **Interactive Map** - Visual representation
-        - **Issue List** - Invalid subplots with reasons
-        - **Subplot Details** - Individual information
-        - **Performance Metrics** - Quality by enumerator
-        - **Export Options** - Download validated data
-        
-        ### 🔄 Always Fresh
-        
-        API automatically fetches latest submissions!
-        No manual export or upload needed.
-        
-        ### 🔒 Security
-        
-        Credentials are only used for this session and not stored.
-        """
-        )

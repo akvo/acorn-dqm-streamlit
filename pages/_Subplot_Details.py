@@ -239,19 +239,19 @@ def calculate_tree_age_corrected(df, year_column="tree_year_planted"):
 
 tabs = st.tabs(
     [
+        "⚠️ Outliers & Suspicious",
         "🚫 Missing Data",
+        "📏 Measurements",
         "🌲 Tree Classification",
         "🌿 Species Lists",
-        "📏 Measurements",
-        "⚠️ Outliers & Suspicious",
     ]
 )
 
 # ============================================
-# TAB 1: MISSING DATA
+# TAB 2: MISSING DATA
 # ============================================
 
-with tabs[0]:
+with tabs[1]:
     st.markdown("### 🚫 Missing Vegetation and Measurement Data")
 
     # FILTER veg_df to only actual vegetation (non-null VEGETATION_KEY)
@@ -603,10 +603,10 @@ with tabs[0]:
     st.markdown("---")
 
 # ============================================
-# TAB 2: TREE CLASSIFICATION
+# TAB 4: TREE CLASSIFICATION
 # ============================================
 
-with tabs[1]:
+with tabs[3]:
     st.markdown("### 🌲 Tree Classification Quality Check")
     st.caption(
         "Validate primary vs young tree designation - showing 'other' species only"
@@ -749,10 +749,10 @@ with tabs[1]:
             st.info("No non-primary trees with 'other' species found")
 
 # ============================================
-# TAB 3: SPECIES LISTS
+# TAB 5: SPECIES LISTS
 # ============================================
 
-with tabs[2]:
+with tabs[4]:
     st.markdown("### 🌿 Species Lists Validation")
     st.caption("Check species categorization by type")
 
@@ -963,10 +963,10 @@ with tabs[2]:
         st.info("No coverage data found")
 
 # ============================================
-# TAB 4: MEASUREMENTS
+# TAB 3: MEASUREMENTS
 # ============================================
 
-with tabs[3]:
+with tabs[2]:
     st.markdown("### 📏 Measurement Quality Checks")
 
     if not has_measurements:
@@ -1572,10 +1572,10 @@ with tabs[3]:
         )
 
 # ============================================
-# TAB 5: OUTLIERS & SUSPICIOUS
+# TAB 1: OUTLIERS & SUSPICIOUS (MOVED TO FIRST TAB)
 # ============================================
 
-with tabs[4]:
+with tabs[0]:
     st.markdown("### ⚠️ Outliers & Suspicious Values")
 
     if not has_measurements:

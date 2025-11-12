@@ -106,17 +106,13 @@ def show_status_message(summary):
     """Display status message based on validation results"""
     valid_pct = summary["valid_pct"]
 
-    if valid_pct >= 95:
-        st.success(f"🎉 Excellent! {valid_pct:.1f}% of subplots are valid")
-    elif valid_pct >= 90:
-        st.success(f"✅ Very good! {valid_pct:.1f}% of subplots are valid")
-    elif valid_pct >= 80:
-        st.warning(f"⚠️ Good, but {summary['invalid']} subplots need attention")
+    if valid_pct >= 90:
+        st.success(f"✅ {valid_pct:.1f}% of subplots are valid")
     elif valid_pct >= 70:
-        st.warning(f"⚠️ Attention needed: {summary['invalid']} invalid subplots")
+        st.warning(f"⚠️ {summary['invalid']} subplots need attention ({100-valid_pct:.1f}% invalid)")
     else:
         st.error(
-            f"❌ Critical: {summary['invalid']} subplots are invalid ({100-valid_pct:.1f}%)"
+            f"❌ {summary['invalid']} subplots are invalid ({100-valid_pct:.1f}%)"
         )
 
 
