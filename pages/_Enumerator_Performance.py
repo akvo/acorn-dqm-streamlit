@@ -21,6 +21,17 @@ try:
 except ImportError:
     FOLIUM_AVAILABLE = False
 
+# Try to import matplotlib (optional for polygon visualizations in PDF)
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-interactive backend
+    import matplotlib.pyplot as plt
+
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    plt = None
+
 # Page config
 st.set_page_config(
     page_title="Enumerator Performance - Ground Truth DQM",
@@ -1023,13 +1034,8 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     print(f"DEBUG PDF: Date {date} - Invalid: {len(date_invalid_data)}, Missing Veg: {len(date_missing_veg)}", file=sys.stderr)
 
                     # Create a map overview for this date showing all subplots
-                    if len(date_data) > 0:
+                    if len(date_data) > 0 and MATPLOTLIB_AVAILABLE:
                         try:
-                            import matplotlib
-                            matplotlib.use('Agg')
-                            import matplotlib.pyplot as plt
-                            from matplotlib.patches import Polygon as MplPolygon
-
                             print(f"DEBUG PDF: Creating map overview for date {date}", file=sys.stderr)
 
                             fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
@@ -1137,55 +1143,54 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                             # Create polygon image directly inline
                             polygon_img_rl = None
-                            try:
-                                import matplotlib
-                                matplotlib.use('Agg')
-                                import matplotlib.pyplot as plt
+                            if MATPLOTLIB_AVAILABLE:
+                                try:
+                                    if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                                        geom = row["geometry"]
+                                        is_valid = row.get("geom_valid", False)
 
-                                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                                    geom = row["geometry"]
-                                    is_valid = row.get("geom_valid", False)
+                                        fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
 
-                                    fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
+                                        if geom.geom_type == 'Polygon':
+                                            x, y = geom.exterior.xy
+                                            color = '#4CAF50' if is_valid else '#F44336'
+                                            ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
+                                            ax.plot(x, y, 'o', color=color, markersize=3)
 
-                                    if geom.geom_type == 'Polygon':
-                                        x, y = geom.exterior.xy
-                                        color = '#4CAF50' if is_valid else '#F44336'
-                                        ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                                        ax.plot(x, y, 'o', color=color, markersize=3)
+                                            # Add centroid
+                                            centroid = geom.centroid
+                                            ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
 
-                                        # Add centroid
-                                        centroid = geom.centroid
-                                        ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
+                                        ax.set_aspect('equal')
+                                        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                                        ax.set_xlabel('Longitude', fontsize=7)
+                                        ax.set_ylabel('Latitude', fontsize=7)
+                                        ax.tick_params(labelsize=6)
 
-                                    ax.set_aspect('equal')
-                                    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                                    ax.set_xlabel('Longitude', fontsize=7)
-                                    ax.set_ylabel('Latitude', fontsize=7)
-                                    ax.tick_params(labelsize=6)
+                                        # Add area info as title
+                                        area_text = f"{row.get('area_m2', 0):.1f} m²"
+                                        status = "INVALID" if not is_valid else "VALID"
+                                        ax.set_title(f"{area_text} - {status}", fontsize=8, fontweight='bold')
 
-                                    # Add area info as title
-                                    area_text = f"{row.get('area_m2', 0):.1f} m²"
-                                    status = "INVALID" if not is_valid else "VALID"
-                                    ax.set_title(f"{area_text} - {status}", fontsize=8, fontweight='bold')
+                                        plt.tight_layout()
 
-                                    plt.tight_layout()
+                                        # Convert to image
+                                        poly_buffer = BytesIO()
+                                        plt.savefig(poly_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                        plt.close(fig)
+                                        poly_buffer.seek(0)
 
-                                    # Convert to image
-                                    poly_buffer = BytesIO()
-                                    plt.savefig(poly_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-                                    plt.close(fig)
-                                    poly_buffer.seek(0)
+                                        polygon_img_rl = RLImage(poly_buffer, width=2.5*inch, height=2.08*inch)
+                                        print(f"DEBUG PDF: Successfully created polygon image inline", file=sys.stderr)
+                                    else:
+                                        print(f"DEBUG PDF: Geometry is None or empty", file=sys.stderr)
 
-                                    polygon_img_rl = RLImage(poly_buffer, width=2.5*inch, height=2.08*inch)
-                                    print(f"DEBUG PDF: Successfully created polygon image inline", file=sys.stderr)
-                                else:
-                                    print(f"DEBUG PDF: Geometry is None or empty", file=sys.stderr)
-
-                            except Exception as e:
-                                print(f"DEBUG PDF: Error creating polygon inline: {str(e)}", file=sys.stderr)
-                                import traceback
-                                traceback.print_exc(file=sys.stderr)
+                                except Exception as e:
+                                    print(f"DEBUG PDF: Error creating polygon inline: {str(e)}", file=sys.stderr)
+                                    import traceback
+                                    traceback.print_exc(file=sys.stderr)
+                            else:
+                                print(f"DEBUG PDF: Matplotlib not available, skipping polygon creation", file=sys.stderr)
 
                             # Right side: Details
                             detail_items = []
