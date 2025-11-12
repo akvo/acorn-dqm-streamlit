@@ -93,6 +93,7 @@ if st.button(
                 detect_circumference_outliers,
                 detect_suspicious_circumference_by_age,
             )
+            from utils.export_helpers import adjust_excel_column_widths
 
             # Get raw data
             raw_data = st.session_state.data.get("raw_data", {})
@@ -210,6 +211,8 @@ if st.button(
             # Create Excel file
             output = BytesIO()
             sheets_created = 0
+            # Track dataframes for column width adjustment
+            sheet_dataframes = {}
 
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
@@ -288,9 +291,9 @@ if st.button(
                         result["Clarification"] = ""
 
                         # Export
-                        result.to_excel(
-                            writer, sheet_name="Geometry Errors", index=False
-                        )
+                        sheet_name = "Geometry Errors"
+                        result.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_dataframes[sheet_name] = result
                         sheets_created += 1
                 except Exception as e:
                     st.warning(f"Could not export Geometry Errors: {str(e)}")
@@ -323,9 +326,9 @@ if st.button(
                                     "Lower_outliers",
                                 ],
                             )
-                            export_df.to_excel(
-                                writer, sheet_name="Height Outliers", index=False
-                            )
+                            sheet_name = "Height Outliers"
+                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheet_dataframes[sheet_name] = export_df
                             sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export Height Outliers: {str(e)}")
@@ -376,11 +379,11 @@ if st.button(
                                             "Lower_outliers",
                                         ],
                                     )
+                                    sheet_name = "Circumference Outliers"
                                     export_df.to_excel(
-                                        writer,
-                                        sheet_name="Circumference Outliers",
-                                        index=False,
+                                        writer, sheet_name=sheet_name, index=False
                                     )
+                                    sheet_dataframes[sheet_name] = export_df
                                     sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export Circumference Outliers: {str(e)}")
@@ -528,46 +531,7 @@ if st.button(
                 #     except Exception as e:
                 #         st.warning(f"Could not export Missing Height: {str(e)}")
 
-                # SHEET 10: Missing Circumference
-                if has_measurements and len(meas_with_enum) > 0:
-                    try:
-                        has_circ_bh = "circumference_bh" in meas_with_enum.columns
-                        has_circ_10 = "circumference_10cm" in meas_with_enum.columns
-
-                        if has_circ_bh and has_circ_10:
-                            missing_circ = meas_with_enum[
-                                meas_with_enum["circumference_bh"].isna()
-                                & meas_with_enum["circumference_10cm"].isna()
-                            ]
-                        elif has_circ_bh:
-                            missing_circ = meas_with_enum[
-                                meas_with_enum["circumference_bh"].isna()
-                            ]
-                        elif has_circ_10:
-                            missing_circ = meas_with_enum[
-                                meas_with_enum["circumference_10cm"].isna()
-                            ]
-                        else:
-                            missing_circ = pd.DataFrame()
-
-                        if len(missing_circ) > 0:
-                            export_df = format_for_export(
-                                missing_circ,
-                                issue_type="Missing Circumference Measurement",
-                                additional_cols=[
-                                    "VEGETATION_KEY",
-                                    "tree_name",
-                                    species_col,
-                                ],
-                            )
-                            export_df.to_excel(
-                                writer, sheet_name="Missing Circumference", index=False
-                            )
-                            sheets_created += 1
-                    except Exception as e:
-                        st.warning(f"Could not export Missing Circumference: {str(e)}")
-
-                # SHEET 11: Super Tall Trees (>25m)
+                # SHEET 10: Super Tall Trees (>25m)
                 if has_measurements:
                     try:
                         m_mea = raw_data["plots_subplots_vegetation_measurements"]
@@ -598,14 +562,14 @@ if st.button(
                                         "tree_year_planted",
                                     ],
                                 )
-                                export_df.to_excel(
-                                    writer, sheet_name="Super Tall Trees", index=False
-                                )
+                                sheet_name = "Super Tall Trees"
+                                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                sheet_dataframes[sheet_name] = export_df
                                 sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export Super Tall Trees: {str(e)}")
 
-                # SHEET 12: High Stem Counts (>20)
+                # SHEET 11: High Stem Counts (>20)
                 if has_measurements and len(meas_with_enum) > 0:
                     try:
                         meas_with_stems = detect_stem_outliers(
@@ -625,14 +589,14 @@ if st.button(
                                     species_col,
                                 ],
                             )
-                            export_df.to_excel(
-                                writer, sheet_name="High Stem Counts", index=False
-                            )
+                            sheet_name = "High Stem Counts"
+                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheet_dataframes[sheet_name] = export_df
                             sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export High Stem Counts: {str(e)}")
 
-                # SHEET 13: Suspicious Circumference by Age
+                # SHEET 12: Suspicious Circumference by Age
                 if has_complete:
                     try:
                         complete_with_enum = merge_with_enumerator(
@@ -679,11 +643,11 @@ if st.button(
                                             "tree_name",
                                         ],
                                     )
+                                    sheet_name = "Suspicious Circ by Age"
                                     export_df.to_excel(
-                                        writer,
-                                        sheet_name="Suspicious Circ by Age",
-                                        index=False,
+                                        writer, sheet_name=sheet_name, index=False
                                     )
+                                    sheet_dataframes[sheet_name] = export_df
                                     sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export Suspicious Circ by Age: {str(e)}")
@@ -693,7 +657,19 @@ if st.button(
                     summary_df = pd.DataFrame(
                         {"Note": ["No quality issues found - all checks passed!"]}
                     )
-                    summary_df.to_excel(writer, sheet_name="Summary", index=False)
+                    sheet_name = "Summary"
+                    summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    sheet_dataframes[sheet_name] = summary_df
+
+                # Adjust column widths for all sheets
+                try:
+                    for sheet_name, df in sheet_dataframes.items():
+                        if sheet_name in writer.sheets:
+                            worksheet = writer.sheets[sheet_name]
+                            adjust_excel_column_widths(worksheet, df)
+                except Exception as e:
+                    # Column width adjustment is optional - don't fail export if it errors
+                    pass
 
             output.seek(0)
 

@@ -410,13 +410,13 @@ def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
     Add a 'tree_name' column that is the union of all species columns.
 
     Logic:
-    1. First check language_other_species (Latin/scientific name)
-    2. Then check other_species (local name)
+    1. First check other_species (local tree name)
+    2. Then check language_other_species (language field)
     3. Then check species columns (woody, bamboo, palm, banana, non_woody)
     4. Skip any values that are exactly "other"
 
-    This ensures when woody_species="other", we use the actual name from
-    language_other_species or other_species instead.
+    This ensures when woody_species="other", we use the actual tree name from
+    other_species instead of the language field.
 
     Args:
         df: DataFrame with species columns
@@ -431,8 +431,8 @@ def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
 
     # Priority order: specific names first, then general species columns
     species_cols = [
-        "language_other_species",  # Scientific/Latin name (highest priority)
-        "other_species",           # Local name
+        "other_species",           # Local name (highest priority for display)
+        "language_other_species",  # Language field
         "non_woody_species",
         "woody_species",
         "bamboo_species",

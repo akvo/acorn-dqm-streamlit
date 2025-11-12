@@ -28,6 +28,7 @@ from utils.vegetation_validation import (
     detect_suspicious_circumference_by_age,
     check_tall_trees,
 )
+from utils.export_helpers import adjust_excel_column_widths
 
 
 # Page config
@@ -435,58 +436,37 @@ with tabs[1]:
 
     st.markdown("---")
 
-    # CHECK 2: Coverage-only subplots vs Missing Measurements
-    st.markdown("#### 3️⃣ Coverage-Only Subplots vs Missing Measurements")
+    # CHECK 2: Coverage-only subplots with measurements (potential data quality issue)
+    st.markdown("#### 3️⃣ Coverage-Only Subplots with Measurements")
     st.caption(
-        "Subplots with only coverage should not have measurements. If they do, enumerators may be changing answers."
+        "Subplots marked as 100% coverage but have measurements. This may indicate enumerators changed their answers."
     )
 
     if has_measurements:
         # Coverage-only subplots: subplots with vegetation records but 0 trees
-        # Calculate from veg_df_actual (only subplots with vegetation records)
         coverage_only = pd.DataFrame()
 
         if "vegetation_type_number" in veg_df_actual.columns:
             # Coverage-only means: subplot has vegetation records but ALL have NULL vegetation_type_number
-            # We need to check if ANY record has non-null vegetation_type_number
-            # Using max() - if max is NaN, all values are NaN (coverage-only)
-
-            # First, get subplots where ALL records have NULL vegetation_type_number
-            # Group and check if max is NaN (meaning all are NaN)
             veg_check = veg_df_actual.groupby("SUBPLOT_KEY")["vegetation_type_number"].agg([
-                ("max_value", "max"),
                 ("has_trees", lambda x: x.notna().any())
             ]).reset_index()
 
-            # Coverage-only = max is NaN OR has_trees is False
+            # Coverage-only = has_trees is False
             coverage_only_keys = veg_check[~veg_check["has_trees"]]["SUBPLOT_KEY"]
 
-            # Now aggregate display columns for coverage-only subplots
-            agg_dict = {}
-            if "coverage_vegetation" in veg_df_actual.columns:
-                agg_dict["coverage_vegetation"] = "sum"
-            if "enumerator" in veg_df_actual.columns:
-                agg_dict["enumerator"] = "unique"
-            if "subplot_comments" in veg_df_actual.columns:
-                agg_dict["subplot_comments"] = "unique"
-            if "non_woody_species" in veg_df_actual.columns:
-                agg_dict["non_woody_species"] = "unique"
-
-            if len(agg_dict) > 0:
+            # Get coverage-only subplots with key columns
+            if len(coverage_only_keys) > 0:
                 coverage_only = (
                     veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(coverage_only_keys)]
-                    .groupby("SUBPLOT_KEY")
-                    .agg(agg_dict)
-                    .reset_index()
+                    .drop_duplicates(subset=["SUBPLOT_KEY"])
+                    [["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]]
+                    .copy()
                 )
-            else:
-                coverage_only = pd.DataFrame({"SUBPLOT_KEY": coverage_only_keys.tolist()})
 
             # Merge with enumerator if not already present
             if len(coverage_only) > 0 and "enumerator" not in coverage_only.columns:
-                coverage_only = merge_with_enumerator(
-                    coverage_only, filtered_gdf
-                )
+                coverage_only = merge_with_enumerator(coverage_only, filtered_gdf)
         else:
             coverage_only = pd.DataFrame()
 
@@ -497,7 +477,6 @@ with tabs[1]:
             # Filter to records that have MEASUREMENT_KEY (actual measurements)
             if "MEASUREMENT_KEY" in m_all.columns:
                 m_with_meas = m_all[m_all["MEASUREMENT_KEY"].notna()].copy()
-                # Get unique SUBPLOT_KEYs that have measurements
                 veg_mea = set(m_with_meas["SUBPLOT_KEY"].unique())
             else:
                 veg_mea = set()
@@ -526,77 +505,45 @@ with tabs[1]:
         missing_veg_df = (
             veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(missing_veg_keys)]
             .drop_duplicates(subset=["SUBPLOT_KEY"])
+            [["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]]
             .copy()
         )
 
-        col1, col2 = st.columns(2)
+        # MAIN CHECK: Coverage-only subplots that DO NOT match missing measurements
+        # These are subplots marked as coverage-only but actually have measurements
+        if len(coverage_only) > 0 and len(missing_veg_df) > 0:
+            veg_reverted = coverage_only[
+                ~coverage_only["SUBPLOT_KEY"].isin(missing_veg_df["SUBPLOT_KEY"])
+            ].copy()
+        else:
+            veg_reverted = pd.DataFrame()
 
-        with col1:
-            st.metric("Subplots with ONLY Coverage", len(coverage_only))
-            if len(coverage_only) > 0:
-                with st.expander(f"View {len(coverage_only)} coverage-only subplots"):
-                    display_cols = [
-                        col
-                        for col in [
-                            "SUBPLOT_KEY",
-                            "enumerator",
-                            "coverage_vegetation",
-                            "non_woody_species",
-                        ]
-                        if col in coverage_only.columns
-                    ]
+        # Display the reverted subplots
+        st.metric("Coverage-Only with Measurements", len(veg_reverted))
 
-                    # Add row numbers
-                    display_df = coverage_only[display_cols].copy()
-                    display_df.insert(0, "#", range(1, len(display_df) + 1))
-
-                    st.dataframe(
-                        display_df,
-                        use_container_width=True,
-                        height=300,
-                        hide_index=True,
-                    )
-
-        with col2:
-            st.metric("Subplots Missing Measurements", len(missing_veg_df))
-            if len(missing_veg_df) > 0:
-                with st.expander(
-                    f"View {len(missing_veg_df)} subplots missing measurements"
-                ):
-                    col_missing_veg = [
-                        "enumerator",
-                        "SUBPLOT_KEY",
-                        "subplot_comments",
-                        "crop_comments",
-                        "non_woody_species",
-                        "coverage_vegetation",
-                    ]
-                    display_cols = [
-                        col for col in col_missing_veg if col in missing_veg_df.columns
-                    ]
-
-                    # Add row numbers
-                    display_df = missing_veg_df[display_cols].copy()
-                    display_df.insert(0, "#", range(1, len(display_df) + 1))
-
-                    st.dataframe(
-                        display_df,
-                        use_container_width=True,
-                        height=300,
-                        hide_index=True,
-                    )
-
-        # Quality check - these numbers should be close (notebook shows 663 vs 661)
-        diff = abs(len(coverage_only) - len(missing_veg_df))
-        if diff > 10:  # Allow small difference
+        if len(veg_reverted) > 0:
             st.warning(
-                f"⚠️ MISMATCH: {len(coverage_only)} coverage-only vs {len(missing_veg_df)} missing measurements. "
-                f"Difference: {diff}. Enumerators may be changing their answers!"
+                f"⚠️ Found {len(veg_reverted)} subplot(s) marked as 100% coverage but have measurements. "
+                "This suggests data was changed after initial collection."
+            )
+
+            display_cols = [
+                col for col in ["SUBPLOT_KEY", "enumerator"]
+                if col in veg_reverted.columns
+            ]
+
+            # Add row numbers
+            display_df = veg_reverted[display_cols].copy()
+            display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                height=300,
+                hide_index=True,
             )
         else:
-            st.success(
-                f"✅ Coverage-only count ({len(coverage_only)}) matches missing measurements ({len(missing_veg_df)})"
-            )
+            st.success("✅ All coverage-only subplots correctly match missing measurements")
     else:
         st.info("ℹ️ Measurement data not available")
 
@@ -665,11 +612,11 @@ with tabs[3]:
 
         if len(primary_trees) > 0:
             # Use notebook's collector_primary_list columns
+            # Note: tree_name now comes from other_species, so we don't need to show other_species separately
             display_cols = []
             for col in [
                 "SUBPLOT_KEY",
                 "tree_name",
-                "other_species",
                 "language_other_species",
                 "vegetation_type_number",
             ]:
@@ -694,11 +641,11 @@ with tabs[3]:
 
         if len(young_trees_other) > 0:
             # Use notebook's collector_list_trees_young columns
+            # Note: tree_name now comes from other_species, so we don't need to show other_species separately
             display_cols = []
             for col in [
                 "SUBPLOT_KEY",
                 "tree_name",
-                "other_species",
                 "language_other_species",
                 "vegetation_type_number",
             ]:
@@ -725,11 +672,11 @@ with tabs[3]:
 
         if len(non_primary_trees) > 0:
             # Use notebook's collector_list_trees columns
+            # Note: tree_name now comes from other_species, so we don't need to show other_species separately
             display_cols = []
             for col in [
                 "SUBPLOT_KEY",
                 "tree_name",
-                "other_species",
                 "language_other_species",
                 "vegetation_type_number",
             ]:
@@ -977,67 +924,8 @@ with tabs[2]:
         f"Using threshold: Stems > {stem_threshold}, Tall trees > {tall_tree_threshold}m"
     )
 
-    # CHECK 1: Missing measurements
-    st.markdown("####  1️⃣ Missing Height and Circumference ")
-
-    missing_height = meas_with_enum[meas_with_enum["tree_height_m"].isna()]
-
-    # Check circumference columns
-    has_circ_bh = "circumference_bh" in meas_with_enum.columns
-    has_circ_10 = "circumference_10cm" in meas_with_enum.columns
-
-    if has_circ_bh and has_circ_10:
-        missing_circ = meas_with_enum[
-            meas_with_enum["circumference_bh"].isna()
-            & meas_with_enum["circumference_10cm"].isna()
-        ]
-    elif has_circ_bh:
-        missing_circ = meas_with_enum[meas_with_enum["circumference_bh"].isna()]
-    elif has_circ_10:
-        missing_circ = meas_with_enum[meas_with_enum["circumference_10cm"].isna()]
-    else:
-        missing_circ = pd.DataFrame()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("Missing Height", len(missing_height))
-        if len(missing_height) > 0:
-            with st.expander(f"View {len(missing_height)} trees missing height"):
-                display_cols = []
-                for col in ["VEGETATION_KEY", "enumerator", "tree_name", species_col]:
-                    if col and col in missing_height.columns:
-                        display_cols.append(col)
-
-                if len(display_cols) > 0:
-                    st.dataframe(
-                        missing_height[display_cols],
-                        use_container_width=True,
-                        height=300,
-                    )
-                else:
-                    st.warning("No displayable columns")
-
-    with col2:
-        st.metric("Missing Circumference", len(missing_circ))
-        if len(missing_circ) > 0:
-            with st.expander(f"View {len(missing_circ)} trees missing circumference"):
-                display_cols = []
-                for col in ["VEGETATION_KEY", "enumerator", "tree_name", species_col]:
-                    if col and col in missing_circ.columns:
-                        display_cols.append(col)
-
-                if len(display_cols) > 0:
-                    st.dataframe(
-                        missing_circ[display_cols], use_container_width=True, height=300
-                    )
-                else:
-                    st.warning("No displayable columns")
-
-    st.markdown("---")
-
-    # CHECK 2: Super Tall Trees Check
-    st.markdown(f"#### 2️⃣ Super Tall Trees (> {tall_tree_threshold}m)")
+    # CHECK 1: Super Tall Trees Check
+    st.markdown(f"#### 1️⃣ Super Tall Trees (> {tall_tree_threshold}m)")
     st.caption("Important to verify tall trees are realistic with planting age")
 
     # Use the height_total data from height homogeneity check if available
@@ -1112,8 +1000,8 @@ with tabs[2]:
 
     st.markdown("---")
 
-    # CHECK 3: High stem counts
-    st.markdown(f"#### 3️⃣ High Stem Counts (> {stem_threshold})")
+    # CHECK 2: High stem counts
+    st.markdown(f"#### 2️⃣ High Stem Counts (> {stem_threshold})")
     st.caption(
         "From notebook: nr_stems_bh > 20 is suspicious (should be constrained to >40?)"
     )
@@ -2022,6 +1910,8 @@ with col1:
             # Create Excel writer
             output = BytesIO()
             sheets_created = 0
+            # Track dataframes for column width adjustment
+            sheet_dataframes = {}
 
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
 
@@ -2031,7 +1921,9 @@ with col1:
                         export_df = coverage_only.copy()
                         if 'geometry' in export_df.columns:
                             export_df = export_df.drop(columns=['geometry'])
-                        export_df.to_excel(writer, sheet_name='Coverage Only', index=False)
+                        sheet_name = 'Coverage Only'
+                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
                 except: pass
 
@@ -2041,7 +1933,9 @@ with col1:
                         export_df = primary_trees.copy()
                         if 'geometry' in export_df.columns:
                             export_df = export_df.drop(columns=['geometry'])
-                        export_df.to_excel(writer, sheet_name='Primary Trees Other', index=False)
+                        sheet_name = 'Primary Trees Other'
+                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
                 except: pass
 
@@ -2051,7 +1945,9 @@ with col1:
                         export_df = young_trees_other.copy()
                         if 'geometry' in export_df.columns:
                             export_df = export_df.drop(columns=['geometry'])
-                        export_df.to_excel(writer, sheet_name='Young Trees Other', index=False)
+                        sheet_name = 'Young Trees Other'
+                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
                 except: pass
 
@@ -2061,7 +1957,9 @@ with col1:
                         export_df = non_primary_trees.copy()
                         if 'geometry' in export_df.columns:
                             export_df = export_df.drop(columns=['geometry'])
-                        export_df.to_excel(writer, sheet_name='Non-Primary Trees Other', index=False)
+                        sheet_name = 'Non-Primary Trees Other'
+                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
                 except: pass
 
@@ -2070,7 +1968,19 @@ with col1:
                     summary_df = pd.DataFrame({
                         'Note': ['No flagged records found in quality checks']
                     })
-                    summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                    sheet_name = 'Summary'
+                    summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    sheet_dataframes[sheet_name] = summary_df
+
+                # Adjust column widths for all sheets
+                try:
+                    for sheet_name, df in sheet_dataframes.items():
+                        if sheet_name in writer.sheets:
+                            worksheet = writer.sheets[sheet_name]
+                            adjust_excel_column_widths(worksheet, df)
+                except Exception as e:
+                    # Column width adjustment is optional - don't fail export if it errors
+                    pass
 
             output.seek(0)
 
