@@ -2616,6 +2616,7 @@ with tabs[TAB_ERROR_DETAILS]:
                     file_name=f"{config.PARTNER}_{selected_enum}_subplots.csv",
                     mime="text/csv",
                     use_container_width=True,
+                    key=f"download_csv_{selected_enum}",
                 )
 
         # PDF Export
@@ -2632,10 +2633,11 @@ with tabs[TAB_ERROR_DETAILS]:
                     if pdf_buffer:
                         st.download_button(
                             "📄 Download PDF",
-                            data=pdf_buffer,
+                            data=pdf_buffer.getvalue(),
                             file_name=f"{config.PARTNER}_{selected_enum}_report.pdf",
                             mime="application/pdf",
                             use_container_width=True,
+                            key=f"download_pdf_{selected_enum}",
                         )
                     else:
                         st.info("📦 Install reportlab:\n`pip install reportlab`")
@@ -2658,6 +2660,7 @@ with tabs[TAB_ERROR_DETAILS]:
                         file_name=f"{config.PARTNER}_{selected_enum}_subplots.geojson",
                         mime="application/geo+json",
                         use_container_width=True,
+                        key=f"download_geojson_{selected_enum}",
                     )
                 else:
                     st.info("No geometry data available")
@@ -2679,6 +2682,7 @@ with tabs[TAB_ERROR_DETAILS]:
                     file_name=f"{config.PARTNER}_{selected_enum}_errors.csv",
                     mime="text/csv",
                     use_container_width=True,
+                    key=f"download_errors_csv_{selected_enum}",
                 )
 
             with col2:
@@ -2690,4 +2694,5 @@ with tabs[TAB_ERROR_DETAILS]:
                         file_name=f"{config.PARTNER}_{selected_enum}_errors.geojson",
                         mime="application/geo+json",
                         use_container_width=True,
+                        key=f"download_errors_geojson_{selected_enum}",
                     )

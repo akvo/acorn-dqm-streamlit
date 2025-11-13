@@ -746,6 +746,7 @@ if st.button(
                 file_name=f"{config.PARTNER}_complete_quality_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
+                key="download_complete_quality_report",
             )
 
         except Exception as e:
