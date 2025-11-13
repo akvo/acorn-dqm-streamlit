@@ -1977,7 +1977,92 @@ with tabs[TAB_ERROR_DETAILS]:
     )
 
     if selected_enum:
-        enum_data = filtered_gdf[filtered_gdf["enumerator"] == selected_enum]
+        enum_data = filtered_gdf[filtered_gdf["enumerator"] == selected_enum].copy()
+
+        # Add date range filter
+        # First check if date column exists, if not try to add from raw_data
+        date_col = None
+        if "starttime" in enum_data.columns:
+            date_col = "starttime"
+        elif "SubmissionDate" in enum_data.columns:
+            date_col = "SubmissionDate"
+        elif raw_data and "plots_subplots" in raw_data:
+            # Try to add date from raw_data
+            plots_df = raw_data["plots_subplots"]
+
+            # Check for date column with different case variations
+            submission_date_col = None
+            for col in plots_df.columns:
+                if "submissiondate" in col.lower() and "subplot" in col.lower():
+                    submission_date_col = col
+                    break
+            if not submission_date_col:
+                for col in plots_df.columns:
+                    if "submissiondate" in col.lower():
+                        submission_date_col = col
+                        break
+
+            # Also check for starttime
+            if not submission_date_col:
+                for col in plots_df.columns:
+                    if "starttime" in col.lower():
+                        submission_date_col = col
+                        break
+
+            # Merge the date column if found
+            if submission_date_col and "subplot_id" in enum_data.columns and "SUBPLOT_KEY" in plots_df.columns:
+                date_merge = plots_df[["SUBPLOT_KEY", submission_date_col]].drop_duplicates()
+                enum_data = enum_data.merge(
+                    date_merge,
+                    left_on="subplot_id",
+                    right_on="SUBPLOT_KEY",
+                    how="left"
+                )
+                date_col = submission_date_col
+
+        if date_col:
+            # Convert to datetime
+            enum_data_copy = enum_data.copy()
+            enum_data_copy[date_col] = pd.to_datetime(enum_data_copy[date_col], errors='coerce')
+
+            # Filter out rows with invalid dates
+            valid_dates = enum_data_copy[date_col].notna()
+            if valid_dates.sum() > 0:
+                # Get min/max dates from valid dates only
+                min_date = enum_data_copy.loc[valid_dates, date_col].min().date()
+                max_date = enum_data_copy.loc[valid_dates, date_col].max().date()
+
+                # Create date range filter
+                col_filter1, col_filter2 = st.columns([2, 1])
+
+                with col_filter1:
+                    date_range = st.date_input(
+                        "📅 Filter by Date Range",
+                        value=(min_date, max_date),
+                        min_value=min_date,
+                        max_value=max_date,
+                        key="enum_detail_date_range",
+                    )
+
+                # Apply date filter if both dates selected
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                    mask = (
+                        (enum_data_copy[date_col].dt.date >= start_date) &
+                        (enum_data_copy[date_col].dt.date <= end_date)
+                    )
+                    enum_data = enum_data_copy[mask]
+
+                    with col_filter2:
+                        st.metric("Filtered Subplots", len(enum_data))
+                else:
+                    enum_data = enum_data_copy
+
+                st.markdown("---")
+            else:
+                st.info(f"ℹ️ Date information not available for filtering (column: {date_col} has no valid dates)")
+        else:
+            st.info("ℹ️ Date information not available for filtering")
 
         st.markdown(f"#### Error Report for: **{selected_enum}**")
 
