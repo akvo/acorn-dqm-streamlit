@@ -142,27 +142,111 @@ def show_sidebar_info():
 
 def create_sidebar_filters(gdf):
     """Create sidebar filters and return filtered data"""
+    from datetime import date as date_class
+
     st.sidebar.markdown("## 🔍 Filters")
 
-    # Date filter
+    # Date filter - try to find or add date column
+    date_col = None
+    gdf_with_date = gdf.copy()
+
+    # Check if date column already exists
     if "starttime" in gdf.columns:
-        gdf_copy = gdf.copy()
-        gdf_copy["starttime"] = pd.to_datetime(gdf_copy["starttime"])
+        date_col = "starttime"
+    elif "SubmissionDate" in gdf.columns:
+        date_col = "SubmissionDate"
+    elif "data" in st.session_state and st.session_state.data and "raw_data" in st.session_state.data:
+        # Try to add date from raw_data
+        raw_data = st.session_state.data.get("raw_data", {})
+        if "plots_subplots" in raw_data:
+            plots_df = raw_data["plots_subplots"]
 
-        min_date = gdf_copy["starttime"].min().date()
-        max_date = gdf_copy["starttime"].max().date()
+            # Check for date column with different case variations
+            submission_date_col = None
+            for col in plots_df.columns:
+                if "submissiondate" in col.lower() and "subplot" in col.lower():
+                    submission_date_col = col
+                    break
+            if not submission_date_col:
+                for col in plots_df.columns:
+                    if "submissiondate" in col.lower():
+                        submission_date_col = col
+                        break
+            if not submission_date_col:
+                for col in plots_df.columns:
+                    if "starttime" in col.lower():
+                        submission_date_col = col
+                        break
 
-        date_range = st.sidebar.date_input(
-            "Date Range",
-            value=(min_date, max_date),
-            min_value=min_date,
-            max_value=max_date,
-        )
+            # Merge the date column if found
+            if submission_date_col and "subplot_id" in gdf.columns and "SUBPLOT_KEY" in plots_df.columns:
+                date_merge = plots_df[["SUBPLOT_KEY", submission_date_col]].drop_duplicates()
 
-        if len(date_range) == 2:
-            from utils.data_processor import filter_by_date
+                # Drop SUBPLOT_KEY if it already exists to avoid duplicate column issues
+                if "SUBPLOT_KEY" in gdf.columns:
+                    gdf = gdf.drop(columns=["SUBPLOT_KEY"])
 
-            gdf = filter_by_date(gdf, date_range[0], date_range[1])
+                gdf_with_date = gdf.merge(
+                    date_merge,
+                    left_on="subplot_id",
+                    right_on="SUBPLOT_KEY",
+                    how="left",
+                    suffixes=('', '_drop')
+                )
+
+                # Drop any columns with '_drop' suffix
+                drop_cols = [col for col in gdf_with_date.columns if col.endswith('_drop')]
+                if drop_cols:
+                    gdf_with_date = gdf_with_date.drop(columns=drop_cols)
+
+                date_col = submission_date_col
+
+    if date_col:
+        # Convert to datetime
+        gdf_with_date[date_col] = pd.to_datetime(gdf_with_date[date_col], errors='coerce')
+
+        # Filter out rows with invalid dates
+        valid_dates = gdf_with_date[date_col].notna()
+
+        if valid_dates.sum() > 0:
+            # Get min/max dates from valid dates only
+            min_date = gdf_with_date.loc[valid_dates, date_col].min().date()
+            max_date = gdf_with_date.loc[valid_dates, date_col].max().date()
+            today = date_class.today()
+
+            # Default to today if today is within range, otherwise use max_date
+            default_end_date = today if min_date <= today <= max_date else max_date
+
+            date_range = st.sidebar.date_input(
+                "📅 Date Range",
+                value=(min_date, default_end_date),
+                min_value=min_date,
+                max_value=max_date,
+                help="Filter data by submission date. Defaults to today.",
+                key="sidebar_date_filter",
+            )
+
+            # Apply date filter if both dates selected
+            if len(date_range) == 2:
+                start_date, end_date = date_range
+                mask = (
+                    (gdf_with_date[date_col].dt.date >= start_date) &
+                    (gdf_with_date[date_col].dt.date <= end_date)
+                )
+                gdf = gdf_with_date[mask].copy()
+
+                # Remove the temporary date column if we added it
+                if date_col not in st.session_state.data["subplots"].columns:
+                    if date_col in gdf.columns:
+                        gdf = gdf.drop(columns=[date_col])
+                    if "SUBPLOT_KEY" in gdf.columns and "SUBPLOT_KEY" not in st.session_state.data["subplots"].columns:
+                        gdf = gdf.drop(columns=["SUBPLOT_KEY"])
+            else:
+                gdf = gdf_with_date.copy()
+        else:
+            st.sidebar.info(f"ℹ️ No valid dates found in data")
+    else:
+        st.sidebar.info("ℹ️ Date column not found in data")
 
     # Enumerator filter
     if "enumerator" in gdf.columns:
