@@ -315,6 +315,19 @@ if st.button(
                         ]
 
                         if len(height_outliers) > 0:
+                            # Ensure enumerator column exists - try multiple approaches
+                            if "enumerator" not in height_outliers.columns:
+                                # Try to add from filtered_gdf if available
+                                if "enumerator" in filtered_gdf.columns and "subplot_id" in height_outliers.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    height_outliers = height_outliers.merge(enum_map, on="subplot_id", how="left")
+                                elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in height_outliers.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                    height_outliers = height_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                else:
+                                    height_outliers["enumerator"] = ""
+
                             export_df = format_for_export(
                                 height_outliers,
                                 issue_type="Height Outlier",
@@ -368,6 +381,19 @@ if st.button(
                                 ]
 
                                 if len(circ_outliers) > 0:
+                                    # Ensure enumerator column exists - try multiple approaches
+                                    if "enumerator" not in circ_outliers.columns:
+                                        # Try to add from filtered_gdf if available
+                                        if "enumerator" in filtered_gdf.columns and "subplot_id" in circ_outliers.columns:
+                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                            circ_outliers = circ_outliers.merge(enum_map, on="subplot_id", how="left")
+                                        elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns:
+                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                            enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                            circ_outliers = circ_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                        else:
+                                            circ_outliers["enumerator"] = ""
+
                                     export_df = format_for_export(
                                         circ_outliers,
                                         issue_type="Circumference Outlier",
@@ -553,6 +579,19 @@ if st.button(
                                 )
                                 super_tall = add_tree_name_column(super_tall)
 
+                                # Ensure enumerator column exists - try multiple approaches
+                                if "enumerator" not in super_tall.columns:
+                                    # Try to add from filtered_gdf if available
+                                    if "enumerator" in filtered_gdf.columns and "subplot_id" in super_tall.columns:
+                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                        super_tall = super_tall.merge(enum_map, on="subplot_id", how="left")
+                                    elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in super_tall.columns:
+                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                        enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                        super_tall = super_tall.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                    else:
+                                        super_tall["enumerator"] = ""
+
                                 export_df = format_for_export(
                                     super_tall,
                                     issue_type="Super Tall Tree (>25m)",
@@ -580,6 +619,19 @@ if st.button(
                         ]
 
                         if len(high_stems) > 0:
+                            # Ensure enumerator column exists - try multiple approaches
+                            if "enumerator" not in high_stems.columns:
+                                # Try to add from filtered_gdf if available
+                                if "enumerator" in filtered_gdf.columns and "subplot_id" in high_stems.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    high_stems = high_stems.merge(enum_map, on="subplot_id", how="left")
+                                elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in high_stems.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                    high_stems = high_stems.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                else:
+                                    high_stems["enumerator"] = ""
+
                             export_df = format_for_export(
                                 high_stems,
                                 issue_type="High Stem Count (>20)",
@@ -633,6 +685,19 @@ if st.button(
                                 suspicious = circ_data[circ_data["suspicious"] == True]
 
                                 if len(suspicious) > 0:
+                                    # Ensure enumerator column exists - try multiple approaches
+                                    if "enumerator" not in suspicious.columns:
+                                        # Try to add from filtered_gdf if available
+                                        if "enumerator" in filtered_gdf.columns and "subplot_id" in suspicious.columns:
+                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                            suspicious = suspicious.merge(enum_map, on="subplot_id", how="left")
+                                        elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in suspicious.columns:
+                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                            enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                            suspicious = suspicious.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                        else:
+                                            suspicious["enumerator"] = ""
+
                                     export_df = format_for_export(
                                         suspicious,
                                         issue_type="Suspicious Circ vs Age",
