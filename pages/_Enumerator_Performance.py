@@ -2245,6 +2245,10 @@ with tabs[TAB_ERROR_DETAILS]:
         if len(invalid_data) > 0:
             display_cols = ["subplot_id", "reasons"]
 
+            # Add subplot_comments if available
+            if "subplot_comments" in invalid_data.columns:
+                display_cols.append("subplot_comments")
+
             for col in ["area_m2", "nr_vertices", "length_width_ratio", "mrr_ratio"]:
                 if col in invalid_data.columns:
                     display_cols.append(col)
