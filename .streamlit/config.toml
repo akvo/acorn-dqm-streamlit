@@ -6,9 +6,13 @@ textColor = "#262730"
 font = "sans serif"
 
 [server]
+port = 8080
+address = "0.0.0.0"
 maxUploadSize = 500
 enableXsrfProtection = true
-enableCORS = false
+enableCORS = true
+headless = true
 
 [browser]
 gatherUsageStats = false
+serverAddress = "0.0.0.0"
