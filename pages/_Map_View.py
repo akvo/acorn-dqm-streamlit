@@ -62,6 +62,9 @@ gdf_subplots = st.session_state.data["subplots"]
 
 # Sidebar filters
 with st.sidebar:
+    # Apply filters first (shows date filter at top)
+    filtered_gdf = create_sidebar_filters(gdf_subplots)
+
     # Show common sidebar info (partner, data status)
     show_sidebar_info()
 
@@ -88,8 +91,6 @@ with st.sidebar:
     st.caption("💡 Use layer control on map to switch styles")
 
     st.markdown("---")
-
-filtered_gdf = create_sidebar_filters(gdf_subplots)
 
 # Filter by validity
 if not show_valid:
@@ -190,9 +191,17 @@ try:
         if row.geometry.is_empty:
             continue
 
-        # Get coordinates
-        coords = list(row.geometry.exterior.coords)
-        coords_latlon = [(lat, lon) for lon, lat in coords]
+        # Handle both Polygon and MultiPolygon geometries
+        geom = row.geometry
+        polygons_to_plot = []
+
+        if geom.geom_type == 'Polygon':
+            polygons_to_plot = [geom]
+        elif geom.geom_type == 'MultiPolygon':
+            polygons_to_plot = list(geom.geoms)
+        else:
+            # Skip other geometry types (Point, LineString, etc.)
+            continue
 
         # Create detailed popup
         popup_html = f"""
@@ -247,7 +256,7 @@ try:
         if not row["geom_valid"] and "reasons" in row.index:
             reasons = str(row["reasons"]).split(";")
             popup_html += """
-            <div style="margin-top: 10px; padding: 8px; background-color: #ffebee; 
+            <div style="margin-top: 10px; padding: 8px; background-color: #ffebee;
                         border-left: 3px solid #f44336; border-radius: 3px;">
                 <b style="color: #c62828;">Validation Issues:</b>
                 <ul style="margin: 5px 0; padding-left: 20px; font-size: 12px;">
@@ -284,18 +293,24 @@ try:
         else:
             tooltip_text = "✅ " + tooltip_text
 
-        # Add polygon
-        folium.Polygon(
-            locations=coords_latlon,
-            popup=folium.Popup(popup_html, max_width=350),
-            tooltip=tooltip_text,
-            color=color,
-            fill=True,
-            fillColor=fill_color,
-            fillOpacity=fill_opacity,
-            weight=weight,
-            opacity=opacity,
-        ).add_to(group)
+        # Add each polygon (handles both Polygon and MultiPolygon)
+        for poly in polygons_to_plot:
+            # Get coordinates for this polygon
+            coords = list(poly.exterior.coords)
+            coords_latlon = [(lat, lon) for lon, lat in coords]
+
+            # Add polygon to map
+            folium.Polygon(
+                locations=coords_latlon,
+                popup=folium.Popup(popup_html, max_width=350),
+                tooltip=tooltip_text,
+                color=color,
+                fill=True,
+                fillColor=fill_color,
+                fillOpacity=fill_opacity,
+                weight=weight,
+                opacity=opacity,
+            ).add_to(group)
 
     # Add groups to map
     valid_group.add_to(m)

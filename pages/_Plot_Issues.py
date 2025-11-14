@@ -35,9 +35,6 @@ st.caption("Focus on plots with validation errors (≥8 invalid subplots)")
 gdf_subplots = st.session_state.data["subplots"]
 raw_data = st.session_state.data.get("raw_data", {})
 
-# Show sidebar info
-show_sidebar_info()
-
 # ============================================
 # VEGETATION VALIDATION
 # ============================================
@@ -174,8 +171,11 @@ gdf_subplots = add_vegetation_validation(gdf_subplots, raw_data)
 # Calculate plot validation
 plot_summary = calculate_plot_validation(gdf_subplots)
 
-# Apply filters
+# Apply filters (shows date filter at top of sidebar)
 filtered_gdf = create_sidebar_filters(gdf_subplots)
+
+# Show sidebar info (partner and data status)
+show_sidebar_info()
 
 # ============================================
 # SUMMARY METRICS

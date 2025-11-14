@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import json
 from io import BytesIO
 import config
-from ui.components import show_header, show_sidebar_info
+from ui.components import show_header, show_sidebar_info, create_sidebar_filters
 
 # Try to import folium (optional for maps)
 try:
@@ -58,113 +58,11 @@ st.markdown("Track validation errors and quality issues by enumerator")
 gdf_subplots = st.session_state.data["subplots"]
 raw_data = st.session_state.data.get("raw_data", {})
 
-# Show sidebar info
+# Apply filters first (shows date filter at top of sidebar)
+gdf_subplots = create_sidebar_filters(gdf_subplots)
+
+# Show sidebar info (partner and data status)
 show_sidebar_info()
-
-# Add date filter to sidebar
-st.sidebar.markdown("---")
-st.sidebar.markdown("## 🔍 Filters")
-
-date_col = None
-date_filtered_gdf = gdf_subplots.copy()
-
-# Try to find date column
-if "starttime" in gdf_subplots.columns:
-    date_col = "starttime"
-elif "SubmissionDate" in gdf_subplots.columns:
-    date_col = "SubmissionDate"
-elif raw_data and "plots_subplots" in raw_data:
-    # Try to add date from raw_data
-    plots_df = raw_data["plots_subplots"]
-
-    # Check for date column with different case variations
-    submission_date_col = None
-    for col in plots_df.columns:
-        if "submissiondate" in col.lower() and "subplot" in col.lower():
-            submission_date_col = col
-            break
-    if not submission_date_col:
-        for col in plots_df.columns:
-            if "submissiondate" in col.lower():
-                submission_date_col = col
-                break
-    if not submission_date_col:
-        for col in plots_df.columns:
-            if "starttime" in col.lower():
-                submission_date_col = col
-                break
-
-    # Merge the date column if found
-    if submission_date_col and "subplot_id" in gdf_subplots.columns and "SUBPLOT_KEY" in plots_df.columns:
-        date_merge = plots_df[["SUBPLOT_KEY", submission_date_col]].drop_duplicates()
-
-        # Drop SUBPLOT_KEY if it already exists to avoid duplicate column issues
-        if "SUBPLOT_KEY" in gdf_subplots.columns:
-            gdf_subplots = gdf_subplots.drop(columns=["SUBPLOT_KEY"])
-
-        date_filtered_gdf = gdf_subplots.merge(
-            date_merge,
-            left_on="subplot_id",
-            right_on="SUBPLOT_KEY",
-            how="left",
-            suffixes=('', '_drop')
-        )
-
-        # Drop any columns with '_drop' suffix
-        drop_cols = [col for col in date_filtered_gdf.columns if col.endswith('_drop')]
-        if drop_cols:
-            date_filtered_gdf = date_filtered_gdf.drop(columns=drop_cols)
-
-        date_col = submission_date_col
-
-if date_col:
-    from datetime import date as date_class
-
-    # Convert to datetime
-    date_filtered_gdf[date_col] = pd.to_datetime(date_filtered_gdf[date_col], errors='coerce')
-
-    # Filter out rows with invalid dates
-    valid_dates = date_filtered_gdf[date_col].notna()
-
-    if valid_dates.sum() > 0:
-        # Get min/max dates from valid dates only
-        min_date = date_filtered_gdf.loc[valid_dates, date_col].min().date()
-        max_date = date_filtered_gdf.loc[valid_dates, date_col].max().date()
-        today = date_class.today()
-
-        # Default to today if today is within range, otherwise use max_date
-        default_end_date = today if min_date <= today <= max_date else max_date
-
-        date_range = st.sidebar.date_input(
-            "📅 Date Range",
-            value=(min_date, default_end_date),
-            min_value=min_date,
-            max_value=max_date,
-            help="Filter data by submission date. Defaults to today.",
-            key="enumerator_perf_date_filter",
-        )
-
-        # Apply date filter if both dates selected
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            mask = (
-                (date_filtered_gdf[date_col].dt.date >= start_date) &
-                (date_filtered_gdf[date_col].dt.date <= end_date)
-            )
-            gdf_subplots = date_filtered_gdf[mask].copy()
-
-            # Remove the temporary date column if we added it
-            if date_col not in st.session_state.data["subplots"].columns:
-                if date_col in gdf_subplots.columns:
-                    gdf_subplots = gdf_subplots.drop(columns=[date_col])
-                if "SUBPLOT_KEY" in gdf_subplots.columns and "SUBPLOT_KEY" not in st.session_state.data["subplots"].columns:
-                    gdf_subplots = gdf_subplots.drop(columns=["SUBPLOT_KEY"])
-        else:
-            gdf_subplots = date_filtered_gdf.copy()
-    else:
-        st.sidebar.info(f"ℹ️ No valid dates found in {date_col}")
-else:
-    st.sidebar.info("ℹ️ Date filtering not available")
 
 # Check if vegetation data available
 has_vegetation = "plots_subplots_vegetation" in raw_data
@@ -225,9 +123,17 @@ def create_enumerator_map(enum_data, enumerator_name):
             if row.geometry.is_empty:
                 continue
 
-            # Get coordinates
-            coords = list(row.geometry.exterior.coords)
-            coords_latlon = [(lat, lon) for lon, lat in coords]
+            # Handle both Polygon and MultiPolygon geometries
+            geom = row.geometry
+            polygons_to_plot = []
+
+            if geom.geom_type == 'Polygon':
+                polygons_to_plot = [geom]
+            elif geom.geom_type == 'MultiPolygon':
+                polygons_to_plot = list(geom.geoms)
+            else:
+                # Skip other geometry types (Point, LineString, etc.)
+                continue
 
             # Create detailed popup HTML
             popup_html = f"""
@@ -319,18 +225,24 @@ def create_enumerator_map(enum_data, enumerator_name):
             else:
                 tooltip_text = "✅ " + tooltip_text
 
-            # Add polygon
-            folium.Polygon(
-                locations=coords_latlon,
-                popup=folium.Popup(popup_html, max_width=350),
-                tooltip=tooltip_text,
-                color=color,
-                fill=True,
-                fillColor=fill_color,
-                fillOpacity=fill_opacity,
-                weight=weight,
-                opacity=opacity,
-            ).add_to(group)
+            # Add each polygon (handles both Polygon and MultiPolygon)
+            for poly in polygons_to_plot:
+                # Get coordinates for this polygon
+                coords = list(poly.exterior.coords)
+                coords_latlon = [(lat, lon) for lon, lat in coords]
+
+                # Add polygon to map
+                folium.Polygon(
+                    locations=coords_latlon,
+                    popup=folium.Popup(popup_html, max_width=350),
+                    tooltip=tooltip_text,
+                    color=color,
+                    fill=True,
+                    fillColor=fill_color,
+                    fillOpacity=fill_opacity,
+                    weight=weight,
+                    opacity=opacity,
+                ).add_to(group)
 
         # Add groups to map
         valid_group.add_to(m)
@@ -520,6 +432,14 @@ def capture_map_as_image(enum_data, enumerator_name):
                     # Add centroid marker
                     centroid = geom.centroid
                     ax.plot(centroid.x, centroid.y, 'o', color='#2E7D32', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                elif geom.geom_type == 'MultiPolygon':
+                    # Plot each polygon in the multipolygon
+                    for poly in geom.geoms:
+                        x, y = poly.exterior.xy
+                        ax.fill(x, y, color='#4CAF50', alpha=0.3, edgecolor='#2E7D32', linewidth=1.5)
+                    # Add centroid marker
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#2E7D32', markersize=8, markeredgecolor='white', markeredgewidth=1)
                 else:
                     centroid = geom.centroid
                     ax.plot(centroid.x, centroid.y, 'o', color='#4CAF50', markersize=10, markeredgecolor='white', markeredgewidth=2)
@@ -530,6 +450,14 @@ def capture_map_as_image(enum_data, enumerator_name):
                     # Plot polygon outline
                     x, y = geom.exterior.xy
                     ax.fill(x, y, color='#F44336', alpha=0.3, edgecolor='#C62828', linewidth=1.5)
+                    # Add centroid marker
+                    centroid = geom.centroid
+                    ax.plot(centroid.x, centroid.y, 'o', color='#C62828', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                elif geom.geom_type == 'MultiPolygon':
+                    # Plot each polygon in the multipolygon
+                    for poly in geom.geoms:
+                        x, y = poly.exterior.xy
+                        ax.fill(x, y, color='#F44336', alpha=0.3, edgecolor='#C62828', linewidth=1.5)
                     # Add centroid marker
                     centroid = geom.centroid
                     ax.plot(centroid.x, centroid.y, 'o', color='#C62828', markersize=8, markeredgecolor='white', markeredgewidth=1)
@@ -704,6 +632,17 @@ def create_subplot_polygon_image(subplot_row):
             color = '#F44336' if not is_valid else '#4CAF50'
             ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
             ax.plot(x, y, 'o', color=color, markersize=4)
+
+            # Add centroid
+            centroid = geom.centroid
+            ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=8, markeredgewidth=2)
+        elif geom.geom_type == 'MultiPolygon':
+            color = '#F44336' if not is_valid else '#4CAF50'
+            # Plot each polygon in the multipolygon
+            for poly in geom.geoms:
+                x, y = poly.exterior.xy
+                ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
+                ax.plot(x, y, 'o', color=color, markersize=4)
 
             # Add centroid
             centroid = geom.centroid
@@ -1161,17 +1100,22 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             for idx, row in date_data.iterrows():
                                 if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
                                     geom = row["geometry"]
+                                    is_valid = row.get("geom_valid", False)
+                                    color = '#4CAF50' if is_valid else '#F44336'
+                                    alpha = 0.3 if is_valid else 0.6
+
                                     if geom.geom_type == 'Polygon':
                                         x, y = geom.exterior.xy
-                                        is_valid = row.get("geom_valid", False)
-                                        color = '#4CAF50' if is_valid else '#F44336'
-                                        alpha = 0.3 if is_valid else 0.6
                                         ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                    elif geom.geom_type == 'MultiPolygon':
+                                        for poly in geom.geoms:
+                                            x, y = poly.exterior.xy
+                                            ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
 
-                                        # Add label for invalid ones
-                                        if not is_valid:
-                                            centroid = geom.centroid
-                                            ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
+                                    # Add label for invalid ones
+                                    if not is_valid:
+                                        centroid = geom.centroid
+                                        ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
 
                             ax.set_aspect('equal')
                             ax.grid(True, alpha=0.3)
@@ -1268,15 +1212,21 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                                         fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
 
+                                        color = '#4CAF50' if is_valid else '#F44336'
+
                                         if geom.geom_type == 'Polygon':
                                             x, y = geom.exterior.xy
-                                            color = '#4CAF50' if is_valid else '#F44336'
                                             ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
                                             ax.plot(x, y, 'o', color=color, markersize=3)
+                                        elif geom.geom_type == 'MultiPolygon':
+                                            for poly in geom.geoms:
+                                                x, y = poly.exterior.xy
+                                                ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
+                                                ax.plot(x, y, 'o', color=color, markersize=3)
 
-                                            # Add centroid
-                                            centroid = geom.centroid
-                                            ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
+                                        # Add centroid
+                                        centroid = geom.centroid
+                                        ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
 
                                         ax.set_aspect('equal')
                                         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)

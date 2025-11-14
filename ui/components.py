@@ -118,9 +118,11 @@ def show_status_message(summary):
 
 def show_sidebar_info():
     """
-    Show common sidebar information at the top of all pages.
-    Displays active partner and data status.
+    Show common sidebar information.
+    Displays active partner and data status (appears after date filter).
     """
+    st.sidebar.markdown("---")
+
     # Show active partner
     active_partner = st.session_state.get("partner", config.PARTNER)
     st.sidebar.info(f"🔗 **Partner:** {active_partner}")
@@ -134,8 +136,6 @@ def show_sidebar_info():
             st.sidebar.success(f"✅ {total} subplots loaded ({valid} valid)")
     else:
         st.sidebar.warning("⚠️ No data loaded")
-        if st.sidebar.button("← Go to Home"):
-            st.switch_page("app.py")
 
     st.sidebar.markdown("---")
 
@@ -144,9 +144,7 @@ def create_sidebar_filters(gdf):
     """Create sidebar filters and return filtered data"""
     from datetime import date as date_class
 
-    st.sidebar.markdown("## 🔍 Filters")
-
-    # Date filter - try to find or add date column
+    # Date filter - try to find or add date column (appears at top)
     date_col = None
     gdf_with_date = gdf.copy()
 
@@ -215,15 +213,21 @@ def create_sidebar_filters(gdf):
                 max_date = gdf_with_date.loc[valid_dates, date_col].max().date()
                 today = date_class.today()
 
-                # Default to today if today is within range, otherwise use max_date
-                default_end_date = today if min_date <= today <= max_date else max_date
+                # Default to today only if today is within range, otherwise use max_date
+                if min_date <= today <= max_date:
+                    default_start_date = today
+                    default_end_date = today
+                else:
+                    # If today is out of range, show the last day's data
+                    default_start_date = max_date
+                    default_end_date = max_date
 
                 date_range = st.sidebar.date_input(
                     "📅 Date Range",
-                    value=(min_date, default_end_date),
+                    value=(default_start_date, default_end_date),
                     min_value=min_date,
                     max_value=max_date,
-                    help="Filter data by submission date. Defaults to today.",
+                    help="Filter data by submission date. Defaults to today's data only.",
                     key="sidebar_date_filter",
                 )
 
@@ -259,6 +263,9 @@ def create_sidebar_filters(gdf):
         st.sidebar.error(f"❌ Date filter error: {str(e)}")
         import traceback
         st.sidebar.caption(f"Error details: {traceback.format_exc()}")
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("## 🔍 Filters")
 
     # Enumerator filter
     if "enumerator" in gdf.columns:

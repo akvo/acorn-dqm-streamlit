@@ -43,8 +43,9 @@ def merge_with_enumerator(veg_df, filtered_gdf):
     if "SUBPLOT_KEY" in veg_for_merge.columns:
         veg_for_merge = veg_for_merge.rename(columns={"SUBPLOT_KEY": "subplot_id"})
 
-    # Merge
-    result = pd.merge(veg_for_merge, merge_df, on="subplot_id", how="left")
+    # Merge using inner join to only include vegetation from filtered subplots
+    # This ensures date filters and other subplot filters are applied to vegetation data
+    result = pd.merge(veg_for_merge, merge_df, on="subplot_id", how="inner")
 
     return result
 
