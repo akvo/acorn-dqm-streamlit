@@ -156,6 +156,30 @@ else:
 # Get species column
 species_col = get_species_column(veg_with_enum)
 
+# ============================================
+# SIDEBAR: SPECIES FILTER FOR OUTLIERS
+# ============================================
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("## 🌳 Species Filter")
+st.sidebar.caption("Filter outlier detection by species")
+
+# Get unique species (tree_name) from measurements
+species_options = ["All"]
+if has_measurements and "tree_name" in meas_with_enum.columns:
+    unique_species = sorted(meas_with_enum["tree_name"].dropna().unique().tolist())
+    species_options.extend(unique_species)
+elif species_col and species_col in veg_with_enum.columns:
+    unique_species = sorted(veg_with_enum[species_col].dropna().unique().tolist())
+    species_options.extend(unique_species)
+
+selected_species = st.sidebar.selectbox(
+    "Filter by Species (tree_name)",
+    options=species_options,
+    index=0,
+    help="Select a specific species to analyze, or 'All' to analyze all species together. Outliers are calculated based on species-specific medians."
+)
+
 
 def extract_year_from_planted(series):
     """
@@ -1486,6 +1510,7 @@ with tabs[0]:
             species_col=species_col,
             upper_threshold=height_multiplier,
             lower_threshold=1 / height_multiplier,
+            species_filter=selected_species,
         )
 
         height_outliers = meas_with_outliers[
@@ -1562,6 +1587,7 @@ with tabs[0]:
                 species_col=species_col,
                 upper_threshold=circ_multiplier,
                 lower_threshold=1 / circ_multiplier,
+                species_filter=selected_species,
             )
 
             circ_outliers = circ_with_outliers[
@@ -1647,6 +1673,8 @@ with tabs[0]:
                     young_tree_age_threshold=5,
                     large_circ_threshold=300,
                     large_circ_age_threshold=15,
+                    species_col=species_col,
+                    species_filter=selected_species,
                 )
 
                 suspicious = circ_data[circ_data["suspicious"] == True]

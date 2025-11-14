@@ -114,13 +114,26 @@ def detect_height_outliers(
     species_col: str = "woody_species",
     upper_threshold: float = 3.0,
     lower_threshold: float = 0.33,
+    species_filter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Detect height outliers using median comparison within species groups.
 
     Logic from notebook: >3x or <0.33x median height for species
+
+    Args:
+        df: DataFrame with tree measurements
+        height_col: Column name for tree height
+        species_col: Column name for species (tree_name)
+        upper_threshold: Multiplier for upper outlier (default 3x median)
+        lower_threshold: Multiplier for lower outlier (default 0.33x median)
+        species_filter: Optional species name to filter by (None or "All" = no filter)
     """
     df = df.copy()
+
+    # Apply species filter if specified
+    if species_filter and species_filter != "All":
+        df = df[df[species_col] == species_filter].copy()
 
     # Filter to records with both height and species
     df_filtered = df[df[height_col].notna() & df[species_col].notna()].copy()
@@ -172,13 +185,26 @@ def detect_circumference_outliers(
     species_col: str = "woody_species",
     upper_threshold: float = 4.0,
     lower_threshold: float = 0.25,
+    species_filter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Detect circumference outliers using median comparison within species groups.
 
     Logic from notebook: >4x or <0.25x median circumference for species
+
+    Args:
+        df: DataFrame with tree measurements
+        circ_col: Column name for circumference
+        species_col: Column name for species (tree_name)
+        upper_threshold: Multiplier for upper outlier (default 4x median)
+        lower_threshold: Multiplier for lower outlier (default 0.25x median)
+        species_filter: Optional species name to filter by (None or "All" = no filter)
     """
     df = df.copy()
+
+    # Apply species filter if specified
+    if species_filter and species_filter != "All":
+        df = df[df[species_col] == species_filter].copy()
 
     # Filter to records with both circumference and species
     df_filtered = df[df[circ_col].notna() & df[species_col].notna()].copy()
@@ -233,6 +259,8 @@ def detect_suspicious_circumference_by_age(
     young_tree_age_threshold: int = 5,
     large_circ_threshold: float = 300.0,
     large_circ_age_threshold: int = 15,
+    species_col: str = "woody_species",
+    species_filter: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Flag suspicious circumferences based on tree age.
@@ -240,8 +268,23 @@ def detect_suspicious_circumference_by_age(
     Logic from notebook:
     - Circumference >50cm but age <5 years is suspicious
     - Circumference >300cm but age <15 years is suspicious
+
+    Args:
+        df: DataFrame with tree measurements
+        circ_col: Column name for circumference
+        age_col: Column name for tree age
+        young_tree_circ_threshold: Circumference threshold for young trees (default 50cm)
+        young_tree_age_threshold: Age threshold for young trees (default 5 years)
+        large_circ_threshold: Circumference threshold for large trees (default 300cm)
+        large_circ_age_threshold: Age threshold for large circumference (default 15 years)
+        species_col: Column name for species (tree_name)
+        species_filter: Optional species name to filter by (None or "All" = no filter)
     """
     df = df.copy()
+
+    # Apply species filter if specified
+    if species_filter and species_filter != "All":
+        df = df[df[species_col] == species_filter].copy()
 
     if age_col not in df.columns or circ_col not in df.columns:
         df["suspicious"] = False
