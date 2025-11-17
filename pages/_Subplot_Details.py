@@ -30,6 +30,17 @@ from utils.vegetation_validation import (
 )
 from utils.export_helpers import adjust_excel_column_widths
 
+# Try to import fuzzy matching library
+try:
+    from rapidfuzz import fuzz, process
+    FUZZY_AVAILABLE = True
+except ImportError:
+    try:
+        from fuzzywuzzy import fuzz, process
+        FUZZY_AVAILABLE = True
+    except ImportError:
+        FUZZY_AVAILABLE = False
+
 
 # Page config
 st.set_page_config(
@@ -75,6 +86,59 @@ if not has_vegetation:
     st.stop()
 
 st.markdown("---")
+
+# ============================================
+# GET AND MERGE DATA
+# ============================================
+
+# Get raw data
+plots_df = raw_data.get("plots_subplots", pd.DataFrame())
+veg_df = raw_data["plots_subplots_vegetation"].copy()
+meas_df = (
+    raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
+    if has_measurements
+    else pd.DataFrame()
+)
+complete_df = (
+    raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
+)
+
+# Merge with enumerator (for filtered analysis)
+veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
+veg_with_enum = add_tree_name_column(veg_with_enum)
+
+if has_measurements:
+    meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
+    meas_with_enum = add_tree_name_column(meas_with_enum)
+else:
+    meas_with_enum = pd.DataFrame()
+
+# Get species column
+species_col = get_species_column(veg_with_enum)
+
+# ============================================
+# SIDEBAR: SPECIES FILTER FOR OUTLIERS
+# ============================================
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("## 🌳 Species Filter")
+st.sidebar.caption("Filter outlier detection by species")
+
+# Get unique species (tree_name) from measurements
+species_options = ["All"]
+if has_measurements and "tree_name" in meas_with_enum.columns:
+    unique_species = sorted(meas_with_enum["tree_name"].dropna().unique().tolist())
+    species_options.extend(unique_species)
+elif species_col and species_col in veg_with_enum.columns:
+    unique_species = sorted(veg_with_enum[species_col].dropna().unique().tolist())
+    species_options.extend(unique_species)
+
+selected_species = st.sidebar.selectbox(
+    "Filter by Species (tree_name)",
+    options=species_options,
+    index=0,
+    help="Select a specific species to analyze, or 'All' to analyze all species together. Outliers are calculated based on species-specific medians."
+)
 
 # ============================================
 # SIDEBAR: QUALITY THRESHOLDS
@@ -128,56 +192,20 @@ young_tree_circ = st.sidebar.number_input(
 )
 
 # ============================================
-# GET AND MERGE DATA
-# ============================================
-
-# Get raw data
-plots_df = raw_data.get("plots_subplots", pd.DataFrame())
-veg_df = raw_data["plots_subplots_vegetation"].copy()
-meas_df = (
-    raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
-    if has_measurements
-    else pd.DataFrame()
-)
-complete_df = (
-    raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
-)
-
-# Merge with enumerator (for filtered analysis)
-veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
-veg_with_enum = add_tree_name_column(veg_with_enum)
-
-if has_measurements:
-    meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
-    meas_with_enum = add_tree_name_column(meas_with_enum)
-else:
-    meas_with_enum = pd.DataFrame()
-
-# Get species column
-species_col = get_species_column(veg_with_enum)
-
-# ============================================
-# SIDEBAR: SPECIES FILTER FOR OUTLIERS
+# SIDEBAR: FUZZY MATCHING FOR "OTHER" SPECIES
 # ============================================
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("## 🌳 Species Filter")
-st.sidebar.caption("Filter outlier detection by species")
+st.sidebar.markdown("## 🔍 Fuzzy Matching")
+st.sidebar.caption("Find 'other' species that match existing species names")
 
-# Get unique species (tree_name) from measurements
-species_options = ["All"]
-if has_measurements and "tree_name" in meas_with_enum.columns:
-    unique_species = sorted(meas_with_enum["tree_name"].dropna().unique().tolist())
-    species_options.extend(unique_species)
-elif species_col and species_col in veg_with_enum.columns:
-    unique_species = sorted(veg_with_enum[species_col].dropna().unique().tolist())
-    species_options.extend(unique_species)
-
-selected_species = st.sidebar.selectbox(
-    "Filter by Species (tree_name)",
-    options=species_options,
-    index=0,
-    help="Select a specific species to analyze, or 'All' to analyze all species together. Outliers are calculated based on species-specific medians."
+fuzzy_threshold = st.sidebar.slider(
+    "Matching Threshold (%)",
+    min_value=50,
+    max_value=100,
+    value=90,
+    step=5,
+    help="Higher values = stricter matching. 90% is recommended to catch typos and variations."
 )
 
 
@@ -856,6 +884,167 @@ with tabs[4]:
                 st.write(f"Available columns: {list(banana.columns)}")
         else:
             st.info("No banana species found")
+
+    st.markdown("---")
+
+    # ============================================
+    # FUZZY MATCHING FOR "OTHER" SPECIES
+    # ============================================
+
+    st.markdown("### 🔍 Fuzzy Matching for 'Other' Species")
+    st.caption(f"Finding 'other' entries that match existing species (threshold: {fuzzy_threshold}%)")
+
+    if not FUZZY_AVAILABLE:
+        st.warning("⚠️ Fuzzy matching library not available. Install 'rapidfuzz' or 'fuzzywuzzy' to enable this feature.")
+        st.code("pip install rapidfuzz")
+    else:
+        # Load official species lists from TSV files
+        import os
+
+        species_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "species")
+
+        valid_species_by_type = {}
+
+        # Load woody species
+        try:
+            woody_file = os.path.join(species_dir, "woody_species.tsv")
+            if os.path.exists(woody_file):
+                woody_ref = pd.read_csv(woody_file, sep="\t")
+                # Use both value and label for matching
+                valid_species_by_type["woody"] = list(woody_ref["label"].dropna()) + list(woody_ref["value"].dropna())
+            else:
+                valid_species_by_type["woody"] = []
+                st.warning(f"⚠️ Woody species reference file not found: {woody_file}")
+        except Exception as e:
+            valid_species_by_type["woody"] = []
+            st.warning(f"⚠️ Error loading woody species: {str(e)}")
+
+        # Load bamboo species
+        try:
+            bamboo_file = os.path.join(species_dir, "bamboo_species.tsv")
+            if os.path.exists(bamboo_file):
+                bamboo_ref = pd.read_csv(bamboo_file, sep="\t")
+                valid_species_by_type["bamboo"] = list(bamboo_ref["label"].dropna()) + list(bamboo_ref["value"].dropna())
+            else:
+                valid_species_by_type["bamboo"] = []
+        except Exception as e:
+            valid_species_by_type["bamboo"] = []
+            st.warning(f"⚠️ Error loading bamboo species: {str(e)}")
+
+        # Load banana species
+        try:
+            banana_file = os.path.join(species_dir, "banana_species.tsv")
+            if os.path.exists(banana_file):
+                banana_ref = pd.read_csv(banana_file, sep="\t")
+                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(banana_ref["value"].dropna())
+            else:
+                valid_species_by_type["banana"] = []
+        except Exception as e:
+            valid_species_by_type["banana"] = []
+            st.warning(f"⚠️ Error loading banana species: {str(e)}")
+
+        # Palm species - use data from dataset if available (no reference file provided)
+        valid_species_by_type["palm"] = []
+        if len(palm) > 0 and "palm_species" in palm.columns:
+            palm_species = palm[
+                (palm["palm_species"].notna()) &
+                (~palm["palm_species"].str.lower().str.contains("other", na=False))
+            ]["palm_species"].unique()
+            valid_species_by_type["palm"] = list(palm_species)
+
+        # Combine all valid species for general matching
+        all_valid_species = []
+        for species_list in valid_species_by_type.values():
+            all_valid_species.extend(species_list)
+
+        # Remove duplicates and "other" entries, filter out NaN
+        all_valid_species = sorted(list(set([
+            s for s in all_valid_species
+            if pd.notna(s) and str(s).lower() not in ['other', 'nan', 'none', '']
+            and 'other' not in str(s).lower()
+        ])))
+
+        if len(all_valid_species) == 0:
+            st.info("ℹ️ No valid species found to match against")
+        else:
+            # Show reference species counts
+            st.caption(f"📚 **Reference Species Loaded:** Woody: {len(valid_species_by_type.get('woody', []))} | Bamboo: {len(valid_species_by_type.get('bamboo', []))} | Banana: {len(valid_species_by_type.get('banana', []))} | Palm: {len(valid_species_by_type.get('palm', []))} | **Total: {len(all_valid_species)}**")
+            st.markdown("")
+
+            # Define species columns mapping
+            species_columns = {
+                "woody_species": woody,
+                "palm_species": palm,
+                "bamboo_species": bamboo,
+                "banana_species": banana
+            }
+
+            # Find "other" entries with their specified text
+            fuzzy_matches_list = []
+
+            for species_type, species_df in species_columns.items():
+                if len(species_df) == 0 or species_type not in species_df.columns:
+                    continue
+
+                # Find entries where species is "other"
+                other_col = species_type.replace("_species", "_species_other")
+
+                if other_col in species_df.columns:
+                    other_rows = species_df[
+                        (species_df[species_type].notna()) &
+                        (species_df[species_type].str.lower().str.contains("other", na=False)) &
+                        (species_df[other_col].notna())
+                    ].copy()
+
+                    if len(other_rows) > 0:
+                        for _, row in other_rows.iterrows():
+                            other_text = str(row[other_col]).strip()
+                            if other_text and other_text.lower() not in ['nan', 'none', '']:
+                                # Find best matches using fuzzy matching
+                                matches = process.extract(
+                                    other_text,
+                                    all_valid_species,
+                                    scorer=fuzz.ratio,
+                                    limit=3
+                                )
+
+                                # Filter by threshold
+                                good_matches = [m for m in matches if m[1] >= fuzzy_threshold]
+
+                                if good_matches:
+                                    fuzzy_matches_list.append({
+                                        "Type": species_type.replace("_species", "").title(),
+                                        "Other Text Entered": other_text,
+                                        "Best Match": good_matches[0][0],
+                                        "Match Score": f"{good_matches[0][1]}%",
+                                        "Alternative Matches": ", ".join([f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]) if len(good_matches) > 1 else "",
+                                        "Enumerator": row.get("enumerator", "N/A"),
+                                        "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A")
+                                    })
+
+            if len(fuzzy_matches_list) == 0:
+                st.success(f"✅ No 'other' species entries found matching threshold of {fuzzy_threshold}%")
+            else:
+                st.warning(f"⚠️ Found {len(fuzzy_matches_list)} 'other' entries that may match existing species")
+
+                fuzzy_df = pd.DataFrame(fuzzy_matches_list)
+
+                st.dataframe(
+                    fuzzy_df,
+                    use_container_width=True,
+                    height=min(400, 50 + len(fuzzy_df) * 35),
+                    column_config={
+                        "Type": st.column_config.TextColumn("Species Type", width="small"),
+                        "Other Text Entered": st.column_config.TextColumn("Text Entered as 'Other'", width="medium"),
+                        "Best Match": st.column_config.TextColumn("Best Match", width="medium"),
+                        "Match Score": st.column_config.TextColumn("Score", width="small"),
+                        "Alternative Matches": st.column_config.TextColumn("Other Possible Matches", width="large"),
+                        "Enumerator": st.column_config.TextColumn("Enumerator", width="small"),
+                        "VEGETATION_KEY": st.column_config.TextColumn("Veg Key", width="small"),
+                    }
+                )
+
+                st.caption("💡 **Tip:** These entries were marked as 'other' but closely match existing species. Consider updating them to use the standard species names.")
 
     st.markdown("---")
 
