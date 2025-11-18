@@ -279,6 +279,38 @@ if process_btn and credentials_configured:
                 )
                 st.stop()
 
+            elif response.status_code == 412:
+                progress_bar.empty()
+                st.error("🚫 **Precondition Failed**")
+
+                # Try to get the server's error message
+                try:
+                    error_response = response.json()
+                    error_msg = error_response.get("error", {}).get("message", response.text)
+                except:
+                    error_msg = response.text
+
+                st.warning(
+                    "❌ SurveyCTO rejected the request because a precondition was not met.\n\n"
+                    "**This usually happens when:**\n"
+                    "- Your authentication session has expired\n"
+                    "- The form has been modified since your last request\n"
+                    "- Required request headers are missing or incorrect\n"
+                    "- Your account permissions have changed\n\n"
+                    "**Try these steps:**\n"
+                    "1. Re-enter your credentials and try again\n"
+                    "2. Check that you still have access to this form\n"
+                    "3. If the issue persists, try using Excel export instead"
+                )
+
+                if error_msg:
+                    st.error(f"**Server Error Message:**\n\n{error_msg}")
+
+                st.info(
+                    "💡 **Alternative:** Download the data as Excel from SurveyCTO and upload it here to avoid API issues."
+                )
+                st.stop()
+
             elif response.status_code >= 500:
                 progress_bar.empty()
                 st.error("⚠️ **Server Error**")
