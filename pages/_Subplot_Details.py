@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info, get_total_measured_subplots
 from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
@@ -92,16 +92,51 @@ st.markdown("---")
 # ============================================
 
 # Get raw data
-plots_df = raw_data.get("plots_subplots", pd.DataFrame())
-veg_df = raw_data["plots_subplots_vegetation"].copy()
-meas_df = (
+plots_df_all = raw_data.get("plots_subplots", pd.DataFrame())
+veg_df_all = raw_data["plots_subplots_vegetation"].copy()
+meas_df_all = (
     raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
     if has_measurements
     else pd.DataFrame()
 )
-complete_df = (
+complete_df_all = (
     raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
 )
+
+# Filter data based on date/enumerator filters applied to filtered_gdf
+# Get the subplot_ids that passed the filters
+filtered_subplot_ids = filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
+
+if len(filtered_subplot_ids) > 0:
+    # Filter plots_df to only include subplots from filtered_gdf
+    if "SUBPLOT_KEY" in plots_df_all.columns:
+        plots_df = plots_df_all[plots_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+    else:
+        plots_df = plots_df_all.copy()
+
+    # Filter veg_df to only include vegetation from filtered subplots
+    if "SUBPLOT_KEY" in veg_df_all.columns:
+        veg_df = veg_df_all[veg_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+    else:
+        veg_df = veg_df_all.copy()
+
+    # Filter meas_df to only include measurements from filtered subplots
+    if has_measurements and "SUBPLOT_KEY" in meas_df_all.columns:
+        meas_df = meas_df_all[meas_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+    else:
+        meas_df = meas_df_all.copy() if has_measurements else pd.DataFrame()
+
+    # Filter complete_df to only include data from filtered subplots
+    if has_complete and "SUBPLOT_KEY" in complete_df_all.columns:
+        complete_df = complete_df_all[complete_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+    else:
+        complete_df = complete_df_all.copy() if has_complete else pd.DataFrame()
+else:
+    # No filter applied, use all data
+    plots_df = plots_df_all.copy()
+    veg_df = veg_df_all.copy()
+    meas_df = meas_df_all.copy() if has_measurements else pd.DataFrame()
+    complete_df = complete_df_all.copy() if has_complete else pd.DataFrame()
 
 # Merge with enumerator (for filtered analysis)
 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
@@ -113,32 +148,8 @@ if has_measurements:
 else:
     meas_with_enum = pd.DataFrame()
 
-# Get species column
+# Get species column (still needed for some checks)
 species_col = get_species_column(veg_with_enum)
-
-# ============================================
-# SIDEBAR: SPECIES FILTER FOR OUTLIERS
-# ============================================
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("## 🌳 Species Filter")
-st.sidebar.caption("Filter outlier detection by species")
-
-# Get unique species (tree_name) from measurements
-species_options = ["All"]
-if has_measurements and "tree_name" in meas_with_enum.columns:
-    unique_species = sorted(meas_with_enum["tree_name"].dropna().unique().tolist())
-    species_options.extend(unique_species)
-elif species_col and species_col in veg_with_enum.columns:
-    unique_species = sorted(veg_with_enum[species_col].dropna().unique().tolist())
-    species_options.extend(unique_species)
-
-selected_species = st.sidebar.selectbox(
-    "Filter by Species (tree_name)",
-    options=species_options,
-    index=0,
-    help="Select a specific species to analyze, or 'All' to analyze all species together. Outliers are calculated based on species-specific medians."
-)
 
 # ============================================
 # SIDEBAR: QUALITY THRESHOLDS
@@ -146,7 +157,16 @@ selected_species = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("## ⚙️ Quality Thresholds")
-st.sidebar.caption("Adjust thresholds for error detection")
+st.sidebar.caption("Thresholds for various data quality checks")
+
+st.sidebar.info(
+    """
+    **Outlier Detection Method:**
+    Height & Circumference outliers use **VEGETATION_KEY grouping** (official method).
+    - Trees in same group → compared to group median
+    - Fixed thresholds: **4x** and **0.25x**
+    """
+)
 
 stem_threshold = st.sidebar.slider(
     "High Stem Count",
@@ -163,24 +183,6 @@ tall_tree_threshold = st.sidebar.slider(
     value=25,
     step=1,
     help="Flag exceptionally tall trees - important for age verification",
-)
-
-height_multiplier = st.sidebar.slider(
-    "Height Outlier Multiplier",
-    min_value=1.5,
-    max_value=5.0,
-    value=3.0,
-    step=0.5,
-    help="Flag heights >Nx or <1/Nx median",
-)
-
-circ_multiplier = st.sidebar.slider(
-    "Circumference Outlier Multiplier",
-    min_value=2.0,
-    max_value=6.0,
-    value=4.0,
-    step=0.5,
-    help="Flag circumferences >Nx or <1/Nx median",
 )
 
 young_tree_circ = st.sidebar.number_input(
@@ -317,8 +319,53 @@ with tabs[1]:
     # CHECK 1: Missing vegetation records
     st.markdown("#### 1️⃣ Subplots WITHOUT Vegetation Records")
 
-    # Use utility function with filtered veg_df
-    missing_veg = get_missing_subplots(plots_df, veg_df_actual)
+    st.info(
+        """
+        **How Missing Vegetation is Calculated:**
+        1. **Apply filters**: Date range and enumerator filters from sidebar
+        2. **Get filtered subplots**: From the plots/subplots data (reference list)
+        3. **Get subplots with vegetation**: From the vegetation records data
+        4. **Find the difference**: Subplots in reference list but NOT in vegetation data
+
+        **Formula**: `Missing = Filtered Subplots - Subplots with Vegetation`
+
+        ⚠️ **Note**: This respects your date range filter in the sidebar. Only subplots from the selected
+        date range are checked. These subplots were created but have NO vegetation records at all.
+        Check the comments to see if enumerators noted a reason (e.g., "No trees", "Access denied", etc.).
+        """
+    )
+
+    # Filter plots_df to only include MEASURED subplots
+    # This ensures we don't count unmeasured subplots as "missing vegetation"
+    if "SUBPLOT_KEY" in plots_df.columns and "measured_subplots" in plots_df.columns:
+        import re
+
+        # Create temporary dataframe with subplot info
+        temp_plots = plots_df.copy()
+
+        # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
+        temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
+            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+        )
+
+        # Convert measured_subplots to int
+        temp_plots["measured_subplots"] = temp_plots["measured_subplots"].apply(
+            lambda x: int(x) if pd.notna(x) else 999
+        )
+
+        # Only include subplots where subplot_number <= measured_subplots
+        plots_df_measured = temp_plots[
+            temp_plots["subplot_number"] <= temp_plots["measured_subplots"]
+        ].copy()
+
+        # Drop temporary columns
+        plots_df_measured = plots_df_measured.drop(columns=["subplot_number"], errors="ignore")
+    else:
+        # Fallback: use all plots_df
+        plots_df_measured = plots_df.copy()
+
+    # Use utility function with filtered veg_df and measured plots only
+    missing_veg = get_missing_subplots(plots_df_measured, veg_df_actual)
 
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -373,13 +420,38 @@ with tabs[1]:
     if (
         len(available_cols) >= 3
     ):  # Need at least SUBPLOT_KEY, vegetation_type_number, coverage_vegetation
-        # Create base with ALL subplots from geometry
-        all_subplot_keys = (
-            filtered_gdf["subplot_id"].unique()
-            if "subplot_id" in filtered_gdf.columns
-            else []
-        )
-        all_subplots_df = pd.DataFrame({"SUBPLOT_KEY": all_subplot_keys})
+        # Create base with ONLY MEASURED subplots (exclude unmeasured subplots)
+        # Extract subplot number from subplot_id and compare to measured_subplots
+        if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+            import re
+
+            # Create temporary dataframe with subplot info
+            temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
+
+            # Extract subplot number from subplot_id (e.g., "uuid.../sub_plot[12]" -> 12)
+            temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            )
+
+            # Convert measured_subplots to int
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+
+            # Only include subplots where subplot_number <= measured_subplots
+            measured_subplot_ids = temp_df[
+                temp_df["subplot_number"] <= temp_df["measured_subplots"]
+            ]["subplot_id"].unique()
+
+            all_subplots_df = pd.DataFrame({"SUBPLOT_KEY": measured_subplot_ids})
+        else:
+            # Fallback: use all subplot keys
+            all_subplot_keys = (
+                filtered_gdf["subplot_id"].unique()
+                if "subplot_id" in filtered_gdf.columns
+                else []
+            )
+            all_subplots_df = pd.DataFrame({"SUBPLOT_KEY": all_subplot_keys})
 
         # Left join with vegetation data (keeps all 176 subplots, fills missing with NaN)
         density = all_subplots_df.merge(
@@ -425,7 +497,7 @@ with tabs[1]:
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Subplots Analyzed", len(density_df))
+            st.metric("Total Subplots Analyzed", get_total_measured_subplots(filtered_gdf))
         with col2:
             st.metric("Subplots with 0 Trees", len(subplots_zero_trees))
         with col3:
@@ -522,13 +594,11 @@ with tabs[1]:
         else:
             coverage_only = pd.DataFrame()
 
-        # Missing measurements calculation
-        if "plots_subplots_vegetation_measurements" in raw_data:
-            m_all = raw_data["plots_subplots_vegetation_measurements"]
-
+        # Missing measurements calculation (using filtered data)
+        if has_measurements and len(meas_df) > 0:
             # Filter to records that have MEASUREMENT_KEY (actual measurements)
-            if "MEASUREMENT_KEY" in m_all.columns:
-                m_with_meas = m_all[m_all["MEASUREMENT_KEY"].notna()].copy()
+            if "MEASUREMENT_KEY" in meas_df.columns:
+                m_with_meas = meas_df[meas_df["MEASUREMENT_KEY"].notna()].copy()
                 veg_mea = set(m_with_meas["SUBPLOT_KEY"].unique())
             else:
                 veg_mea = set()
@@ -1141,15 +1211,12 @@ with tabs[2]:
     st.markdown(f"#### 1️⃣ Super Tall Trees (> {tall_tree_threshold}m)")
     st.caption("Important to verify tall trees are realistic with planting age")
 
-    # Use the height_total data from height homogeneity check if available
-    # Otherwise calculate it
-    if "plots_subplots_vegetation_measurements" in raw_data:
-        m_mea = raw_data["plots_subplots_vegetation_measurements"]
-
-        if "MEASUREMENT_KEY" in m_mea.columns:
-            m_mea_actual = m_mea[m_mea["MEASUREMENT_KEY"].notna()].copy()
+    # Use filtered measurement data for tall tree check
+    if has_measurements and len(meas_df) > 0:
+        if "MEASUREMENT_KEY" in meas_df.columns:
+            m_mea_actual = meas_df[meas_df["MEASUREMENT_KEY"].notna()].copy()
         else:
-            m_mea_actual = m_mea.copy()
+            m_mea_actual = meas_df.copy()
 
         if "tree_height_m" in m_mea_actual.columns:
             height_check = m_mea_actual[m_mea_actual["tree_height_m"].notna()].copy()
@@ -1268,15 +1335,34 @@ with tabs[2]:
         "Check for outliers within tree groups - important to identify pruning or coppicing practices"
     )
 
-    # Get the merged veg+meas data (m_mea in notebook)
-    if "plots_subplots_vegetation_measurements" in raw_data:
-        m_mea = raw_data["plots_subplots_vegetation_measurements"]
+    st.info(
+        """
+        **How Height Homogeneity Outliers are Calculated (Official Method):**
+        1. **Apply filters**: Date range and enumerator filters from sidebar
+        2. **Group by VEGETATION_KEY**: Trees are grouped by their vegetation group/type, NOT by species
+        3. **Calculate Median**: The median height is calculated for each vegetation group
+        4. **Flag Outliers**:
+           - **Too Tall**: Height > **4x** the group median
+           - **Too Short**: Height < **0.25x** (1/4) the group median
 
+        **Why this matters**: Trees in the same vegetation group (VEGETATION_KEY) were planted together and should have similar heights.
+        Large variations may indicate:
+        - Pruning or coppicing practices
+        - Data entry errors
+        - Mixed planting dates within the group
+
+        ⚠️ **Note**: This respects your date range filter. Only measurements from the selected date range are analyzed.
+        This is different from species-based outliers (Tab 1), which groups by species name across all groups.
+        """
+    )
+
+    # Get the filtered merged veg+meas data (m_mea in notebook)
+    if has_measurements and len(meas_df) > 0:
         # Filter to records with actual measurements
-        if "MEASUREMENT_KEY" in m_mea.columns:
-            m_mea_actual = m_mea[m_mea["MEASUREMENT_KEY"].notna()].copy()
+        if "MEASUREMENT_KEY" in meas_df.columns:
+            m_mea_actual = meas_df[meas_df["MEASUREMENT_KEY"].notna()].copy()
         else:
-            m_mea_actual = m_mea.copy()
+            m_mea_actual = meas_df.copy()
 
         # Parameters from notebook
         veg_parameters = [
@@ -1428,13 +1514,25 @@ with tabs[2]:
         "Focus on relationship between tree age and circumference to avoid errors (e.g. circumference 300cm planted in 2024)"
     )
 
-    # Get the merged data that includes circumference (complete dataset has circumference merged)
-    if "complete" in raw_data and raw_data["complete"] is not None:
-        m_cir = raw_data["complete"]
+    st.info(
+        """
+        **How Circumference Homogeneity is Calculated:**
+        1. **Apply filters**: Date range and enumerator filters from sidebar
+        2. **Group by MEASUREMENT_KEY**: Individual tree measurements grouped together
+        3. **Calculate Median**: The median circumference is calculated for each measurement group
+        4. **Flag Outliers**: Large variations within a measurement group may indicate data entry errors
 
+        ⚠️ **Note**: This respects your date range filter. Only measurements from the selected date range are analyzed.
+        """
+    )
+
+    # Get the filtered complete data that includes circumference
+    if has_complete and len(complete_df) > 0:
         # Filter to records with actual measurements
-        if "MEASUREMENT_KEY" in m_cir.columns:
-            m_cir = m_cir[m_cir["MEASUREMENT_KEY"].notna()].copy()
+        if "MEASUREMENT_KEY" in complete_df.columns:
+            m_cir = complete_df[complete_df["MEASUREMENT_KEY"].notna()].copy()
+        else:
+            m_cir = complete_df.copy()
 
         # Parameters from notebook
         circumference_cols = [
@@ -1684,111 +1782,95 @@ with tabs[0]:
         st.stop()
 
     st.caption(
-        f"Using thresholds: Height {height_multiplier}x, Circumference {circ_multiplier}x, Young tree circ > {young_tree_circ}cm"
+        "Using VEGETATION_KEY grouping (official method) - trees planted together should have similar heights"
     )
 
-    # CHECK 1: Height outliers
+    # CHECK 1: Height outliers using VEGETATION_KEY grouping
     st.markdown(
-        f"#### 1️⃣ Height Outliers (>{height_multiplier}x or <{1/height_multiplier:.2f}x median)"
+        "#### 1️⃣ Height Outliers (>4x or <0.25x group median)"
     )
 
-    if species_col:
-        meas_with_outliers = detect_height_outliers(
-            meas_with_enum,
-            height_col="tree_height_m",
-            species_col=species_col,
-            upper_threshold=height_multiplier,
-            lower_threshold=1 / height_multiplier,
-            species_filter=selected_species,
-        )
+    st.info(
+        """
+        **How Height Outliers are Calculated (Official Method):**
+        1. **Apply filters**: Date range and enumerator filters from sidebar
+        2. **Group by VEGETATION_KEY**: Trees grouped by their vegetation group (trees planted together)
+        3. **Calculate Median**: The median height is calculated for each vegetation group
+        4. **Flag Outliers**:
+           - **Too Tall**: Height > **4x** the group median
+           - **Too Short**: Height < **0.25x** (1/4) the group median
 
-        height_outliers = meas_with_outliers[
-            (meas_with_outliers["Upper_outliers"] == "outlier")
-            | (meas_with_outliers["Lower_outliers"] == "outlier")
-        ]
+        **Why VEGETATION_KEY?** Trees in the same VEGETATION_KEY were planted together in the same subplot,
+        so they should have similar:
+        - Planting year (same age)
+        - Location and soil conditions
+        - Management practices
+        - Species (usually)
 
-        st.metric("Height Outliers", len(height_outliers))
+        Large variations may indicate:
+        - Pruning or coppicing practices
+        - Data entry errors
+        - Individual tree problems or disease
 
-        if len(height_outliers) > 0:
-            st.error(
-                f"❌ {len(height_outliers)} height measurements are outliers for their species"
+        ⚠️ **Note**: This respects your date range filter. Only measurements from the selected date range are analyzed.
+        """
+    )
+
+    # Use filtered measurement data
+    if has_measurements and len(meas_df) > 0 and "VEGETATION_KEY" in meas_df.columns and "tree_height_m" in meas_df.columns:
+        # Filter to records with valid height and VEGETATION_KEY
+        height_check = meas_df[
+            meas_df["tree_height_m"].notna() & meas_df["VEGETATION_KEY"].notna()
+        ].copy()
+
+        if len(height_check) > 0:
+            # Calculate median height per VEGETATION_KEY (tree group)
+            median_check = (
+                height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                .median()
+                .reset_index(name="median_height")
             )
 
-            # Build display columns safely
-            display_cols = []
-            for col in [
-                "VEGETATION_KEY",
-                "enumerator",
-                "tree_name",
-                species_col,
-                "tree_height_m",
-                "median_height",
-                "Upper_outliers",
-                "Lower_outliers",
-                "tree_year_planted",
-            ]:
-                if col and col in height_outliers.columns:
-                    display_cols.append(col)
-
-            if len(display_cols) > 0:
-                st.dataframe(
-                    (
-                        height_outliers[display_cols].sort_values(
-                            "tree_height_m", ascending=False
-                        )
-                        if "tree_height_m" in display_cols
-                        else height_outliers[display_cols]
-                    ),
-                    use_container_width=True,
-                    height=min(400, len(height_outliers) * 35 + 38),
-                )
-            else:
-                st.warning("No displayable columns available")
-        else:
-            st.success("✅ No height outliers detected")
-    else:
-        st.info("ℹ️ Species column not available for outlier detection")
-
-    st.markdown("---")
-
-    # CHECK 2: Circumference outliers
-    st.markdown(
-        f"#### 2️⃣ Circumference Outliers (>{circ_multiplier}x or <{1/circ_multiplier:.2f}x median)"
-    )
-
-    if has_complete and species_col:
-        complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
-
-        # Determine circumference column
-        if "circumference_bh" in complete_with_enum.columns:
-            circ_col = "circumference_bh"
-            circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
-        elif "circumference_10cm" in complete_with_enum.columns:
-            circ_col = "circumference_10cm"
-            circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
-        else:
-            circ_data = pd.DataFrame()
-
-        if len(circ_data) > 0:
-            circ_with_outliers = detect_circumference_outliers(
-                circ_data,
-                circ_col=circ_col,
-                species_col=species_col,
-                upper_threshold=circ_multiplier,
-                lower_threshold=1 / circ_multiplier,
-                species_filter=selected_species,
+            # Merge with original data
+            height_total = pd.merge(
+                height_check, median_check, how="inner", on="VEGETATION_KEY"
             )
 
-            circ_outliers = circ_with_outliers[
-                (circ_with_outliers["Upper_outliers"] == "outlier")
-                | (circ_with_outliers["Lower_outliers"] == "outlier")
-            ]
+            # Apply outlier detection (4x and 1/4x median - official method)
+            height_total["Upper_outliers"] = height_total.apply(
+                lambda row: (
+                    "outlier"
+                    if row["tree_height_m"] > (row["median_height"] * 4)
+                    else "ok"
+                ),
+                axis=1,
+            )
+            height_total["Lower_outliers"] = height_total.apply(
+                lambda row: (
+                    "outlier"
+                    if row["tree_height_m"] < (row["median_height"] / 4)
+                    else "ok"
+                ),
+                axis=1,
+            )
 
-            st.metric("Circumference Outliers", len(circ_outliers))
+            # Filter to outliers only
+            height_outliers = height_total[
+                (height_total["Upper_outliers"] == "outlier")
+                | (height_total["Lower_outliers"] == "outlier")
+            ].copy()
 
-            if len(circ_outliers) > 0:
+            st.metric("Height Outliers", len(height_outliers))
+
+            if len(height_outliers) > 0:
                 st.error(
-                    f"❌ {len(circ_outliers)} circumference measurements are outliers for their species"
+                    f"❌ {len(height_outliers)} height measurements are outliers within their vegetation group"
+                )
+
+                # Determine which outlier type
+                height_outliers["Outlier_Type"] = height_outliers.apply(
+                    lambda row: "Too Tall" if row["Upper_outliers"] == "outlier" else "Too Short",
+                    axis=1
                 )
 
                 # Build display columns safely
@@ -1797,36 +1879,174 @@ with tabs[0]:
                     "VEGETATION_KEY",
                     "enumerator",
                     "tree_name",
-                    species_col,
-                    circ_col,
-                    "median_cir",
-                    "Upper_outliers",
-                    "Lower_outliers",
+                    "tree_height_m",
+                    "median_height",
+                    "Outlier_Type",
                     "tree_year_planted",
+                    "tree_prune",
+                    "tree_coppiced",
                 ]:
-                    if col and col in circ_outliers.columns:
+                    if col in height_outliers.columns:
                         display_cols.append(col)
 
                 if len(display_cols) > 0:
+                    display_df = height_outliers[display_cols].copy()
+                    display_df.insert(0, "#", range(1, len(display_df) + 1))
+
                     st.dataframe(
-                        (
-                            circ_outliers[display_cols].sort_values(
-                                circ_col, ascending=False
-                            )
-                            if circ_col in display_cols
-                            else circ_outliers[display_cols]
-                        ),
+                        display_df.sort_values("tree_height_m", ascending=False)
+                        if "tree_height_m" in display_cols
+                        else display_df,
                         use_container_width=True,
-                        height=min(400, len(circ_outliers) * 35 + 38),
+                        height=min(400, len(height_outliers) * 35 + 38),
+                        hide_index=True,
+                    )
+
+                    # Download option
+                    st.download_button(
+                        label="📥 Download Height Outliers CSV",
+                        data=height_outliers[display_cols].to_csv(index=False),
+                        file_name="height_outliers.csv",
+                        mime="text/csv",
                     )
                 else:
                     st.warning("No displayable columns available")
             else:
-                st.success("✅ No circumference outliers detected")
+                st.success("✅ No height outliers detected")
         else:
-            st.info("ℹ️ No circumference data available")
+            st.info("ℹ️ No valid height data with VEGETATION_KEY available")
     else:
-        st.info("ℹ️ Complete dataset or species column not available")
+        st.info("ℹ️ Required columns (VEGETATION_KEY, tree_height_m) not available for outlier detection")
+
+    st.markdown("---")
+
+    # CHECK 2: Circumference outliers using VEGETATION_KEY grouping
+    st.markdown(
+        "#### 2️⃣ Circumference Outliers (>4x or <0.25x group median)"
+    )
+
+    st.info(
+        """
+        **How Circumference Outliers are Calculated:**
+        1. **Apply filters**: Date range and enumerator filters from sidebar
+        2. **Group by VEGETATION_KEY**: Trees grouped by their vegetation group
+        3. **Calculate Median**: The median circumference is calculated for each vegetation group
+        4. **Flag Outliers**: Circumference > **4x** or < **0.25x** the group median
+
+        Trees in the same VEGETATION_KEY were planted together and should have similar circumference.
+
+        ⚠️ **Note**: This respects your date range filter.
+        """
+    )
+
+    if has_complete and len(complete_df) > 0 and "VEGETATION_KEY" in complete_df.columns:
+        # Determine which circumference column to use
+        circ_col = None
+        if "circumference_bh" in complete_df.columns:
+            circ_col = "circumference_bh"
+        elif "circumference_10cm" in complete_df.columns:
+            circ_col = "circumference_10cm"
+
+        if circ_col:
+            # Filter to records with valid circumference and VEGETATION_KEY
+            circ_check = complete_df[
+                complete_df[circ_col].notna() & complete_df["VEGETATION_KEY"].notna()
+            ].copy()
+
+            if len(circ_check) > 0:
+                # Calculate median circumference per VEGETATION_KEY
+                median_check = (
+                    circ_check.groupby("VEGETATION_KEY")[circ_col]
+                    .median()
+                    .reset_index(name="median_circ")
+                )
+
+                # Merge with original data
+                circ_total = pd.merge(
+                    circ_check, median_check, how="inner", on="VEGETATION_KEY"
+                )
+
+                # Apply outlier detection (4x and 1/4x median)
+                circ_total["Upper_outliers"] = circ_total.apply(
+                    lambda row: (
+                        "outlier"
+                        if row[circ_col] > (row["median_circ"] * 4)
+                        else "ok"
+                    ),
+                    axis=1,
+                )
+                circ_total["Lower_outliers"] = circ_total.apply(
+                    lambda row: (
+                        "outlier"
+                        if row[circ_col] < (row["median_circ"] / 4)
+                        else "ok"
+                    ),
+                    axis=1,
+                )
+
+                # Filter to outliers only
+                circ_outliers = circ_total[
+                    (circ_total["Upper_outliers"] == "outlier")
+                    | (circ_total["Lower_outliers"] == "outlier")
+                ].copy()
+
+                st.metric("Circumference Outliers", len(circ_outliers))
+
+                if len(circ_outliers) > 0:
+                    st.error(
+                        f"❌ {len(circ_outliers)} circumference measurements are outliers within their vegetation group"
+                    )
+
+                    # Determine which outlier type
+                    circ_outliers["Outlier_Type"] = circ_outliers.apply(
+                        lambda row: "Too Large" if row["Upper_outliers"] == "outlier" else "Too Small",
+                        axis=1
+                    )
+
+                    # Build display columns safely
+                    display_cols = []
+                    for col in [
+                        "VEGETATION_KEY",
+                        "enumerator",
+                        "tree_name",
+                        circ_col,
+                        "median_circ",
+                        "Outlier_Type",
+                        "tree_year_planted",
+                    ]:
+                        if col in circ_outliers.columns:
+                            display_cols.append(col)
+
+                    if len(display_cols) > 0:
+                        display_df = circ_outliers[display_cols].copy()
+                        display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+                        st.dataframe(
+                            display_df.sort_values(circ_col, ascending=False)
+                            if circ_col in display_cols
+                            else display_df,
+                            use_container_width=True,
+                            height=min(400, len(circ_outliers) * 35 + 38),
+                            hide_index=True,
+                        )
+
+                        # Download option
+                        st.download_button(
+                            label="📥 Download Circumference Outliers CSV",
+                            data=circ_outliers[display_cols].to_csv(index=False),
+                            file_name="circumference_outliers.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.warning("No displayable columns available")
+                else:
+                    st.success("✅ No circumference outliers detected")
+            else:
+                st.info("ℹ️ No valid circumference data with VEGETATION_KEY available")
+        else:
+            st.info("ℹ️ No circumference columns (circumference_bh or circumference_10cm) found")
+    else:
+        st.info("ℹ️ Complete dataset with VEGETATION_KEY not available")
 
     st.markdown("---")
 
@@ -1863,7 +2083,7 @@ with tabs[0]:
                     large_circ_threshold=300,
                     large_circ_age_threshold=15,
                     species_col=species_col,
-                    species_filter=selected_species,
+                    species_filter=None,  # No species filter - analyze all species
                 )
 
                 suspicious = circ_data[circ_data["suspicious"] == True]

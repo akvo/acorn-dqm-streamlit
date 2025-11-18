@@ -207,6 +207,14 @@ def process_excel_file(uploaded_file):
     # Always need these columns
     cols_to_select.extend(["gt_subplot", "SUBPLOT_KEY"])
 
+    # Add measured_subplots if available (from plots data)
+    if "measured_subplots" in m_plots.columns:
+        cols_to_select.append("measured_subplots")
+
+    # Add PLOT_KEY to group by plot for measured_subplots aggregation
+    if "PLOT_KEY" in m_plots.columns:
+        cols_to_select.append("PLOT_KEY")
+
     # Select only existing columns
     subplots_for_validation = m_plots[cols_to_select].copy()
 
@@ -1195,6 +1203,14 @@ def process_json_data(json_data):
 
     # Always need these columns
     cols_to_select.extend(["gt_subplot", "SUBPLOT_KEY"])
+
+    # Add measured_subplots if available (from plots data)
+    if "measured_subplots" in m_plots.columns:
+        cols_to_select.append("measured_subplots")
+
+    # Add PLOT_KEY to group by plot for measured_subplots aggregation
+    if "PLOT_KEY" in m_plots.columns:
+        cols_to_select.append("PLOT_KEY")
 
     # Select only existing columns
     subplots_for_validation = m_plots[cols_to_select].copy()

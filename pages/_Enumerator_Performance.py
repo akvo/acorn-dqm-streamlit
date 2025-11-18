@@ -12,6 +12,27 @@ from io import BytesIO
 import config
 from ui.components import show_header, show_sidebar_info, create_sidebar_filters
 
+
+def get_total_measured_subplots(gdf):
+    """
+    Calculate total measured subplots using the measured_subplots field.
+    Falls back to counting records if field is not available.
+
+    Args:
+        gdf: GeoDataFrame with subplot data
+
+    Returns:
+        int: Total measured subplots
+    """
+    if "measured_subplots" in gdf.columns and "PLOT_KEY" in gdf.columns:
+        # Group by plot and sum measured_subplots (taking first value per plot since it's the same for all subplots)
+        total = gdf.groupby("PLOT_KEY")["measured_subplots"].first().apply(lambda x: int(x) if pd.notna(x) else 0).sum()
+        return int(total)
+    else:
+        # Fallback: count subplot records
+        return len(gdf)
+
+
 # Try to import folium (optional for maps)
 try:
     import folium
@@ -258,26 +279,27 @@ def create_enumerator_map(enum_data, enumerator_name):
         MiniMap(toggle_display=True, position="bottomleft").add_to(m)
 
         # Add statistics box
+        total_measured = get_total_measured_subplots(map_data)
         valid_count = map_data["geom_valid"].sum()
         invalid_count = (~map_data["geom_valid"]).sum()
-        valid_pct = (valid_count / len(map_data) * 100) if len(map_data) > 0 else 0
+        valid_pct = (valid_count / total_measured * 100) if total_measured > 0 else 0
 
         stats_html = f"""
-        <div style="position: fixed; 
-                    top: 10px; right: 10px; 
-                    width: 220px; 
-                    background-color: white; 
-                    border: 2px solid #2E7D32; 
+        <div style="position: fixed;
+                    top: 10px; right: 10px;
+                    width: 220px;
+                    background-color: white;
+                    border: 2px solid #2E7D32;
                     border-radius: 8px;
                     box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                    z-index: 1000; 
+                    z-index: 1000;
                     padding: 15px;
                     font-family: Arial, sans-serif;">
             <h4 style="margin: 0 0 10px 0; color: #2E7D32; border-bottom: 2px solid #2E7D32; padding-bottom: 5px;">
                 📊 {enumerator_name}
             </h4>
             <div style="font-size: 14px; line-height: 1.8;">
-                <b>Total Subplots:</b> {len(map_data)}<br>
+                <b>Total Subplots:</b> {total_measured}<br>
                 <b style="color: #4CAF50;">✅ Valid:</b> {valid_count}<br>
                 <b style="color: #F44336;">❌ Invalid:</b> {invalid_count}<br>
                 <b>📈 Valid %:</b> {valid_pct:.1f}%
@@ -410,9 +432,9 @@ def capture_map_as_image(enum_data, enumerator_name):
                 return None
 
             # Count valid/invalid
+            total_count = get_total_measured_subplots(map_data)
             valid_count = map_data["geom_valid"].sum()
             invalid_count = (~map_data["geom_valid"]).sum()
-            total_count = len(map_data)
 
             # Create figure with high DPI for quality
             fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
@@ -525,9 +547,9 @@ def capture_map_as_image(enum_data, enumerator_name):
                     return None
 
                 # Count valid/invalid
+                total_count = get_total_measured_subplots(map_data)
                 valid_count = map_data["geom_valid"].sum()
                 invalid_count = (~map_data["geom_valid"]).sum()
-                total_count = len(map_data)
 
                 # Create simple statistics graphic
                 width, height = 800, 600
@@ -908,19 +930,51 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 "suspicious_circ": pd.DataFrame(),
                             }
 
-                            # Height outliers
-                            if "tree_height_m" in meas_enum.columns and species_col:
+                            # Height outliers (using VEGETATION_KEY grouping - official method)
+                            if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
                                 print(f"DEBUG: Checking height outliers...", file=sys.stderr)
-                                height_check = detect_height_outliers(
-                                    meas_enum,
-                                    height_col="tree_height_m",
-                                    species_col=species_col,
-                                )
-                                if "Upper_outliers" in height_check.columns or "Lower_outliers" in height_check.columns:
-                                    outliers = height_check[
-                                        (height_check.get("Upper_outliers", False) == True) |
-                                        (height_check.get("Lower_outliers", False) == True)
-                                    ]
+                                # Filter to records with valid height and VEGETATION_KEY
+                                height_check = meas_enum[
+                                    meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
+                                ].copy()
+
+                                if len(height_check) > 0:
+                                    # Calculate median height per VEGETATION_KEY (tree group)
+                                    median_check = (
+                                        height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                        .median()
+                                        .reset_index(name="median_height")
+                                    )
+
+                                    # Merge with original data
+                                    height_total = pd.merge(
+                                        height_check, median_check, how="inner", on="VEGETATION_KEY"
+                                    )
+
+                                    # Apply outlier detection (4x and 1/4x median - official method)
+                                    height_total["Upper_outliers"] = height_total.apply(
+                                        lambda row: (
+                                            "outlier"
+                                            if row["tree_height_m"] > (row["median_height"] * 4)
+                                            else "ok"
+                                        ),
+                                        axis=1,
+                                    )
+                                    height_total["Lower_outliers"] = height_total.apply(
+                                        lambda row: (
+                                            "outlier"
+                                            if row["tree_height_m"] < (row["median_height"] / 4)
+                                            else "ok"
+                                        ),
+                                        axis=1,
+                                    )
+
+                                    # Filter to outliers only
+                                    outliers = height_total[
+                                        (height_total["Upper_outliers"] == "outlier") |
+                                        (height_total["Lower_outliers"] == "outlier")
+                                    ].copy()
+
                                     print(f"DEBUG: Found {len(outliers)} height outliers", file=sys.stderr)
                                     # Preserve subplot_comments if it exists in original data
                                     if "subplot_comments" in meas_enum.columns and "subplot_comments" not in outliers.columns:
@@ -947,8 +1001,8 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     )
                                     if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                         outliers = circ_check[
-                                            (circ_check.get("Upper_outliers", False) == True) |
-                                            (circ_check.get("Lower_outliers", False) == True)
+                                            (circ_check.get("Upper_outliers") == "outlier") |
+                                            (circ_check.get("Lower_outliers") == "outlier")
                                         ]
                                         print(f"DEBUG: Found {len(outliers)} circumference outliers for {circ_col}", file=sys.stderr)
                                         if len(outliers) > 0:
@@ -998,7 +1052,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     traceback.print_exc(file=sys.stderr)
 
         # Statistics
-        total = len(enum_data)
+        total = get_total_measured_subplots(enum_data)
         invalid = (~enum_data["geom_valid"]).sum()
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
@@ -1034,7 +1088,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                 for date_idx, date in enumerate(dates):
                     # Get data for this date
                     date_data = enum_data[enum_data["date_only"] == date].copy()
-                    date_total = len(date_data)
+                    date_total = get_total_measured_subplots(date_data)
                     date_invalid = (~date_data["geom_valid"]).sum()
                     date_valid = date_data["geom_valid"].sum()
                     date_error_rate = (date_invalid / date_total * 100) if date_total > 0 else 0
@@ -1737,7 +1791,7 @@ with tabs[TAB_OVERVIEW]:
     enum_stats = []
     for enum in selected_enumerators:
         enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum]
-        total = len(enum_data)
+        total = get_total_measured_subplots(enum_data)
         invalid = (~enum_data["geom_valid"]).sum()
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
@@ -1902,17 +1956,35 @@ if has_veg_tab and TAB_VEG_ERRORS is not None:
                         circ_outliers_count = 0
                         suspicious_circ_count = 0
 
-                        # Height outliers
-                        if "tree_height_m" in meas_enum.columns and species_col:
-                            height_check = detect_height_outliers(
-                                meas_enum,
-                                height_col="tree_height_m",
-                                species_col=species_col,
-                            )
-                            if "Upper_outliers" in height_check.columns or "Lower_outliers" in height_check.columns:
-                                outliers = height_check[
-                                    (height_check.get("Upper_outliers", False) == True) |
-                                    (height_check.get("Lower_outliers", False) == True)
+                        # Height outliers (using VEGETATION_KEY grouping - official method)
+                        if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
+                            height_check = meas_enum[
+                                meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
+                            ].copy()
+
+                            if len(height_check) > 0:
+                                # Calculate median height per VEGETATION_KEY (tree group)
+                                median_check = (
+                                    height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                    .median()
+                                    .reset_index(name="median_height")
+                                )
+
+                                # Merge and apply 4x/0.25x thresholds
+                                height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
+                                height_total["Upper_outliers"] = height_total.apply(
+                                    lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                    axis=1,
+                                )
+                                height_total["Lower_outliers"] = height_total.apply(
+                                    lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                    axis=1,
+                                )
+
+                                # Count outliers
+                                outliers = height_total[
+                                    (height_total["Upper_outliers"] == "outlier") |
+                                    (height_total["Lower_outliers"] == "outlier")
                                 ]
                                 height_outliers_count = len(outliers)
 
@@ -1928,8 +2000,8 @@ if has_veg_tab and TAB_VEG_ERRORS is not None:
                                 )
                                 if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                     outliers = circ_check[
-                                        (circ_check.get("Upper_outliers", False) == True) |
-                                        (circ_check.get("Lower_outliers", False) == True)
+                                        (circ_check.get("Upper_outliers") == "outlier") |
+                                        (circ_check.get("Lower_outliers") == "outlier")
                                     ]
                                     if len(outliers) > 0:
                                         all_circ_outliers = pd.concat([all_circ_outliers, outliers]).drop_duplicates()
@@ -2067,6 +2139,34 @@ with tabs[TAB_ERROR_DETAILS]:
                 meas_df = raw_data["plots_subplots_vegetation_measurements"]
                 veg_df = raw_data.get("plots_subplots_vegetation", pd.DataFrame())
                 enum_subplot_keys = enum_data["subplot_id"].unique()
+
+                # Filter to only measured subplots
+                if "measured_subplots" in enum_data.columns:
+                    import re
+
+                    # Create temp df with subplot info
+                    temp_enum = pd.DataFrame({"subplot_id": enum_subplot_keys})
+                    temp_enum = temp_enum.merge(
+                        enum_data[["subplot_id", "measured_subplots"]].drop_duplicates(),
+                        on="subplot_id",
+                        how="left"
+                    )
+
+                    # Extract subplot number from subplot_id
+                    temp_enum["subplot_number"] = temp_enum["subplot_id"].apply(
+                        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                    )
+
+                    # Convert measured_subplots to int
+                    temp_enum["measured_subplots"] = temp_enum["measured_subplots"].apply(
+                        lambda x: int(x) if pd.notna(x) else 999
+                    )
+
+                    # Only include measured subplots
+                    enum_subplot_keys = temp_enum[
+                        temp_enum["subplot_number"] <= temp_enum["measured_subplots"]
+                    ]["subplot_id"].unique()
+
                 meas_enum = meas_df[meas_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
 
                 # Missing vegetation
@@ -2079,17 +2179,35 @@ with tabs[TAB_ERROR_DETAILS]:
                     meas_enum = merge_with_enumerator(meas_enum, enum_data)
                     species_col = get_species_column(meas_enum)
 
-                    # Height outliers
-                    if "tree_height_m" in meas_enum.columns and species_col:
-                        height_check = detect_height_outliers(
-                            meas_enum,
-                            height_col="tree_height_m",
-                            species_col=species_col,
-                        )
-                        if "Upper_outliers" in height_check.columns or "Lower_outliers" in height_check.columns:
-                            outliers = height_check[
-                                (height_check.get("Upper_outliers", False) == True) |
-                                (height_check.get("Lower_outliers", False) == True)
+                    # Height outliers (using VEGETATION_KEY grouping - official method)
+                    if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
+                        height_check = meas_enum[
+                            meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
+                        ].copy()
+
+                        if len(height_check) > 0:
+                            # Calculate median height per VEGETATION_KEY (tree group)
+                            median_check = (
+                                height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                .median()
+                                .reset_index(name="median_height")
+                            )
+
+                            # Merge and apply 4x/0.25x thresholds
+                            height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
+                            height_total["Upper_outliers"] = height_total.apply(
+                                lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                axis=1,
+                            )
+                            height_total["Lower_outliers"] = height_total.apply(
+                                lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                axis=1,
+                            )
+
+                            # Count outliers
+                            outliers = height_total[
+                                (height_total["Upper_outliers"] == "outlier") |
+                                (height_total["Lower_outliers"] == "outlier")
                             ]
                             veg_error_count += len(outliers)
 
@@ -2105,8 +2223,8 @@ with tabs[TAB_ERROR_DETAILS]:
                             )
                             if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                 outliers = circ_check[
-                                    (circ_check.get("Upper_outliers", False) == True) |
-                                    (circ_check.get("Lower_outliers", False) == True)
+                                    (circ_check.get("Upper_outliers") == "outlier") |
+                                    (circ_check.get("Lower_outliers") == "outlier")
                                 ]
                                 if len(outliers) > 0:
                                     all_circ = pd.concat([all_circ, outliers]).drop_duplicates()
@@ -2125,7 +2243,7 @@ with tabs[TAB_ERROR_DETAILS]:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("Total Subplots", len(enum_data))
+            st.metric("Total Subplots", get_total_measured_subplots(enum_data))
 
         with col2:
             invalid = (~enum_data["geom_valid"]).sum()
@@ -2236,6 +2354,34 @@ with tabs[TAB_ERROR_DETAILS]:
                     veg_df = raw_data.get("plots_subplots_vegetation", pd.DataFrame())
 
                     enum_subplot_keys = enum_data["subplot_id"].unique()
+
+                    # Filter to only measured subplots
+                    if "measured_subplots" in enum_data.columns:
+                        import re
+
+                        # Create temp df with subplot info
+                        temp_enum = pd.DataFrame({"subplot_id": enum_subplot_keys})
+                        temp_enum = temp_enum.merge(
+                            enum_data[["subplot_id", "measured_subplots"]].drop_duplicates(),
+                            on="subplot_id",
+                            how="left"
+                        )
+
+                        # Extract subplot number from subplot_id
+                        temp_enum["subplot_number"] = temp_enum["subplot_id"].apply(
+                            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                        )
+
+                        # Convert measured_subplots to int
+                        temp_enum["measured_subplots"] = temp_enum["measured_subplots"].apply(
+                            lambda x: int(x) if pd.notna(x) else 999
+                        )
+
+                        # Only include measured subplots
+                        enum_subplot_keys = temp_enum[
+                            temp_enum["subplot_number"] <= temp_enum["measured_subplots"]
+                        ]["subplot_id"].unique()
+
                     meas_enum = meas_df[meas_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
 
                     # Vegetation error summary
@@ -2272,18 +2418,37 @@ with tabs[TAB_ERROR_DETAILS]:
                         meas_enum = add_tree_name_column(meas_enum)
                         species_col = get_species_column(meas_enum)
 
-                        # Height outliers
-                        if "tree_height_m" in meas_enum.columns and species_col:
-                            height_check = detect_height_outliers(
-                                meas_enum,
-                                height_col="tree_height_m",
-                                species_col=species_col,
-                            )
-                            if "Upper_outliers" in height_check.columns or "Lower_outliers" in height_check.columns:
-                                height_outliers_df = height_check[
-                                    (height_check.get("Upper_outliers", False) == True) |
-                                    (height_check.get("Lower_outliers", False) == True)
-                                ]
+                        # Height outliers (using VEGETATION_KEY grouping - official method)
+                        if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
+                            height_check = meas_enum[
+                                meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
+                            ].copy()
+
+                            if len(height_check) > 0:
+                                # Calculate median height per VEGETATION_KEY (tree group)
+                                median_check = (
+                                    height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                    .median()
+                                    .reset_index(name="median_height")
+                                )
+
+                                # Merge and apply 4x/0.25x thresholds
+                                height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
+                                height_total["Upper_outliers"] = height_total.apply(
+                                    lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                    axis=1,
+                                )
+                                height_total["Lower_outliers"] = height_total.apply(
+                                    lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                    axis=1,
+                                )
+
+                                # Get outliers
+                                height_outliers_df = height_total[
+                                    (height_total["Upper_outliers"] == "outlier") |
+                                    (height_total["Lower_outliers"] == "outlier")
+                                ].copy()
+
                                 # Preserve subplot_comments
                                 if "subplot_comments" in meas_enum.columns and "subplot_comments" not in height_outliers_df.columns:
                                     if "SUBPLOT_KEY" in height_outliers_df.columns and "SUBPLOT_KEY" in meas_enum.columns:
@@ -2305,8 +2470,8 @@ with tabs[TAB_ERROR_DETAILS]:
                                 )
                                 if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                     outliers = circ_check[
-                                        (circ_check.get("Upper_outliers", False) == True) |
-                                        (circ_check.get("Lower_outliers", False) == True)
+                                        (circ_check.get("Upper_outliers") == "outlier") |
+                                        (circ_check.get("Lower_outliers") == "outlier")
                                     ]
                                     if len(outliers) > 0:
                                         # Preserve subplot_comments
