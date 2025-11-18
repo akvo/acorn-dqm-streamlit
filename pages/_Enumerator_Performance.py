@@ -2118,6 +2118,28 @@ with tabs[TAB_ERROR_DETAILS]:
     if selected_enum:
         enum_data = filtered_gdf[filtered_gdf["enumerator"] == selected_enum].copy()
 
+        # Filter enum_data to only include measured subplots
+        if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
+            import re
+
+            # Extract subplot number from subplot_id
+            enum_data["subplot_number"] = enum_data["subplot_id"].apply(
+                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            )
+
+            # Convert measured_subplots to int
+            enum_data["measured_subplots_int"] = enum_data["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+
+            # Only include measured subplots
+            enum_data = enum_data[
+                enum_data["subplot_number"] <= enum_data["measured_subplots_int"]
+            ].copy()
+
+            # Drop temporary columns
+            enum_data = enum_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
+
         st.markdown(f"#### Error Report for: **{selected_enum}**")
 
         # Summary metrics
