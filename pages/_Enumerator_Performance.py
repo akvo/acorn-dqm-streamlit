@@ -2586,9 +2586,15 @@ with tabs[TAB_ERROR_DETAILS]:
 
                             # Add outlier type
                             height_outliers_display = height_outliers_df.copy()
-                            height_outliers_display["Outlier_Type"] = height_outliers_display.apply(
-                                lambda row: "Too Tall" if row.get("Upper_outliers", False) else "Too Short", axis=1
-                            )
+                            def get_outlier_type(row):
+                                if row.get("Upper_outliers") == "outlier":
+                                    return "Too Tall"
+                                elif row.get("Lower_outliers") == "outlier":
+                                    return "Too Short"
+                                else:
+                                    return "Unknown"
+
+                            height_outliers_display["Outlier_Type"] = height_outliers_display.apply(get_outlier_type, axis=1)
                             display_cols.append("Outlier_Type")
 
                             # Add species if available
@@ -2634,9 +2640,15 @@ with tabs[TAB_ERROR_DETAILS]:
                                     display_cols.append(col)
 
                             # Add outlier type
-                            circ_outliers_display["Outlier_Type"] = circ_outliers_display.apply(
-                                lambda row: "Too Large" if row.get("Upper_outliers", False) else "Too Small", axis=1
-                            )
+                            def get_circ_outlier_type(row):
+                                if row.get("Upper_outliers") == "outlier":
+                                    return "Too Large"
+                                elif row.get("Lower_outliers") == "outlier":
+                                    return "Too Small"
+                                else:
+                                    return "Unknown"
+
+                            circ_outliers_display["Outlier_Type"] = circ_outliers_display.apply(get_circ_outlier_type, axis=1)
                             display_cols.append("Outlier_Type")
 
                             # Add species if available
