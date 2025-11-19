@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import json
+import re
 from io import BytesIO
 import config
 from ui.components import show_header, show_sidebar_info, create_sidebar_filters
@@ -1240,8 +1241,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 ))
                                 break
 
-                            # Subplot header
-                            subplot_id = str(row.get("subplot_id", "N/A"))
+                            # Subplot header - extract subplot number from UUID
+                            subplot_id_full = str(row.get("subplot_id", "N/A"))
+
+                            # Extract subplot number from format: uuid:.../sub_plot[7]
+                            match = re.search(r'\[(\d+)\]', subplot_id_full)
+                            if match:
+                                subplot_display = f"Subplot {match.group(1)}"
+                            else:
+                                subplot_display = f"Subplot: {subplot_id_full}"
+
                             subplot_header_style = ParagraphStyle(
                                 "SubplotHeader",
                                 parent=styles["Heading4"],
@@ -1251,10 +1260,10 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 spaceAfter=6,
                                 fontName="Helvetica-Bold",
                             )
-                            story.append(Paragraph(f"Subplot: {subplot_id}", subplot_header_style))
+                            story.append(Paragraph(subplot_display, subplot_header_style))
 
                             # Create a table with polygon image on left, details on right
-                            print(f"DEBUG PDF: Attempting to create polygon for subplot {subplot_id}", file=sys.stderr)
+                            print(f"DEBUG PDF: Attempting to create polygon for subplot {subplot_id_full}", file=sys.stderr)
 
                             # Create polygon image directly inline
                             polygon_img_rl = None
