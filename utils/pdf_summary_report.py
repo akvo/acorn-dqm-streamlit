@@ -146,13 +146,8 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     story.append(Spacer(1, 1*inch))
 
     # Overall Statistics
-    # Total subplots should be sum of measured_subplots, not just record count
-    if "measured_subplots" in filtered_gdf.columns:
-        # Sum of all measured subplots
-        total_subplots = filtered_gdf["measured_subplots"].fillna(0).sum()
-        total_subplots = int(total_subplots)
-    else:
-        total_subplots = len(filtered_gdf)
+    # Total subplots is the count of subplot records
+    total_subplots = len(filtered_gdf)
 
     total_valid = filtered_gdf["geom_valid"].sum() if "geom_valid" in filtered_gdf.columns else 0
     total_invalid = len(filtered_gdf) - total_valid  # Count of invalid records
@@ -202,61 +197,6 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
     # ============= GEOMETRY QUALITY CHECK =============
     story.append(Paragraph("📐 Geometry Quality Check Summary", heading_style))
-
-    # Add overview map showing all subplots
-    if len(filtered_gdf) > 0 and MATPLOTLIB_AVAILABLE:
-        try:
-            print(f"DEBUG PDF: Creating overview map with {len(filtered_gdf)} subplots", file=sys.stderr)
-
-            fig, ax = plt.subplots(figsize=(7, 5), dpi=100)
-
-            # Plot all subplots
-            for idx, row in filtered_gdf.iterrows():
-                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                    geom = row["geometry"]
-                    is_valid = row.get("geom_valid", False)
-                    color = '#4CAF50' if is_valid else '#F44336'
-                    alpha = 0.3 if is_valid else 0.6
-
-                    if geom.geom_type == 'Polygon':
-                        x, y = geom.exterior.xy
-                        ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                    elif geom.geom_type == 'MultiPolygon':
-                        for poly in geom.geoms:
-                            x, y = poly.exterior.xy
-                            ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-
-            ax.set_aspect('equal')
-            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-            ax.set_xlabel('Longitude', fontsize=10)
-            ax.set_ylabel('Latitude', fontsize=10)
-            ax.set_title(f'Subplot Overview - Valid (Green) vs Invalid (Red)', fontsize=12, fontweight='bold')
-
-            # Add legend
-            from matplotlib.patches import Patch
-            legend_elements = [
-                Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({total_valid})'),
-                Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({total_invalid})'),
-            ]
-            ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
-
-            plt.tight_layout()
-
-            # Convert to image
-            map_buffer = BytesIO()
-            plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-            plt.close(fig)
-            map_buffer.seek(0)
-
-            overview_img = RLImage(map_buffer, width=6*inch, height=4.3*inch)
-            story.append(overview_img)
-            story.append(Spacer(1, 0.3*inch))
-            print(f"DEBUG PDF: Successfully created overview map", file=sys.stderr)
-
-        except Exception as e:
-            print(f"DEBUG PDF: Error creating overview map: {str(e)}", file=sys.stderr)
-            import traceback
-            traceback.print_exc(file=sys.stderr)
 
     # Most common errors
     if "reasons" in filtered_gdf.columns and total_invalid > 0:
@@ -412,171 +352,100 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 leftIndent=10,
             )))
 
-    # Show individual subplot images for top invalid subplots
-    if "reasons" in filtered_gdf.columns and total_invalid > 0 and MATPLOTLIB_AVAILABLE:
+    # Show individual maps for each data collector
+    if "enumerator" in filtered_gdf.columns and MATPLOTLIB_AVAILABLE:
         story.append(Spacer(1, 0.3*inch))
-        story.append(Paragraph("Sample Invalid Subplots", subheading_style))
+        story.append(Paragraph("Maps by Data Collector", subheading_style))
 
-        invalid_gdf = filtered_gdf[~filtered_gdf["geom_valid"]].copy()
+        for enum_name in sorted(filtered_gdf["enumerator"].unique()):
+            enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
 
-        # Get vegetation data for subplot comments
-        veg_data = None
-        if "plots_subplots_vegetation" in raw_data:
-            veg_data = raw_data["plots_subplots_vegetation"]
+            if len(enum_data) > 0:
+                # Count stats
+                enum_total = len(enum_data)
+                enum_valid = enum_data["geom_valid"].sum()
+                enum_invalid = enum_total - enum_valid
 
-        # Show top 5 invalid subplots
-        max_subplots = min(5, len(invalid_gdf))
-        for idx, (_, row) in enumerate(invalid_gdf.head(max_subplots).iterrows()):
-            if idx >= max_subplots:
-                break
+                try:
+                    fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
 
-            # Extract subplot number from subplot_id
-            subplot_id_full = str(row.get("subplot_id", "N/A"))
-            match = re.search(r'\[(\d+)\]', subplot_id_full)
-            if match:
-                subplot_display = f"Subplot {match.group(1)}"
-            else:
-                subplot_display = f"Subplot: {subplot_id_full[:50]}"
+                    # Plot this enumerator's subplots
+                    for idx, row in enum_data.iterrows():
+                        if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                            geom = row["geometry"]
+                            is_valid = row.get("geom_valid", False)
+                            color = '#4CAF50' if is_valid else '#F44336'
+                            alpha = 0.3 if is_valid else 0.6
 
-            # Add enumerator name if available
-            if "enumerator" in row and pd.notna(row["enumerator"]):
-                subplot_display += f" | {row['enumerator']}"
-
-            subplot_header_style_inline = ParagraphStyle(
-                "SubplotHeaderInline",
-                parent=styles["Heading4"],
-                fontSize=10,
-                textColor=colors.HexColor("#E53935"),
-                spaceBefore=12,
-                spaceAfter=6,
-                fontName="Helvetica-Bold",
-            )
-            story.append(Paragraph(subplot_display, subplot_header_style_inline))
-
-            # Create polygon image
-            polygon_img_rl = None
-            try:
-                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                    geom = row["geometry"]
-                    is_valid = row.get("geom_valid", False)
-
-                    fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
-
-                    color = '#4CAF50' if is_valid else '#F44336'
-
-                    if geom.geom_type == 'Polygon':
-                        x, y = geom.exterior.xy
-                        ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                        ax.plot(x, y, 'o', color=color, markersize=3)
-                    elif geom.geom_type == 'MultiPolygon':
-                        for poly in geom.geoms:
-                            x, y = poly.exterior.xy
-                            ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                            ax.plot(x, y, 'o', color=color, markersize=3)
-
-                    # Add centroid
-                    centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
+                            if geom.geom_type == 'Polygon':
+                                x, y = geom.exterior.xy
+                                ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                            elif geom.geom_type == 'MultiPolygon':
+                                for poly in geom.geoms:
+                                    x, y = poly.exterior.xy
+                                    ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
 
                     ax.set_aspect('equal')
                     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                    ax.set_xlabel('Longitude', fontsize=7)
-                    ax.set_ylabel('Latitude', fontsize=7)
-                    ax.tick_params(labelsize=6)
+                    ax.set_xlabel('Longitude', fontsize=9)
+                    ax.set_ylabel('Latitude', fontsize=9)
+                    ax.set_title(
+                        f'{enum_name} | Valid: {enum_valid}, Invalid: {enum_invalid}',
+                        fontsize=11,
+                        fontweight='bold'
+                    )
 
-                    # Add area info as title
-                    area_text = f"{row.get('area_m2', 0):.1f} m²"
-                    status = "INVALID" if not is_valid else "VALID"
-                    ax.set_title(f"{area_text} - {status}", fontsize=8, fontweight='bold')
+                    # Add legend
+                    from matplotlib.patches import Patch
+                    legend_elements = [
+                        Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({enum_valid})'),
+                        Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({enum_invalid})'),
+                    ]
+                    ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
 
                     plt.tight_layout()
 
                     # Convert to image
-                    poly_buffer = BytesIO()
-                    plt.savefig(poly_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                    map_buffer = BytesIO()
+                    plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
                     plt.close(fig)
-                    poly_buffer.seek(0)
+                    map_buffer.seek(0)
 
-                    polygon_img_rl = RLImage(poly_buffer, width=2.5*inch, height=2.08*inch)
+                    enum_img = RLImage(map_buffer, width=5.5*inch, height=3.7*inch)
+                    story.append(enum_img)
+                    story.append(Spacer(1, 0.2*inch))
 
-            except Exception as e:
-                print(f"DEBUG PDF: Error creating subplot polygon: {str(e)}", file=sys.stderr)
-
-            # Create details
-            detail_items = []
-
-            # Error reasons
-            reasons = str(row.get("reasons", "Unknown error"))
-            detail_items.append(f"<b>Error:</b> {reasons}")
-
-            # Geometry details
-            if "area_m2" in row and pd.notna(row["area_m2"]):
-                detail_items.append(f"<b>Area:</b> {row['area_m2']:.1f} m²")
-            if "nr_vertices" in row and pd.notna(row["nr_vertices"]):
-                detail_items.append(f"<b>Vertices:</b> {int(row['nr_vertices'])}")
-
-            # Get vegetation details for this subplot
-            if veg_data is not None:
-                subplot_key = row.get("subplot_id")
-                if subplot_key:
-                    subplot_veg = veg_data[veg_data.get("SUBPLOT_KEY", pd.Series()) == subplot_key]
-
-                    if len(subplot_veg) > 0:
-                        veg_rec = subplot_veg.iloc[0]
-
-                        # Subplot comments
-                        if "subplot_comments" in veg_rec and pd.notna(veg_rec["subplot_comments"]):
-                            comments = str(veg_rec["subplot_comments"])
-                            if len(comments) > 80:
-                                comments = comments[:77] + "..."
-                            detail_items.append(f"<b>Comments:</b> {comments}")
-
-            # Create detail text
-            detail_text = "<br/>".join(detail_items)
-            detail_para = Paragraph(detail_text, ParagraphStyle(
-                "DetailsInline",
-                parent=styles["Normal"],
-                fontSize=8,
-                leading=10,
-            ))
-
-            # Create 2-column table with polygon on left, details on right
-            if polygon_img_rl:
-                detail_table = Table(
-                    [[polygon_img_rl, detail_para]],
-                    colWidths=[2.8*inch, 3.5*inch]
-                )
-            else:
-                detail_table = Table(
-                    [[detail_para]],
-                    colWidths=[6.3*inch]
-                )
-
-            detail_table.setStyle(
-                TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                    ("BOX", (0, 0), (-1, -1), 1, colors.grey),
-                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
-                ])
-            )
-
-            story.append(detail_table)
-            story.append(Spacer(1, 0.15*inch))
-
-        if len(invalid_gdf) > max_subplots:
-            story.append(Paragraph(
-                f"<i>... and {len(invalid_gdf) - max_subplots} more invalid subplots</i>",
-                ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-            ))
+                except Exception as e:
+                    print(f"DEBUG PDF: Error creating map for {enum_name}: {str(e)}", file=sys.stderr)
 
     story.append(PageBreak())
 
     # ============= VEGETATION OUTLIERS SUMMARY =============
     story.append(Paragraph("🌿 Vegetation & Measurement Outliers", heading_style))
+
+    # Add outlier explanations
+    outlier_explanation = """
+<b>What are outliers?</b><br/>
+Outliers are tree measurements (height or circumference) that are significantly different from other trees in the same planting group. We detect outliers by comparing each tree to the median (middle value) of its group:<br/><br/>
+
+<b>Height Outliers:</b><br/>
+• <b>Extremely tall trees:</b> Height is more than 4 times the group median (measurement error, wrong species, or exceptionally favorable growing conditions)<br/>
+• <b>Extremely short trees:</b> Height is less than 0.25 times the group median (measurement error, damaged/stunted tree, or seedling)<br/><br/>
+
+<b>Circumference Outliers:</b><br/>
+• <b>Extremely thick trees:</b> Circumference is more than 4 times the group median (measurement error, wrong tree, or multiple stems counted as one)<br/>
+• <b>Extremely thin trees:</b> Circumference is less than 0.25 times the group median (measurement error, young sapling, or damaged tree)<br/><br/>
+
+<b>Common causes:</b> Measurement errors (wrong unit, typo), data entry mistakes, misidentified species, exceptional growing conditions, or damaged/diseased trees.
+"""
+    story.append(Paragraph(outlier_explanation, ParagraphStyle(
+        "OutlierExplanation",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+        leftIndent=10,
+        spaceAfter=15,
+    )))
 
     # Get measurement data for outlier analysis
     has_measurements = "plots_subplots_vegetation_measurements" in raw_data
@@ -746,191 +615,6 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                     f"<i>... and {len(circ_by_enum) - 10} more data collectors</i>",
                     ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
                 ))
-
-        # Show sample outlier subplots with images
-        if (total_height_outliers > 0 or total_circ_outliers > 0) and MATPLOTLIB_AVAILABLE:
-            story.append(Spacer(1, 0.4*inch))
-            story.append(Paragraph("Sample Outlier Subplots", subheading_style))
-
-            # Combine height and circ outliers
-            all_outliers = pd.concat([height_outliers_df, circ_outliers_df]).drop_duplicates()
-
-            # Get unique subplots with outliers
-            if "SUBPLOT_KEY" in all_outliers.columns:
-                outlier_subplots = all_outliers["SUBPLOT_KEY"].unique()[:3]  # Show top 3
-
-                for subplot_key in outlier_subplots:
-                    # Get subplot info from filtered_gdf
-                    subplot_info = filtered_gdf[filtered_gdf["subplot_id"] == subplot_key]
-
-                    if len(subplot_info) > 0:
-                        row = subplot_info.iloc[0]
-
-                        # Extract subplot number
-                        match = re.search(r'\[(\d+)\]', str(subplot_key))
-                        if match:
-                            subplot_display = f"Subplot {match.group(1)}"
-                        else:
-                            subplot_display = f"Subplot: {str(subplot_key)[:50]}"
-
-                        # Add enumerator name
-                        if "enumerator" in row and pd.notna(row["enumerator"]):
-                            subplot_display += f" | {row['enumerator']}"
-
-                        # Get outlier details for this subplot
-                        subplot_outliers = all_outliers[all_outliers["SUBPLOT_KEY"] == subplot_key]
-                        outlier_types = []
-                        if len(height_outliers_df[height_outliers_df["SUBPLOT_KEY"] == subplot_key]) > 0:
-                            outlier_types.append(f"Height ({len(height_outliers_df[height_outliers_df['SUBPLOT_KEY'] == subplot_key])})")
-                        if len(circ_outliers_df[circ_outliers_df["SUBPLOT_KEY"] == subplot_key]) > 0:
-                            outlier_types.append(f"Circumference ({len(circ_outliers_df[circ_outliers_df['SUBPLOT_KEY'] == subplot_key])})")
-
-                        if outlier_types:
-                            subplot_display += f" | Outliers: {', '.join(outlier_types)}"
-
-                        subplot_header_outlier = ParagraphStyle(
-                            "SubplotHeaderOutlier",
-                            parent=styles["Heading4"],
-                            fontSize=10,
-                            textColor=colors.HexColor("#FF6F00"),
-                            spaceBefore=12,
-                            spaceAfter=6,
-                            fontName="Helvetica-Bold",
-                        )
-                        story.append(Paragraph(subplot_display, subplot_header_outlier))
-
-                        # Create polygon image
-                        polygon_img_rl = None
-                        try:
-                            if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                                geom = row["geometry"]
-
-                                fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
-
-                                color = '#FF9800'  # Orange for outliers
-
-                                if geom.geom_type == 'Polygon':
-                                    x, y = geom.exterior.xy
-                                    ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                                    ax.plot(x, y, 'o', color=color, markersize=3)
-                                elif geom.geom_type == 'MultiPolygon':
-                                    for poly in geom.geoms:
-                                        x, y = poly.exterior.xy
-                                        ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                                        ax.plot(x, y, 'o', color=color, markersize=3)
-
-                                # Add centroid
-                                centroid = geom.centroid
-                                ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
-
-                                ax.set_aspect('equal')
-                                ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                                ax.set_xlabel('Longitude', fontsize=7)
-                                ax.set_ylabel('Latitude', fontsize=7)
-                                ax.tick_params(labelsize=6)
-
-                                area_text = f"{row.get('area_m2', 0):.1f} m²"
-                                ax.set_title(f"{area_text} - OUTLIERS", fontsize=8, fontweight='bold')
-
-                                plt.tight_layout()
-
-                                poly_buffer = BytesIO()
-                                plt.savefig(poly_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-                                plt.close(fig)
-                                poly_buffer.seek(0)
-
-                                polygon_img_rl = RLImage(poly_buffer, width=2.5*inch, height=2.08*inch)
-
-                        except Exception as e:
-                            print(f"DEBUG PDF: Error creating outlier polygon: {str(e)}", file=sys.stderr)
-
-                        # Create details from outlier data with median comparisons
-                        detail_items = []
-
-                        # Show sample outliers with detailed explanations
-                        for _, outlier_row in subplot_outliers.head(3).iterrows():
-                            # Height outlier with median comparison
-                            if "tree_height_m" in outlier_row and pd.notna(outlier_row["tree_height_m"]):
-                                height_val = outlier_row["tree_height_m"]
-                                if "median_height" in outlier_row and pd.notna(outlier_row["median_height"]):
-                                    median_val = outlier_row["median_height"]
-                                    ratio = height_val / median_val if median_val > 0 else 0
-                                    if ratio >= 4:
-                                        detail_items.append(
-                                            f"<b>Height Outlier:</b> {height_val:.1f}m is {ratio:.1f}x the median ({median_val:.1f}m) for this tree group"
-                                        )
-                                    elif ratio <= 0.25:
-                                        detail_items.append(
-                                            f"<b>Height Outlier:</b> {height_val:.1f}m is {ratio:.2f}x the median ({median_val:.1f}m) for this tree group"
-                                        )
-                                    else:
-                                        detail_items.append(f"<b>Height Outlier:</b> {height_val:.1f}m")
-                                else:
-                                    detail_items.append(f"<b>Height Outlier:</b> {height_val:.1f}m")
-
-                            # Circumference outlier with median comparison
-                            circ_cols = [col for col in outlier_row.index if "circumference" in col.lower() and col != "median_circ"]
-                            for circ_col in circ_cols:
-                                if pd.notna(outlier_row.get(circ_col)):
-                                    circ_val = outlier_row[circ_col]
-                                    if "median_circ" in outlier_row and pd.notna(outlier_row["median_circ"]):
-                                        median_val = outlier_row["median_circ"]
-                                        ratio = circ_val / median_val if median_val > 0 else 0
-                                        if ratio >= 4:
-                                            detail_items.append(
-                                                f"<b>Circumference Outlier:</b> {circ_val:.1f}cm is {ratio:.1f}x the median ({median_val:.1f}cm) for this tree group"
-                                            )
-                                        elif ratio <= 0.25:
-                                            detail_items.append(
-                                                f"<b>Circumference Outlier:</b> {circ_val:.1f}cm is {ratio:.2f}x the median ({median_val:.1f}cm) for this tree group"
-                                            )
-                                        else:
-                                            detail_items.append(f"<b>Circumference Outlier:</b> {circ_val:.1f}cm")
-                                    else:
-                                        detail_items.append(f"<b>Circumference Outlier:</b> {circ_val:.1f}cm")
-                                    break
-
-                        if len(detail_items) == 0:
-                            detail_items.append(f"<b>Outliers detected:</b> {', '.join(outlier_types)}")
-
-                        # Geometry details
-                        if "area_m2" in row and pd.notna(row["area_m2"]):
-                            detail_items.append(f"<b>Area:</b> {row['area_m2']:.1f} m²")
-
-                        detail_text = "<br/>".join(detail_items)
-                        detail_para = Paragraph(detail_text, ParagraphStyle(
-                            "DetailsOutlier",
-                            parent=styles["Normal"],
-                            fontSize=8,
-                            leading=10,
-                        ))
-
-                        # Create table
-                        if polygon_img_rl:
-                            detail_table = Table(
-                                [[polygon_img_rl, detail_para]],
-                                colWidths=[2.8*inch, 3.5*inch]
-                            )
-                        else:
-                            detail_table = Table(
-                                [[detail_para]],
-                                colWidths=[6.3*inch]
-                            )
-
-                        detail_table.setStyle(
-                            TableStyle([
-                                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                                ("BOX", (0, 0), (-1, -1), 1, colors.grey),
-                                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
-                            ])
-                        )
-
-                        story.append(detail_table)
-                        story.append(Spacer(1, 0.15*inch))
 
     else:
         story.append(Paragraph(

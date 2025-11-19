@@ -118,7 +118,10 @@ def calculate_plot_validation(gdf_subplots):
     """
     Calculate plot-level validation
     Rule: Plot is invalid if ≥8 subplots are invalid
+    Only counts measured subplots (filters based on measured_subplots field)
     """
+    import re
+
     if "PLOT_KEY" not in gdf_subplots.columns:
         # Try to extract from subplot_id
         if "subplot_id" in gdf_subplots.columns:
@@ -126,9 +129,28 @@ def calculate_plot_validation(gdf_subplots):
         else:
             return pd.DataFrame()
 
+    # Filter to only measured subplots
+    if "subplot_id" in gdf_subplots.columns and "measured_subplots" in gdf_subplots.columns:
+        # Extract subplot number from subplot_id and compare to measured_subplots
+        temp_df = gdf_subplots[["subplot_id", "measured_subplots"]].copy()
+        temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+        )
+        temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+            lambda x: int(x) if pd.notna(x) else 999
+        )
+        measured_subplot_ids = temp_df[
+            temp_df["subplot_number"] <= temp_df["measured_subplots"]
+        ]["subplot_id"].unique()
+
+        # Filter gdf to only measured subplots
+        gdf_filtered = gdf_subplots[gdf_subplots["subplot_id"].isin(measured_subplot_ids)].copy()
+    else:
+        gdf_filtered = gdf_subplots.copy()
+
     # Group by plot
     plot_summary = (
-        gdf_subplots.groupby("PLOT_KEY")
+        gdf_filtered.groupby("PLOT_KEY")
         .agg(
             {
                 "subplot_id": "count",
