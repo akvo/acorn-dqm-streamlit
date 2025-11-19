@@ -610,15 +610,8 @@ Outliers are tree measurements (height or circumference) that are significantly 
                 height_details_df = height_details_df.sort_values("ratio", ascending=False)
 
             # Create detailed table
-            height_detail_data = [["Data Collector", "Height (m)", "Median (m)", "Ratio", "Issue"]]
+            height_detail_data = [["Height (m)", "Median (m)", "Ratio", "Issue"]]
             for _, row in height_details_df.head(15).iterrows():
-                # Try different possible enumerator column names
-                enumerator = "N/A"
-                for col in ["enumerator", "Enumerator", "data_collector", "collector"]:
-                    if col in row and pd.notna(row[col]):
-                        enumerator = str(row[col])
-                        break
-
                 height = row.get("tree_height_m", 0)
                 median = row.get("median_height", 0)
                 ratio = row.get("ratio", 0)
@@ -632,14 +625,13 @@ Outliers are tree measurements (height or circumference) that are significantly 
                     issue = "Outlier"
 
                 height_detail_data.append([
-                    enumerator,
                     f"{height:.1f}",
                     f"{median:.1f}",
                     f"{ratio:.1f}x",
                     issue
                 ])
 
-            height_detail_table = Table(height_detail_data, colWidths=[1.7*inch, 0.9*inch, 0.9*inch, 0.9*inch, 1.3*inch])
+            height_detail_table = Table(height_detail_data, colWidths=[1.4*inch, 1.4*inch, 1.4*inch, 1.5*inch])
             height_detail_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -686,15 +678,8 @@ Outliers are tree measurements (height or circumference) that are significantly 
                 circ_details_df = circ_details_df.sort_values("ratio", ascending=False)
 
             # Create detailed table
-            circ_detail_data = [["Data Collector", "Circ (cm)", "Median (cm)", "Ratio", "Issue"]]
+            circ_detail_data = [["Circ (cm)", "Median (cm)", "Ratio", "Issue"]]
             for _, row in circ_details_df.head(15).iterrows():
-                # Try different possible enumerator column names
-                enumerator = "N/A"
-                for col in ["enumerator", "Enumerator", "data_collector", "collector"]:
-                    if col in row and pd.notna(row[col]):
-                        enumerator = str(row[col])
-                        break
-
                 circ = row.get(circ_col, 0) if circ_col else 0
                 median = row.get("median_circ", 0)
                 ratio = row.get("ratio", 0)
@@ -708,14 +693,13 @@ Outliers are tree measurements (height or circumference) that are significantly 
                     issue = "Outlier"
 
                 circ_detail_data.append([
-                    enumerator,
                     f"{circ:.1f}",
                     f"{median:.1f}",
                     f"{ratio:.1f}x",
                     issue
                 ])
 
-            circ_detail_table = Table(circ_detail_data, colWidths=[1.7*inch, 0.9*inch, 0.9*inch, 0.9*inch, 1.3*inch])
+            circ_detail_table = Table(circ_detail_data, colWidths=[1.4*inch, 1.4*inch, 1.4*inch, 1.5*inch])
             circ_detail_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
