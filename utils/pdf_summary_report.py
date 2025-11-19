@@ -226,17 +226,33 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         for enum_name in filtered_gdf["enumerator"].unique():
             enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
 
+            # Filter to only measured subplots
+            if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
+                temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
+                temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                )
+                temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                    lambda x: int(x) if pd.notna(x) else 999
+                )
+                measured_subplot_ids = temp_df[
+                    temp_df["subplot_number"] <= temp_df["measured_subplots"]
+                ]["subplot_id"].unique()
+                enum_data_filtered = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
+            else:
+                enum_data_filtered = enum_data.copy()
+
             # Count GT plots
             enum_plot_count = 0
-            if "subplot_id" in enum_data.columns:
-                enum_data_copy = enum_data.copy()
+            if "subplot_id" in enum_data_filtered.columns:
+                enum_data_copy = enum_data_filtered.copy()
                 enum_data_copy["plot_id"] = enum_data_copy["subplot_id"].apply(
                     lambda x: str(x).split("/sub_plot")[0] if pd.notna(x) and "/sub_plot" in str(x) else str(x)
                 )
                 enum_plot_count = enum_data_copy["plot_id"].nunique()
 
-            total_recs = len(enum_data)
-            valid_recs = enum_data["geom_valid"].sum()
+            total_recs = len(enum_data_filtered)
+            valid_recs = enum_data_filtered["geom_valid"].sum()
             invalid_recs = total_recs - valid_recs
             error_rate = (invalid_recs / total_recs * 100) if total_recs > 0 else 0
 
@@ -548,71 +564,136 @@ Outliers are tree measurements (height or circumference) that are significantly 
         story.append(outlier_summary_table)
         story.append(Spacer(1, 0.3*inch))
 
-        # Height outliers by enumerator
-        if total_height_outliers > 0 and "enumerator" in height_outliers_df.columns:
-            story.append(Paragraph("Height Outliers by Data Collector", subheading_style))
-            height_by_enum = height_outliers_df.groupby("enumerator").size().reset_index(name="Count")
-            height_by_enum = height_by_enum.sort_values("Count", ascending=False)
+        # Height outliers details
+        if total_height_outliers > 0:
+            story.append(Paragraph("Height Outliers - Details", subheading_style))
 
-            height_enum_data = [["Data Collector", "Height Outliers"]]
-            for _, row in height_by_enum.head(10).iterrows():
-                height_enum_data.append([str(row["enumerator"]), str(row["Count"])])
+            # Prepare detailed outlier data
+            height_details_df = height_outliers_df.copy()
+            if "median_height" in height_details_df.columns and "tree_height_m" in height_details_df.columns:
+                height_details_df["ratio"] = height_details_df.apply(
+                    lambda row: row["tree_height_m"] / row["median_height"] if pd.notna(row["median_height"]) and row["median_height"] > 0 else 0,
+                    axis=1
+                )
 
-            height_enum_table = Table(height_enum_data, colWidths=[3.5*inch, 1.5*inch])
-            height_enum_table.setStyle(TableStyle([
+            # Sort by ratio (most extreme outliers first)
+            if "ratio" in height_details_df.columns:
+                height_details_df = height_details_df.sort_values("ratio", ascending=False)
+
+            # Create detailed table
+            height_detail_data = [["Data Collector", "Height (m)", "Median (m)", "Ratio", "Issue"]]
+            for _, row in height_details_df.head(15).iterrows():
+                enumerator = str(row.get("enumerator", "N/A"))
+                height = row.get("tree_height_m", 0)
+                median = row.get("median_height", 0)
+                ratio = row.get("ratio", 0)
+
+                # Determine issue type
+                if ratio >= 4:
+                    issue = "Extremely tall"
+                elif ratio <= 0.25:
+                    issue = "Extremely short"
+                else:
+                    issue = "Outlier"
+
+                height_detail_data.append([
+                    enumerator,
+                    f"{height:.1f}",
+                    f"{median:.1f}",
+                    f"{ratio:.1f}x",
+                    issue
+                ])
+
+            height_detail_table = Table(height_detail_data, colWidths=[1.7*inch, 0.9*inch, 0.9*inch, 0.9*inch, 1.3*inch])
+            height_detail_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ('PADDING', (0, 1), (-1, -1), 6),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
             ]))
-            story.append(height_enum_table)
+            story.append(height_detail_table)
 
-            if len(height_by_enum) > 10:
+            if len(height_details_df) > 15:
                 story.append(Paragraph(
-                    f"<i>... and {len(height_by_enum) - 10} more data collectors</i>",
+                    f"<i>Showing top 15 of {len(height_details_df)} height outliers</i>",
                     ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
                 ))
 
         story.append(Spacer(1, 0.3*inch))
 
-        # Circumference outliers by enumerator
-        if total_circ_outliers > 0 and "enumerator" in circ_outliers_df.columns:
-            story.append(Paragraph("Circumference Outliers by Data Collector", subheading_style))
-            circ_by_enum = circ_outliers_df.groupby("enumerator").size().reset_index(name="Count")
-            circ_by_enum = circ_by_enum.sort_values("Count", ascending=False)
+        # Circumference outliers details
+        if total_circ_outliers > 0:
+            story.append(Paragraph("Circumference Outliers - Details", subheading_style))
 
-            circ_enum_data = [["Data Collector", "Circumference Outliers"]]
-            for _, row in circ_by_enum.head(10).iterrows():
-                circ_enum_data.append([str(row["enumerator"]), str(row["Count"])])
+            # Prepare detailed outlier data
+            circ_details_df = circ_outliers_df.copy()
 
-            circ_enum_table = Table(circ_enum_data, colWidths=[3.5*inch, 1.5*inch])
-            circ_enum_table.setStyle(TableStyle([
+            # Find circumference column
+            circ_cols = [col for col in circ_details_df.columns if "circumference" in col.lower() and col != "median_circ"]
+            circ_col = circ_cols[0] if circ_cols else None
+
+            if circ_col and "median_circ" in circ_details_df.columns:
+                circ_details_df["ratio"] = circ_details_df.apply(
+                    lambda row: row[circ_col] / row["median_circ"] if pd.notna(row.get("median_circ")) and row["median_circ"] > 0 else 0,
+                    axis=1
+                )
+
+            # Sort by ratio (most extreme outliers first)
+            if "ratio" in circ_details_df.columns:
+                circ_details_df = circ_details_df.sort_values("ratio", ascending=False)
+
+            # Create detailed table
+            circ_detail_data = [["Data Collector", "Circ (cm)", "Median (cm)", "Ratio", "Issue"]]
+            for _, row in circ_details_df.head(15).iterrows():
+                enumerator = str(row.get("enumerator", "N/A"))
+                circ = row.get(circ_col, 0) if circ_col else 0
+                median = row.get("median_circ", 0)
+                ratio = row.get("ratio", 0)
+
+                # Determine issue type
+                if ratio >= 4:
+                    issue = "Extremely thick"
+                elif ratio <= 0.25:
+                    issue = "Extremely thin"
+                else:
+                    issue = "Outlier"
+
+                circ_detail_data.append([
+                    enumerator,
+                    f"{circ:.1f}",
+                    f"{median:.1f}",
+                    f"{ratio:.1f}x",
+                    issue
+                ])
+
+            circ_detail_table = Table(circ_detail_data, colWidths=[1.7*inch, 0.9*inch, 0.9*inch, 0.9*inch, 1.3*inch])
+            circ_detail_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ('PADDING', (0, 1), (-1, -1), 6),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
             ]))
-            story.append(circ_enum_table)
+            story.append(circ_detail_table)
 
-            if len(circ_by_enum) > 10:
+            if len(circ_details_df) > 15:
                 story.append(Paragraph(
-                    f"<i>... and {len(circ_by_enum) - 10} more data collectors</i>",
+                    f"<i>Showing top 15 of {len(circ_details_df)} circumference outliers</i>",
                     ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
                 ))
 
