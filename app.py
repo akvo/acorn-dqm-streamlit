@@ -454,18 +454,34 @@ if st.session_state.data is not None:
                     st.stop()
 
                 # Extract data
-                plots_df = raw_data.get("plots_subplots", pd.DataFrame())
-                veg_df = raw_data["plots_subplots_vegetation"].copy()
-                meas_df = (
+                plots_df_all = raw_data.get("plots_subplots", pd.DataFrame())
+                veg_df_all = raw_data["plots_subplots_vegetation"].copy()
+                meas_df_all = (
                     raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
                     if has_measurements
                     else pd.DataFrame()
                 )
-                complete_df = (
+                complete_df_all = (
                     raw_data.get("complete", pd.DataFrame())
                     if has_complete
                     else pd.DataFrame()
                 )
+
+                # IMPORTANT: Filter data based on filtered_gdf (which has date/enumerator filters applied)
+                # This ensures the export respects the sidebar filters
+                filtered_subplot_ids = filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
+
+                if len(filtered_subplot_ids) > 0:
+                    # Filter all dataframes to only include subplots from filtered_gdf
+                    plots_df = plots_df_all[plots_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if "SUBPLOT_KEY" in plots_df_all.columns else plots_df_all.copy()
+                    veg_df = veg_df_all[veg_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if "SUBPLOT_KEY" in veg_df_all.columns else veg_df_all.copy()
+                    meas_df = meas_df_all[meas_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if has_measurements and "SUBPLOT_KEY" in meas_df_all.columns else meas_df_all.copy()
+                    complete_df = complete_df_all[complete_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if has_complete and "SUBPLOT_KEY" in complete_df_all.columns else complete_df_all.copy()
+                else:
+                    plots_df = plots_df_all.copy()
+                    veg_df = veg_df_all.copy()
+                    meas_df = meas_df_all.copy()
+                    complete_df = complete_df_all.copy()
 
                 # Merge with enumerator
                 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
@@ -644,21 +660,42 @@ if st.session_state.data is not None:
                     except Exception as e:
                         st.warning(f"Could not export Geometry Errors: {str(e)}")
 
-                    # SHEET 2: Height Outliers
-                    if has_measurements and len(meas_with_enum) > 0 and species_col:
+                    # SHEET 2: Height Outliers (using VEGETATION_KEY grouping - official method)
+                    if has_measurements and len(meas_with_enum) > 0:
                         try:
-                            meas_outliers = detect_height_outliers(
-                                meas_with_enum,
-                                height_col="tree_height_m",
-                                species_col=species_col,
-                                upper_threshold=3.0,
-                                lower_threshold=1 / 3.0,
-                            )
+                            # Use VEGETATION_KEY grouping instead of species-based
+                            if "tree_height_m" in meas_with_enum.columns and "VEGETATION_KEY" in meas_with_enum.columns:
+                                height_check = meas_with_enum[
+                                    meas_with_enum["tree_height_m"].notna() & meas_with_enum["VEGETATION_KEY"].notna()
+                                ].copy()
 
-                            height_outliers = meas_outliers[
-                                (meas_outliers["Upper_outliers"] == "outlier")
-                                | (meas_outliers["Lower_outliers"] == "outlier")
-                            ]
+                                if len(height_check) > 0:
+                                    # Calculate median height per VEGETATION_KEY (tree group)
+                                    median_check = (
+                                        height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                        .median()
+                                        .reset_index(name="median_height")
+                                    )
+
+                                    # Merge and apply 4x/0.25x thresholds
+                                    height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
+                                    height_total["Upper_outliers"] = height_total.apply(
+                                        lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                        axis=1,
+                                    )
+                                    height_total["Lower_outliers"] = height_total.apply(
+                                        lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                        axis=1,
+                                    )
+
+                                    height_outliers = height_total[
+                                        (height_total["Upper_outliers"] == "outlier")
+                                        | (height_total["Lower_outliers"] == "outlier")
+                                    ]
+                                else:
+                                    height_outliers = pd.DataFrame()
+                            else:
+                                height_outliers = pd.DataFrame()
 
                             if len(height_outliers) > 0:
                                 # Ensure enumerator column exists - try multiple approaches
@@ -692,71 +729,82 @@ if st.session_state.data is not None:
                         except Exception as e:
                             st.warning(f"Could not export Height Outliers: {str(e)}")
 
-                    # SHEET 3: Circumference Outliers
-                    if has_complete and species_col:
+                    # SHEET 3: Circumference Outliers (using VEGETATION_KEY grouping - official method)
+                    if has_measurements and len(meas_with_enum) > 0:
                         try:
-                            complete_with_enum = merge_with_enumerator(
-                                complete_df, filtered_gdf
-                            )
-                            complete_with_enum = add_tree_name_column(complete_with_enum)
-
-                            if "circumference_bh" in complete_with_enum.columns:
+                            # Find circumference column
+                            if "circumference_bh" in meas_with_enum.columns:
                                 circ_col = "circumference_bh"
-                            elif "circumference_10cm" in complete_with_enum.columns:
+                            elif "circumference_10cm" in meas_with_enum.columns:
                                 circ_col = "circumference_10cm"
                             else:
                                 circ_col = None
 
-                            if circ_col:
-                                circ_data = complete_with_enum[
-                                    complete_with_enum[circ_col].notna()
+                            # Use VEGETATION_KEY grouping instead of species-based
+                            if circ_col and "VEGETATION_KEY" in meas_with_enum.columns:
+                                circ_check = meas_with_enum[
+                                    meas_with_enum[circ_col].notna() & meas_with_enum["VEGETATION_KEY"].notna()
                                 ].copy()
 
-                                if len(circ_data) > 0:
-                                    circ_outliers_df = detect_circumference_outliers(
-                                        circ_data,
-                                        circ_col=circ_col,
-                                        species_col=species_col,
-                                        upper_threshold=4.0,
-                                        lower_threshold=1 / 4.0,
+                                if len(circ_check) > 0:
+                                    # Calculate median circumference per VEGETATION_KEY (tree group)
+                                    median_check = (
+                                        circ_check.groupby("VEGETATION_KEY")[circ_col]
+                                        .median()
+                                        .reset_index(name="median_circ")
                                     )
 
-                                    circ_outliers = circ_outliers_df[
-                                        (circ_outliers_df["Upper_outliers"] == "outlier")
-                                        | (circ_outliers_df["Lower_outliers"] == "outlier")
+                                    # Merge and apply 4x/0.25x thresholds
+                                    circ_total = pd.merge(circ_check, median_check, how="inner", on="VEGETATION_KEY")
+                                    circ_total["Upper_outliers"] = circ_total.apply(
+                                        lambda row: "outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok",
+                                        axis=1,
+                                    )
+                                    circ_total["Lower_outliers"] = circ_total.apply(
+                                        lambda row: "outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok",
+                                        axis=1,
+                                    )
+
+                                    circ_outliers = circ_total[
+                                        (circ_total["Upper_outliers"] == "outlier")
+                                        | (circ_total["Lower_outliers"] == "outlier")
                                     ]
+                                else:
+                                    circ_outliers = pd.DataFrame()
+                            else:
+                                circ_outliers = pd.DataFrame()
 
-                                    if len(circ_outliers) > 0:
-                                        # Ensure enumerator column exists - try multiple approaches
-                                        if "enumerator" not in circ_outliers.columns:
-                                            # Try to add from filtered_gdf if available
-                                            if "enumerator" in filtered_gdf.columns and "subplot_id" in circ_outliers.columns:
-                                                enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                                circ_outliers = circ_outliers.merge(enum_map, on="subplot_id", how="left")
-                                            elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns:
-                                                enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                                enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                                circ_outliers = circ_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
-                                            else:
-                                                circ_outliers["enumerator"] = ""
+                            if len(circ_outliers) > 0:
+                                # Ensure enumerator column exists - try multiple approaches
+                                if "enumerator" not in circ_outliers.columns:
+                                    # Try to add from filtered_gdf if available
+                                    if "enumerator" in filtered_gdf.columns and "subplot_id" in circ_outliers.columns:
+                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                        circ_outliers = circ_outliers.merge(enum_map, on="subplot_id", how="left")
+                                    elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns:
+                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                        enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                        circ_outliers = circ_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                    else:
+                                        circ_outliers["enumerator"] = ""
 
-                                        export_df = format_for_export(
-                                            circ_outliers,
-                                            issue_type="Circumference Outlier",
-                                            additional_cols=[
-                                                circ_col,
-                                                "median_circ",
-                                                "tree_name",
-                                                "Upper_outliers",
-                                                "Lower_outliers",
-                                            ],
-                                        )
-                                        sheet_name = "Circumference Outliers"
-                                        export_df.to_excel(
-                                            writer, sheet_name=sheet_name, index=False
-                                        )
-                                        sheet_dataframes[sheet_name] = export_df
-                                        sheets_created += 1
+                                export_df = format_for_export(
+                                    circ_outliers,
+                                    issue_type="Circumference Outlier",
+                                    additional_cols=[
+                                        circ_col,
+                                        "median_circ",
+                                        "tree_name",
+                                        "Upper_outliers",
+                                        "Lower_outliers",
+                                    ],
+                                )
+                                sheet_name = "Circumference Outliers"
+                                export_df.to_excel(
+                                    writer, sheet_name=sheet_name, index=False
+                                )
+                                sheet_dataframes[sheet_name] = export_df
+                                sheets_created += 1
                         except Exception as e:
                             st.warning(f"Could not export Circumference Outliers: {str(e)}")
 
@@ -919,6 +967,102 @@ if st.session_state.data is not None:
                                         sheets_created += 1
                         except Exception as e:
                             st.warning(f"Could not export Suspicious Circ by Age: {str(e)}")
+
+                    # SHEET 13: Missing Vegetation
+                    try:
+                        # Filter veg_df to only actual vegetation (non-null VEGETATION_KEY)
+                        if "VEGETATION_KEY" in veg_df.columns:
+                            veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
+                        else:
+                            veg_df_actual = veg_df.copy()
+
+                        # Filter plots_df to only include MEASURED subplots
+                        # This ensures we don't count unmeasured subplots as "missing vegetation"
+                        if "SUBPLOT_KEY" in plots_df.columns and "measured_subplots" in plots_df.columns:
+                            import re
+
+                            # Create temporary dataframe with subplot info
+                            temp_plots = plots_df.copy()
+
+                            # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
+                            temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
+                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                            )
+
+                            # Convert measured_subplots to int
+                            temp_plots["measured_subplots"] = temp_plots["measured_subplots"].apply(
+                                lambda x: int(x) if pd.notna(x) else 999
+                            )
+
+                            # Only include subplots where subplot_number <= measured_subplots
+                            plots_df_measured = temp_plots[
+                                temp_plots["subplot_number"] <= temp_plots["measured_subplots"]
+                            ].copy()
+
+                            # Drop temporary columns
+                            plots_df_measured = plots_df_measured.drop(columns=["subplot_number"], errors="ignore")
+                        else:
+                            # Fallback: use all plots_df
+                            plots_df_measured = plots_df.copy()
+
+                        # Get missing vegetation subplots (using measured plots only and actual vegetation)
+                        missing_veg = get_missing_subplots(plots_df_measured, veg_df_actual)
+
+                        if len(missing_veg) > 0:
+                            # Ensure enumerator column exists
+                            if "enumerator" not in missing_veg.columns:
+                                # Try to add from filtered_gdf if available
+                                if "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in missing_veg.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                    missing_veg = missing_veg.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                else:
+                                    missing_veg["enumerator"] = ""
+
+                            # Add explanation about measured_subplots vs actual data collected
+                            if "measured_subplots" in missing_veg.columns and "SUBPLOT_KEY" in missing_veg.columns:
+                                import re
+
+                                def create_missing_description(row):
+                                    parts = []
+
+                                    # Extract subplot number
+                                    subplot_match = re.search(r'\[(\d+)\]', str(row.get("SUBPLOT_KEY", "")))
+                                    if subplot_match:
+                                        subplot_num = subplot_match.group(1)
+                                        parts.append(f"Subplot #{subplot_num}")
+
+                                    # Add measured_subplots info
+                                    if pd.notna(row.get("measured_subplots")):
+                                        parts.append(f"Enumerator claimed {int(row['measured_subplots'])} subplots measured")
+
+                                    # Add comments if available
+                                    if pd.notna(row.get("subplot_comments")):
+                                        parts.append(f"Comment: {row['subplot_comments']}")
+                                    else:
+                                        parts.append("No vegetation data collected")
+
+                                    return " | ".join(parts) if parts else "No vegetation data"
+
+                                missing_veg["description"] = missing_veg.apply(create_missing_description, axis=1)
+
+                                export_df = format_for_export(
+                                    missing_veg,
+                                    issue_type="Missing Vegetation",
+                                    issue_description_col="description",
+                                )
+                            else:
+                                export_df = format_for_export(
+                                    missing_veg,
+                                    issue_type="Missing Vegetation",
+                                    additional_cols=["subplot_comments"],
+                                )
+                            sheet_name = "Missing Vegetation"
+                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheet_dataframes[sheet_name] = export_df
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Missing Vegetation: {str(e)}")
 
                     # Summary sheet if no data
                     if sheets_created == 0:

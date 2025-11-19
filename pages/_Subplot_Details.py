@@ -671,6 +671,65 @@ with tabs[1]:
 
     st.markdown("---")
 
+    # CHECK 4: Unknown/Unidentified Species
+    st.markdown("#### 4️⃣ Unknown/Unidentified Species")
+    st.caption(
+        "Vegetation records marked as 'other' that need botanical verification and proper identification"
+    )
+
+    # Check for unidentified species
+    unknown_species = check_unidentified_species(veg_df_actual)
+
+    # Merge with enumerator info
+    if len(unknown_species) > 0:
+        unknown_species = merge_with_enumerator(unknown_species, filtered_gdf)
+        unknown_species = add_tree_name_column(unknown_species)
+
+    st.metric("Unknown Species Records", len(unknown_species))
+
+    if len(unknown_species) > 0:
+        st.warning(
+            f"⚠️ Found {len(unknown_species)} vegetation record(s) with unidentified species. "
+            "These need botanical verification and proper species identification."
+        )
+
+        # Build display columns
+        display_cols = []
+        for col in [
+            "SUBPLOT_KEY",
+            "enumerator",
+            "VEGETATION_KEY",
+            "tree_name",
+            "vegetation_species_type",
+            "woody_species",
+            "non_woody_species",
+            "other_species",
+            "language_other_species",
+            "vegetation_type_number",
+            "vegetation_type_primary",
+        ]:
+            if col in unknown_species.columns:
+                display_cols.append(col)
+
+        if len(display_cols) > 0:
+            # Add row numbers
+            display_df = unknown_species[display_cols].copy()
+            display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                height=min(400, len(unknown_species) * 35 + 38),
+                hide_index=True,
+            )
+        else:
+            st.warning("⚠️ No display columns available")
+            st.dataframe(unknown_species.head(), use_container_width=True)
+    else:
+        st.success("✅ All vegetation species are properly identified")
+
+    st.markdown("---")
+
 # ============================================
 # TAB 4: TREE CLASSIFICATION
 # ============================================

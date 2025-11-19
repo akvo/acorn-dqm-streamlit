@@ -929,6 +929,9 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 "height_outliers": pd.DataFrame(),
                                 "circ_outliers": pd.DataFrame(),
                                 "suspicious_circ": pd.DataFrame(),
+                                "super_tall_trees": pd.DataFrame(),
+                                "high_stems": pd.DataFrame(),
+                                "unknown_species": pd.DataFrame(),
                             }
 
                             # Height outliers (using VEGETATION_KEY grouping - official method)
@@ -977,44 +980,103 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     ].copy()
 
                                     print(f"DEBUG: Found {len(outliers)} height outliers", file=sys.stderr)
-                                    # Preserve subplot_comments if it exists in original data
-                                    if "subplot_comments" in meas_enum.columns and "subplot_comments" not in outliers.columns:
-                                        # Merge subplot_comments back based on a key
-                                        if "SUBPLOT_KEY" in outliers.columns and "SUBPLOT_KEY" in meas_enum.columns:
-                                            comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
-                                            outliers = outliers.merge(comments_map, on="SUBPLOT_KEY", how="left")
-                                        elif "subplot_id" in outliers.columns and "subplot_id" in meas_enum.columns:
-                                            comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
-                                            outliers = outliers.merge(comments_map, on="subplot_id", how="left")
+                                    print(f"DEBUG: Height outliers columns: {outliers.columns.tolist()}", file=sys.stderr)
+                                    print(f"DEBUG: meas_enum columns: {meas_enum.columns.tolist()}", file=sys.stderr)
+                                    print(f"DEBUG: Has SubmissionDate in outliers: {'SubmissionDate' in outliers.columns}", file=sys.stderr)
+                                    print(f"DEBUG: Has SubmissionDate_subplot in outliers: {'SubmissionDate_subplot' in outliers.columns}", file=sys.stderr)
+
+                                    # Rename SubmissionDate_subplot to SubmissionDate for consistency
+                                    if "SubmissionDate_subplot" in outliers.columns and "SubmissionDate" not in outliers.columns:
+                                        outliers = outliers.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
+                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate", file=sys.stderr)
+
+                                    # Check if SubmissionDate is missing and add it if needed
+                                    if "SubmissionDate" not in outliers.columns:
+                                        print(f"DEBUG: Adding SubmissionDate to height outliers", file=sys.stderr)
+                                        # Add SubmissionDate from meas_enum based on a measurement key
+                                        # Use MEASUREMENT_KEY or VEGETATION_KEY as the join key
+                                        if "MEASUREMENT_KEY" in outliers.columns and "MEASUREMENT_KEY" in meas_enum.columns:
+                                            date_map = meas_enum[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                            outliers = outliers.merge(date_map, on="MEASUREMENT_KEY", how="left")
+                                            print(f"DEBUG: Merged SubmissionDate using MEASUREMENT_KEY", file=sys.stderr)
+                                        elif "VEGETATION_KEY" in outliers.columns and "VEGETATION_KEY" in meas_enum.columns:
+                                            # Group by VEGETATION_KEY and take first SubmissionDate
+                                            date_map = meas_enum[["VEGETATION_KEY", "SubmissionDate"]].drop_duplicates(subset=["VEGETATION_KEY"])
+                                            outliers = outliers.merge(date_map, on="VEGETATION_KEY", how="left")
+                                            print(f"DEBUG: Merged SubmissionDate using VEGETATION_KEY", file=sys.stderr)
+
+                                    print(f"DEBUG: After merge, has SubmissionDate: {'SubmissionDate' in outliers.columns}", file=sys.stderr)
+                                    if "SubmissionDate" in outliers.columns:
+                                        print(f"DEBUG: SubmissionDate sample: {outliers['SubmissionDate'].head(2).tolist()}", file=sys.stderr)
+
                                     veg_errors["height_outliers"] = outliers
                                     total_veg_errors += len(outliers)
 
-                            # Circumference outliers
+                            # Circumference outliers (using VEGETATION_KEY grouping - official method)
                             circ_cols = [c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns]
                             print(f"DEBUG: Circumference columns: {circ_cols}", file=sys.stderr)
-                            if circ_cols and species_col:
+                            if circ_cols and "VEGETATION_KEY" in meas_enum.columns:
                                 for circ_col in circ_cols:
                                     print(f"DEBUG: Checking circumference outliers for {circ_col}...", file=sys.stderr)
-                                    circ_check = detect_circumference_outliers(
-                                        meas_enum,
-                                        circumference_col=circ_col,
-                                        species_col=species_col,
-                                    )
-                                    if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
-                                        outliers = circ_check[
-                                            (circ_check.get("Upper_outliers") == "outlier") |
-                                            (circ_check.get("Lower_outliers") == "outlier")
-                                        ]
+                                    # Filter to records with valid circumference and VEGETATION_KEY
+                                    circ_check = meas_enum[
+                                        meas_enum[circ_col].notna() & meas_enum["VEGETATION_KEY"].notna()
+                                    ].copy()
+
+                                    if len(circ_check) > 0:
+                                        # Calculate median circumference per VEGETATION_KEY (tree group)
+                                        median_check = (
+                                            circ_check.groupby("VEGETATION_KEY")[circ_col]
+                                            .median()
+                                            .reset_index(name="median_circ")
+                                        )
+
+                                        # Merge with original data
+                                        circ_total = pd.merge(
+                                            circ_check, median_check, how="inner", on="VEGETATION_KEY"
+                                        )
+
+                                        # Apply outlier detection (4x and 1/4x median - official method)
+                                        circ_total["Upper_outliers"] = circ_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row[circ_col] > (row["median_circ"] * 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
+                                        circ_total["Lower_outliers"] = circ_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row[circ_col] < (row["median_circ"] / 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
+
+                                        # Filter to outliers only
+                                        outliers = circ_total[
+                                            (circ_total["Upper_outliers"] == "outlier") |
+                                            (circ_total["Lower_outliers"] == "outlier")
+                                        ].copy()
+
                                         print(f"DEBUG: Found {len(outliers)} circumference outliers for {circ_col}", file=sys.stderr)
                                         if len(outliers) > 0:
-                                            # Preserve subplot_comments if it exists in original data
-                                            if "subplot_comments" in meas_enum.columns and "subplot_comments" not in outliers.columns:
-                                                if "SUBPLOT_KEY" in outliers.columns and "SUBPLOT_KEY" in meas_enum.columns:
-                                                    comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
-                                                    outliers = outliers.merge(comments_map, on="SUBPLOT_KEY", how="left")
-                                                elif "subplot_id" in outliers.columns and "subplot_id" in meas_enum.columns:
-                                                    comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
-                                                    outliers = outliers.merge(comments_map, on="subplot_id", how="left")
+                                            # Rename SubmissionDate_subplot to SubmissionDate for consistency
+                                            if "SubmissionDate_subplot" in outliers.columns and "SubmissionDate" not in outliers.columns:
+                                                outliers = outliers.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
+                                                print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for circ outliers", file=sys.stderr)
+
+                                            # Check if SubmissionDate is missing and add it if needed
+                                            if "SubmissionDate" not in outliers.columns and "SubmissionDate" in meas_enum.columns:
+                                                print(f"DEBUG: Adding SubmissionDate to circ outliers", file=sys.stderr)
+                                                if "MEASUREMENT_KEY" in outliers.columns and "MEASUREMENT_KEY" in meas_enum.columns:
+                                                    date_map = meas_enum[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                                    outliers = outliers.merge(date_map, on="MEASUREMENT_KEY", how="left")
+                                                elif "VEGETATION_KEY" in outliers.columns and "VEGETATION_KEY" in meas_enum.columns:
+                                                    date_map = meas_enum[["VEGETATION_KEY", "SubmissionDate"]].drop_duplicates(subset=["VEGETATION_KEY"])
+                                                    outliers = outliers.merge(date_map, on="VEGETATION_KEY", how="left")
+
                                             veg_errors["circ_outliers"] = pd.concat([
                                                 veg_errors["circ_outliers"],
                                                 outliers
@@ -1033,16 +1095,75 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if "flag" in susp_circ.columns:
                                         flagged = susp_circ[susp_circ["flag"] == True]
                                         print(f"DEBUG: Found {len(flagged)} suspicious circ/age records", file=sys.stderr)
-                                        # Preserve subplot_comments if it exists in original data
-                                        if "subplot_comments" in meas_enum.columns and "subplot_comments" not in flagged.columns:
-                                            if "SUBPLOT_KEY" in flagged.columns and "SUBPLOT_KEY" in meas_enum.columns:
-                                                comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
-                                                flagged = flagged.merge(comments_map, on="SUBPLOT_KEY", how="left")
-                                            elif "subplot_id" in flagged.columns and "subplot_id" in meas_enum.columns:
-                                                comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
-                                                flagged = flagged.merge(comments_map, on="subplot_id", how="left")
+
+                                        # Rename SubmissionDate_subplot to SubmissionDate for consistency
+                                        if "SubmissionDate_subplot" in flagged.columns and "SubmissionDate" not in flagged.columns:
+                                            flagged = flagged.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
+                                            print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for suspicious circ", file=sys.stderr)
+
+                                        # Check if SubmissionDate is missing and add it if needed
+                                        if "SubmissionDate" not in flagged.columns and "SubmissionDate" in meas_with_age.columns:
+                                            print(f"DEBUG: Adding SubmissionDate to suspicious circ", file=sys.stderr)
+                                            if "MEASUREMENT_KEY" in flagged.columns and "MEASUREMENT_KEY" in meas_with_age.columns:
+                                                date_map = meas_with_age[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                                flagged = flagged.merge(date_map, on="MEASUREMENT_KEY", how="left")
+
                                         veg_errors["suspicious_circ"] = flagged
                                         total_veg_errors += len(flagged)
+
+                            # Super Tall Trees (>25m)
+                            if "tree_height_m" in meas_enum.columns:
+                                print(f"DEBUG: Checking super tall trees...", file=sys.stderr)
+                                super_tall = meas_enum[meas_enum["tree_height_m"] > 25].copy()
+                                if len(super_tall) > 0:
+                                    print(f"DEBUG: Found {len(super_tall)} super tall trees", file=sys.stderr)
+
+                                    # Rename SubmissionDate_subplot to SubmissionDate for consistency
+                                    if "SubmissionDate_subplot" in super_tall.columns and "SubmissionDate" not in super_tall.columns:
+                                        super_tall = super_tall.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
+                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for super tall trees", file=sys.stderr)
+
+                                    veg_errors["super_tall_trees"] = super_tall
+                                    total_veg_errors += len(super_tall)
+
+                            # High Stem Counts (>20)
+                            if "nr_stems_bh" in meas_enum.columns:
+                                print(f"DEBUG: Checking high stem counts...", file=sys.stderr)
+                                high_stems = meas_enum[meas_enum["nr_stems_bh"] > 20].copy()
+                                if len(high_stems) > 0:
+                                    print(f"DEBUG: Found {len(high_stems)} high stem counts", file=sys.stderr)
+
+                                    # Rename SubmissionDate_subplot to SubmissionDate for consistency
+                                    if "SubmissionDate_subplot" in high_stems.columns and "SubmissionDate" not in high_stems.columns:
+                                        high_stems = high_stems.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
+                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for high stems", file=sys.stderr)
+
+                                    veg_errors["high_stems"] = high_stems
+                                    total_veg_errors += len(high_stems)
+
+                            # Unknown/Unidentified Species
+                            if "plots_subplots_vegetation" in raw_data:
+                                from utils.vegetation_validation import check_unidentified_species
+                                veg_df = raw_data["plots_subplots_vegetation"]
+                                enum_subplot_keys = enum_data["subplot_id"].unique()
+                                veg_enum = veg_df[veg_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy() if "SUBPLOT_KEY" in veg_df.columns else pd.DataFrame()
+
+                                if len(veg_enum) > 0:
+                                    print(f"DEBUG: Checking unknown species...", file=sys.stderr)
+                                    unknown_species = check_unidentified_species(veg_enum)
+                                    if len(unknown_species) > 0:
+                                        print(f"DEBUG: Found {len(unknown_species)} unknown species", file=sys.stderr)
+                                        # Add SubmissionDate from enum_data by merging on SUBPLOT_KEY
+                                        if "SubmissionDate" in enum_data.columns and "SUBPLOT_KEY" in unknown_species.columns and "subplot_id" in enum_data.columns:
+                                            # Create a mapping of subplot_id (from enum_data) to SubmissionDate
+                                            date_map = enum_data[["subplot_id", "SubmissionDate"]].drop_duplicates()
+                                            date_map = date_map.rename(columns={"subplot_id": "SUBPLOT_KEY"})
+                                            unknown_species = unknown_species.merge(date_map, on="SUBPLOT_KEY", how="left")
+
+                                        # Merge with enumerator after adding date
+                                        unknown_species = merge_with_enumerator(unknown_species, enum_data)
+                                        veg_errors["unknown_species"] = unknown_species
+                                        total_veg_errors += len(unknown_species)
 
                             veg_errors_data = veg_errors
                             print(f"DEBUG: Total vegetation errors: {total_veg_errors}", file=sys.stderr)
@@ -1592,14 +1713,87 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         comments = comments[:57] + "..."
                                     date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
 
+                        # Super Tall Trees (>25m)
+                        if "super_tall_trees" in veg_errors_data and len(veg_errors_data["super_tall_trees"]) > 0:
+                            tall_df = veg_errors_data["super_tall_trees"]
+                            if "SubmissionDate" in tall_df.columns:
+                                tall_df["date_only"] = pd.to_datetime(tall_df["SubmissionDate"]).dt.date
+                                date_tall = tall_df[tall_df["date_only"] == date]
+                                for _, row in date_tall.head(5).iterrows():
+                                    error_type = "Super Tall Tree (>25m)"
+                                    details = []
+                                    if "tree_height_m" in row and pd.notna(row["tree_height_m"]):
+                                        details.append(f"{row['tree_height_m']:.1f}m")
+                                    if species_col and species_col in row:
+                                        details.append(str(row[species_col]))
+                                    # Add subplot comments
+                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    if len(comments) > 60:
+                                        comments = comments[:57] + "..."
+                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+
+                        # High Stem Counts (>20)
+                        if "high_stems" in veg_errors_data and len(veg_errors_data["high_stems"]) > 0:
+                            stems_df = veg_errors_data["high_stems"]
+                            if "SubmissionDate" in stems_df.columns:
+                                stems_df["date_only"] = pd.to_datetime(stems_df["SubmissionDate"]).dt.date
+                                date_stems = stems_df[stems_df["date_only"] == date]
+                                for _, row in date_stems.head(5).iterrows():
+                                    error_type = "High Stem Count (>20)"
+                                    details = []
+                                    if "nr_stems_bh" in row and pd.notna(row["nr_stems_bh"]):
+                                        details.append(f"{int(row['nr_stems_bh'])} stems")
+                                    if species_col and species_col in row:
+                                        details.append(str(row[species_col]))
+                                    # Add subplot comments
+                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    if len(comments) > 60:
+                                        comments = comments[:57] + "..."
+                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+
+                        # Unknown/Unidentified Species
+                        if "unknown_species" in veg_errors_data and len(veg_errors_data["unknown_species"]) > 0:
+                            unknown_df = veg_errors_data["unknown_species"]
+                            if "SubmissionDate" in unknown_df.columns:
+                                unknown_df["date_only"] = pd.to_datetime(unknown_df["SubmissionDate"]).dt.date
+                                date_unknown = unknown_df[unknown_df["date_only"] == date]
+                                for _, row in date_unknown.head(5).iterrows():
+                                    error_type = "Unknown Species"
+                                    details = []
+                                    for col in ["other_species", "woody_species", "non_woody_species"]:
+                                        if col in row and pd.notna(row[col]):
+                                            details.append(f"{col}: {row[col]}")
+                                    # Add subplot comments
+                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    if len(comments) > 60:
+                                        comments = comments[:57] + "..."
+                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+
                         # Display vegetation errors if any found for this date
                         print(f"DEBUG: Total date_veg_errors collected: {len(date_veg_errors)}", file=sys.stderr)
                         if date_veg_errors:
                             story.append(Paragraph("🌿 Vegetation & Measurement Issues", veg_error_header_style))
 
-                            veg_error_table_data = [["Error Type", "Details", "Subplot Comments"]] + date_veg_errors[:10]
+                            # Create a style for table cells with text wrapping
+                            cell_style = ParagraphStyle(
+                                "TableCell",
+                                parent=styles["Normal"],
+                                fontSize=8,
+                                leading=10,
+                                wordWrap='CJK',
+                            )
 
-                            veg_error_table = Table(veg_error_table_data, colWidths=[1.8 * inch, 2.5 * inch, 2 * inch])
+                            # Wrap table content in Paragraph objects for text wrapping
+                            veg_error_table_data = [["Error Type", "Details", "Subplot Comments"]]
+                            for row in date_veg_errors[:10]:
+                                wrapped_row = [
+                                    Paragraph(str(row[0]), cell_style),  # Error Type
+                                    Paragraph(str(row[1]), cell_style),  # Details
+                                    Paragraph(str(row[2]), cell_style),  # Subplot Comments
+                                ]
+                                veg_error_table_data.append(wrapped_row)
+
+                            veg_error_table = Table(veg_error_table_data, colWidths=[1.5 * inch, 2.5 * inch, 2.3 * inch])
                             veg_error_table.setStyle(
                                 TableStyle([
                                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
@@ -1763,31 +1957,20 @@ st.markdown("---")
 # TABS - ALWAYS DEFINED
 # ============================================
 
-# Determine which tabs to show
-if has_vegetation and has_measurements:
-    tab_list = [
-        "📊 Error Overview",
-        "📐 Geometry Errors",
-        "🌿 Vegetation Errors",
-        "📋 Error Details by Enumerator",
-    ]
-    has_veg_tab = True
-else:
-    tab_list = [
-        "📊 Error Overview",
-        "📐 Geometry Errors",
-        "📋 Error Details by Enumerator",
-    ]
-    has_veg_tab = False
+# Define tabs (removed Vegetation Errors tab)
+tab_list = [
+    "📊 Error Overview",
+    "📐 Geometry Errors",
+    "📋 Error Details by Enumerator",
+]
 
-# Create tabs (ALWAYS executed)
+# Create tabs
 tabs = st.tabs(tab_list)
 
 # Calculate indices
 TAB_OVERVIEW = 0
 TAB_GEOMETRY = 1
-TAB_VEG_ERRORS = 2 if has_veg_tab else None
-TAB_ERROR_DETAILS = 3 if has_veg_tab else 2
+TAB_ERROR_DETAILS = 2
 
 # ============================================
 # TAB 1: ERROR OVERVIEW
@@ -1924,195 +2107,7 @@ with tabs[TAB_GEOMETRY]:
         st.success("✅ No geometry errors found for selected enumerators!")
 
 # ============================================
-# TAB 3: VEGETATION ERRORS (if available)
-# ============================================
-
-if has_veg_tab and TAB_VEG_ERRORS is not None:
-    with tabs[TAB_VEG_ERRORS]:
-        st.markdown("### 🌿 Vegetation & Measurement Errors by Enumerator")
-        st.caption("Quality checks on tree measurements, heights, circumferences, and age data")
-
-        try:
-            from utils.vegetation_validation import (
-                detect_height_outliers,
-                detect_circumference_outliers,
-                detect_suspicious_circumference_by_age,
-            )
-            from utils.data_merge_utils import (
-                merge_with_enumerator,
-                get_species_column,
-                calculate_tree_age,
-            )
-
-            if "plots_subplots_vegetation_measurements" in raw_data:
-                meas_df = raw_data["plots_subplots_vegetation_measurements"]
-
-                # Calculate vegetation errors for each enumerator
-                enum_veg_stats = []
-
-                for enum in selected_enumerators:
-                    enum_subplot_keys = filtered_gdf[filtered_gdf["enumerator"] == enum]["subplot_id"].unique()
-                    meas_enum = meas_df[meas_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
-
-                    if len(meas_enum) > 0:
-                        # Merge with enumerator info
-                        enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum]
-                        meas_enum = merge_with_enumerator(meas_enum, enum_data)
-                        species_col = get_species_column(meas_enum)
-
-                        # Count errors
-                        height_outliers_count = 0
-                        circ_outliers_count = 0
-                        suspicious_circ_count = 0
-
-                        # Height outliers (using VEGETATION_KEY grouping - official method)
-                        if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
-                            height_check = meas_enum[
-                                meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
-                            ].copy()
-
-                            if len(height_check) > 0:
-                                # Calculate median height per VEGETATION_KEY (tree group)
-                                median_check = (
-                                    height_check.groupby("VEGETATION_KEY")["tree_height_m"]
-                                    .median()
-                                    .reset_index(name="median_height")
-                                )
-
-                                # Merge and apply 4x/0.25x thresholds
-                                height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
-                                height_total["Upper_outliers"] = height_total.apply(
-                                    lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
-                                    axis=1,
-                                )
-                                height_total["Lower_outliers"] = height_total.apply(
-                                    lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
-                                    axis=1,
-                                )
-
-                                # Count outliers
-                                outliers = height_total[
-                                    (height_total["Upper_outliers"] == "outlier") |
-                                    (height_total["Lower_outliers"] == "outlier")
-                                ]
-                                height_outliers_count = len(outliers)
-
-                        # Circumference outliers
-                        circ_cols = [c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns]
-                        if circ_cols and species_col:
-                            all_circ_outliers = pd.DataFrame()
-                            for circ_col in circ_cols:
-                                circ_check = detect_circumference_outliers(
-                                    meas_enum,
-                                    circumference_col=circ_col,
-                                    species_col=species_col,
-                                )
-                                if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
-                                    outliers = circ_check[
-                                        (circ_check.get("Upper_outliers") == "outlier") |
-                                        (circ_check.get("Lower_outliers") == "outlier")
-                                    ]
-                                    if len(outliers) > 0:
-                                        all_circ_outliers = pd.concat([all_circ_outliers, outliers]).drop_duplicates()
-                            circ_outliers_count = len(all_circ_outliers)
-
-                        # Suspicious circumference by age
-                        if "tree_year_planted" in meas_enum.columns and circ_cols:
-                            meas_with_age = calculate_tree_age(meas_enum)
-                            if "tree_age" in meas_with_age.columns:
-                                susp_circ = detect_suspicious_circumference_by_age(meas_with_age)
-                                if "flag" in susp_circ.columns:
-                                    flagged = susp_circ[susp_circ["flag"] == True]
-                                    suspicious_circ_count = len(flagged)
-
-                        # Calculate total errors and measurements
-                        total_measurements = len(meas_enum)
-                        total_veg_errors = height_outliers_count + circ_outliers_count + suspicious_circ_count
-                        error_rate = (total_veg_errors / total_measurements * 100) if total_measurements > 0 else 0
-
-                        enum_veg_stats.append({
-                            "Enumerator": enum,
-                            "Total Measurements": total_measurements,
-                            "Height Outliers": height_outliers_count,
-                            "Circ Outliers": circ_outliers_count,
-                            "Suspicious Circ/Age": suspicious_circ_count,
-                            "Total Errors": total_veg_errors,
-                            "Error Rate (%)": error_rate,
-                        })
-
-                if enum_veg_stats:
-                    veg_stats_df = pd.DataFrame(enum_veg_stats)
-
-                    # Summary metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Measurements", veg_stats_df["Total Measurements"].sum())
-                    with col2:
-                        st.metric("Height Outliers", veg_stats_df["Height Outliers"].sum())
-                    with col3:
-                        st.metric("Circ Outliers", veg_stats_df["Circ Outliers"].sum())
-                    with col4:
-                        st.metric("Suspicious Circ/Age", veg_stats_df["Suspicious Circ/Age"].sum())
-
-                    st.markdown("---")
-
-                    # Charts
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        # Error rate by enumerator
-                        fig = px.bar(
-                            veg_stats_df,
-                            x="Enumerator",
-                            y="Error Rate (%)",
-                            title="Vegetation Error Rate by Enumerator",
-                            color="Error Rate (%)",
-                            color_continuous_scale="Oranges",
-                        )
-                        fig.update_layout(showlegend=False)
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    with col2:
-                        # Stacked bar chart of error types
-                        fig = px.bar(
-                            veg_stats_df,
-                            x="Enumerator",
-                            y=["Height Outliers", "Circ Outliers", "Suspicious Circ/Age"],
-                            title="Vegetation Error Types by Enumerator",
-                            labels={"value": "Count", "variable": "Error Type"},
-                            color_discrete_map={
-                                "Height Outliers": "#FF6F00",
-                                "Circ Outliers": "#F44336",
-                                "Suspicious Circ/Age": "#E91E63"
-                            },
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-
-                    # Data table
-                    st.markdown("#### Detailed Statistics")
-                    st.dataframe(veg_stats_df, use_container_width=True, height=300)
-
-                    # Export option
-                    st.markdown("---")
-                    st.markdown("#### 📥 Export Vegetation Errors")
-                    csv_data = veg_stats_df.to_csv(index=False)
-                    st.download_button(
-                        "📊 Download Vegetation Error Summary",
-                        data=csv_data,
-                        file_name=f"{config.PARTNER}_vegetation_errors_summary.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.info("No vegetation measurement data available for selected enumerators")
-            else:
-                st.info("No vegetation measurement data available in dataset")
-
-        except Exception as e:
-            st.error(f"Error loading vegetation data: {str(e)}")
-            st.caption("Please ensure vegetation validation modules are available")
-
-# ============================================
-# TAB 4: ERROR DETAILS BY ENUMERATOR
+# TAB 3: ERROR DETAILS BY ENUMERATOR
 # ============================================
 
 with tabs[TAB_ERROR_DETAILS]:
