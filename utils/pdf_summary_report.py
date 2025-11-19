@@ -124,19 +124,36 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     story.append(Spacer(1, 0.5*inch))
 
     # Report date - show data submission date range
-    # Get date range from the data
+    # Get date range from session state (sidebar filter)
     date_info = ""
-    if "SubmissionDate" in filtered_gdf.columns:
-        submission_dates = pd.to_datetime(filtered_gdf["SubmissionDate"]).dropna()
-        if len(submission_dates) > 0:
-            min_date = submission_dates.min().strftime("%B %d, %Y")
-            max_date = submission_dates.max().strftime("%B %d, %Y")
-            if min_date == max_date:
-                date_info = f"Report for: {min_date}"
-            else:
-                date_info = f"Report for: {min_date} to {max_date}"
 
-    # Fallback if no SubmissionDate available
+    # Try to get date range from raw_data tables
+    if "plots_subplots" in raw_data:
+        plots_df = raw_data["plots_subplots"]
+
+        # Filter to only the subplots in filtered_gdf
+        if "subplot_id" in filtered_gdf.columns and "SUBPLOT_KEY" in plots_df.columns:
+            subplot_ids = filtered_gdf["subplot_id"].unique()
+            plots_filtered = plots_df[plots_df["SUBPLOT_KEY"].isin(subplot_ids)]
+
+            # Try different date column names
+            date_col_found = None
+            for col in ["SubmissionDate_subplot", "starttime_subplot", "SubmissionDate", "starttime"]:
+                if col in plots_filtered.columns:
+                    date_col_found = col
+                    break
+
+            if date_col_found:
+                submission_dates = pd.to_datetime(plots_filtered[date_col_found], errors='coerce').dropna()
+                if len(submission_dates) > 0:
+                    min_date = submission_dates.min().strftime("%B %d, %Y")
+                    max_date = submission_dates.max().strftime("%B %d, %Y")
+                    if min_date == max_date:
+                        date_info = f"Report for: {min_date}"
+                    else:
+                        date_info = f"Report for: {min_date} to {max_date}"
+
+    # Fallback if no date found
     if not date_info:
         report_generated = datetime.now().strftime("%B %d, %Y")
         date_info = f"Report Generated: {report_generated}"
