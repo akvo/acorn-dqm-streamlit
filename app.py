@@ -1100,6 +1100,45 @@ if st.session_state.data is not None:
                 st.error(f"❌ Error generating report: {str(e)}")
                 st.exception(e)
 
+    # PDF Summary Report
+    st.markdown("---")
+    st.markdown("## 📄 Summary PDF Report")
+    st.caption("Download comprehensive summary report with all quality check statistics")
+
+    if st.button(
+        "📄 Generate Summary PDF Report",
+        use_container_width=True,
+        type="secondary",
+    ):
+        with st.spinner("Generating PDF summary report..."):
+            try:
+                from utils.pdf_summary_report import generate_summary_pdf_report
+
+                # Get raw data
+                raw_data = st.session_state.data.get("raw_data", {})
+
+                # Generate PDF
+                pdf_buffer = generate_summary_pdf_report(
+                    filtered_gdf,
+                    raw_data,
+                    partner_name=config.PARTNER
+                )
+
+                st.success("✅ PDF summary report generated successfully!")
+
+                st.download_button(
+                    label="💾 Download Summary PDF Report",
+                    data=pdf_buffer.getvalue(),
+                    file_name=f"{config.PARTNER}_summary_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="download_summary_pdf_report",
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error generating PDF report: {str(e)}")
+                st.exception(e)
+
     # Charts
     st.markdown("---")
     st.markdown("## 📈 Validation Analysis")
