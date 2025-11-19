@@ -124,23 +124,26 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     story.append(Spacer(1, 0.5*inch))
 
     # Report date - show data submission date range
-    report_generated = datetime.now().strftime("%B %d, %Y")
-
     # Get date range from the data
-    date_info = f"Report Generated: {report_generated}"
+    date_info = ""
     if "SubmissionDate" in filtered_gdf.columns:
         submission_dates = pd.to_datetime(filtered_gdf["SubmissionDate"]).dropna()
         if len(submission_dates) > 0:
             min_date = submission_dates.min().strftime("%B %d, %Y")
             max_date = submission_dates.max().strftime("%B %d, %Y")
             if min_date == max_date:
-                date_info = f"Data Submitted: {min_date}<br/>Report Generated: {report_generated}"
+                date_info = f"Report for: {min_date}"
             else:
-                date_info = f"Data Submitted: {min_date} to {max_date}<br/>Report Generated: {report_generated}"
+                date_info = f"Report for: {min_date} to {max_date}"
+
+    # Fallback if no SubmissionDate available
+    if not date_info:
+        report_generated = datetime.now().strftime("%B %d, %Y")
+        date_info = f"Report Generated: {report_generated}"
 
     story.append(Paragraph(
         date_info,
-        ParagraphStyle('Date', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, leading=14)
+        ParagraphStyle('Date', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, leading=14, textColor=colors.HexColor('#555555'))
     ))
 
     story.append(Spacer(1, 1*inch))
