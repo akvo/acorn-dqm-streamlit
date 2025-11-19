@@ -376,6 +376,20 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         for enum_name in sorted(filtered_gdf["enumerator"].unique()):
             enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
 
+            # Filter to only measured subplots
+            if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
+                temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
+                temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                )
+                temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                    lambda x: int(x) if pd.notna(x) else 999
+                )
+                measured_subplot_ids = temp_df[
+                    temp_df["subplot_number"] <= temp_df["measured_subplots"]
+                ]["subplot_id"].unique()
+                enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
+
             if len(enum_data) > 0:
                 # Count stats
                 enum_total = len(enum_data)
@@ -383,7 +397,12 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 enum_invalid = enum_total - enum_valid
 
                 try:
+                    print(f"DEBUG PDF: Creating map for {enum_name} with {len(enum_data)} subplots", file=sys.stderr)
+
                     fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+
+                    # Count polygons plotted
+                    polygons_plotted = 0
 
                     # Plot this enumerator's subplots
                     for idx, row in enum_data.iterrows():
@@ -396,10 +415,14 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                             if geom.geom_type == 'Polygon':
                                 x, y = geom.exterior.xy
                                 ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                polygons_plotted += 1
                             elif geom.geom_type == 'MultiPolygon':
                                 for poly in geom.geoms:
                                     x, y = poly.exterior.xy
                                     ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                    polygons_plotted += 1
+
+                    print(f"DEBUG PDF: Plotted {polygons_plotted} polygons for {enum_name}", file=sys.stderr)
 
                     ax.set_aspect('equal')
                     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
@@ -568,6 +591,9 @@ Outliers are tree measurements (height or circumference) that are significantly 
         if total_height_outliers > 0:
             story.append(Paragraph("Height Outliers - Details", subheading_style))
 
+            # Debug: Print available columns
+            print(f"DEBUG PDF: Height outliers columns: {height_outliers_df.columns.tolist()}", file=sys.stderr)
+
             # Prepare detailed outlier data
             height_details_df = height_outliers_df.copy()
             if "median_height" in height_details_df.columns and "tree_height_m" in height_details_df.columns:
@@ -583,7 +609,13 @@ Outliers are tree measurements (height or circumference) that are significantly 
             # Create detailed table
             height_detail_data = [["Data Collector", "Height (m)", "Median (m)", "Ratio", "Issue"]]
             for _, row in height_details_df.head(15).iterrows():
-                enumerator = str(row.get("enumerator", "N/A"))
+                # Try different possible enumerator column names
+                enumerator = "N/A"
+                for col in ["enumerator", "Enumerator", "data_collector", "collector"]:
+                    if col in row and pd.notna(row[col]):
+                        enumerator = str(row[col])
+                        break
+
                 height = row.get("tree_height_m", 0)
                 median = row.get("median_height", 0)
                 ratio = row.get("ratio", 0)
@@ -653,7 +685,13 @@ Outliers are tree measurements (height or circumference) that are significantly 
             # Create detailed table
             circ_detail_data = [["Data Collector", "Circ (cm)", "Median (cm)", "Ratio", "Issue"]]
             for _, row in circ_details_df.head(15).iterrows():
-                enumerator = str(row.get("enumerator", "N/A"))
+                # Try different possible enumerator column names
+                enumerator = "N/A"
+                for col in ["enumerator", "Enumerator", "data_collector", "collector"]:
+                    if col in row and pd.notna(row[col]):
+                        enumerator = str(row[col])
+                        break
+
                 circ = row.get(circ_col, 0) if circ_col else 0
                 median = row.get("median_circ", 0)
                 ratio = row.get("ratio", 0)
