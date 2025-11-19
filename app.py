@@ -1105,6 +1105,11 @@ if st.session_state.data is not None:
     st.markdown("## 📄 Summary PDF Report")
     st.caption("Download comprehensive summary report with all quality check statistics")
 
+    # Initialize session state for PDF
+    if "summary_pdf_buffer" not in st.session_state:
+        st.session_state.summary_pdf_buffer = None
+        st.session_state.summary_pdf_timestamp = None
+
     if st.button(
         "📄 Generate Summary PDF Report",
         use_container_width=True,
@@ -1124,20 +1129,28 @@ if st.session_state.data is not None:
                     partner_name=config.PARTNER
                 )
 
-                st.success("✅ PDF summary report generated successfully!")
+                # Store in session state
+                st.session_state.summary_pdf_buffer = pdf_buffer.getvalue()
+                st.session_state.summary_pdf_timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
 
-                st.download_button(
-                    label="💾 Download Summary PDF Report",
-                    data=pdf_buffer.getvalue(),
-                    file_name=f"{config.PARTNER}_summary_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="download_summary_pdf_report",
-                )
+                st.success("✅ PDF summary report generated successfully!")
 
             except Exception as e:
                 st.error(f"❌ Error generating PDF report: {str(e)}")
                 st.exception(e)
+                import traceback
+                st.code(traceback.format_exc())
+
+    # Show download button if PDF is available
+    if st.session_state.summary_pdf_buffer is not None:
+        st.download_button(
+            label="💾 Download Summary PDF Report",
+            data=st.session_state.summary_pdf_buffer,
+            file_name=f"{config.PARTNER}_summary_report_{st.session_state.summary_pdf_timestamp}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="download_summary_pdf_report",
+        )
 
     # Charts
     st.markdown("---")
