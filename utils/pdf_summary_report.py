@@ -252,11 +252,11 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 temp_df["subplot_number"] = temp_df["subplot_id"].apply(
                     lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
                 )
-                temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                     lambda x: int(x) if pd.notna(x) else 999
                 )
                 measured_subplot_ids = temp_df[
-                    temp_df["subplot_number"] <= temp_df["measured_subplots"]
+                    temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
                 ]["subplot_id"].unique()
                 enum_data_filtered = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
             else:
@@ -289,7 +289,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         enum_errors = enum_errors.sort_values("Error Rate %", ascending=False)
 
         # Create table with GT plot count
-        geom_table_data = [["Data Collector", "GT Plots", "Total", "Valid", "Invalid", "Error %"]]
+        geom_table_data = [["Data Collector", "GT Plots", "Sub Plots", "Valid", "Invalid", "Error %"]]
         for _, row in enum_errors.head(15).iterrows():
             geom_table_data.append([
                 str(row["Enumerator"]),
@@ -300,7 +300,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 f"{row['Error Rate %']:.1f}%",
             ])
 
-        geom_table = Table(geom_table_data, colWidths=[1.6*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch])
+        geom_table = Table(geom_table_data, colWidths=[2.0*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch])
         geom_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -362,8 +362,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         story.append(Paragraph("Common Error Explanations", subheading_style))
 
         explanations = {
-            "Nr vertices <= 3": "The subplot polygon has 3 or fewer GPS points. A valid polygon requires at least 4 vertices (points) to form a closed shape with area.",
-            "Empty geometry": "No valid GPS coordinates were collected for this subplot. This occurs when: (1) No GPS points were recorded, (2) All GPS points had zero accuracy and were filtered out, or (3) The data exceeded Excel cell limits during export.",
+            "Empty geometry": "No valid GPS coordinates were collected for this subplot. This occurs when: (1) No GPS points were recorded, or (2) All GPS points had zero accuracy and were filtered out.",
             "Self-intersecting polygon": "The subplot boundary crosses itself, creating an invalid shape. This happens when GPS points are collected in the wrong order or the enumerator crosses their own path.",
             "Area too small": "The subplot area is below the minimum threshold (typically < 50 m²), indicating incomplete or incorrect boundary mapping.",
             "Area too large": "The subplot area exceeds the maximum threshold (typically > 200 m²), suggesting the enumerator walked beyond the subplot boundaries.",
@@ -396,19 +395,54 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         for enum_name in sorted(filtered_gdf["enumerator"].unique()):
             enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
 
+            print(f"DEBUG PDF SUMMARY: {enum_name} - BEFORE filtering: {len(enum_data)} subplots", file=sys.stderr)
+
             # Filter to only measured subplots
-            if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
-                temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
-                temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
-                )
-                temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
-                    lambda x: int(x) if pd.notna(x) else 999
-                )
-                measured_subplot_ids = temp_df[
-                    temp_df["subplot_number"] <= temp_df["measured_subplots"]
-                ]["subplot_id"].unique()
-                enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
+            # First try: Use vegetation data to determine which subplots actually have measurements
+            if raw_data and "plots_subplots_vegetation" in raw_data:
+                veg_data = raw_data["plots_subplots_vegetation"]
+                if "SUBPLOT_KEY" in veg_data.columns and "subplot_id" in enum_data.columns:
+                    # Get subplot IDs that have vegetation data
+                    veg_subplot_ids = veg_data["SUBPLOT_KEY"].unique()
+                    # Filter enum_data to only subplots with vegetation
+                    enum_data_with_veg = enum_data[enum_data["subplot_id"].isin(veg_subplot_ids)].copy()
+
+                    if len(enum_data_with_veg) > 0:
+                        print(f"DEBUG PDF SUMMARY: {enum_name} - Filtered to {len(enum_data_with_veg)} subplots with vegetation data", file=sys.stderr)
+                        enum_data = enum_data_with_veg
+                    else:
+                        # Fallback: use measured_subplots field
+                        print(f"DEBUG PDF SUMMARY: {enum_name} - No vegetation data found, using measured_subplots field", file=sys.stderr)
+                        if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
+                            temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
+                            temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                            )
+                            temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
+                                lambda x: int(x) if pd.notna(x) else 999
+                            )
+                            measured_subplot_ids = temp_df[
+                                temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
+                            ]["subplot_id"].unique()
+                            enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
+                else:
+                    print(f"DEBUG PDF SUMMARY: {enum_name} - SUBPLOT_KEY not in vegetation data", file=sys.stderr)
+            else:
+                # Fallback: use measured_subplots field if vegetation data not available
+                if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
+                    temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
+                    temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                    )
+                    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
+                        lambda x: int(x) if pd.notna(x) else 999
+                    )
+                    measured_subplot_ids = temp_df[
+                        temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
+                    ]["subplot_id"].unique()
+                    enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
+
+            print(f"DEBUG PDF SUMMARY: {enum_name} - AFTER filtering: {len(enum_data)} subplots", file=sys.stderr)
 
             if len(enum_data) > 0:
                 # Add enumerator header
@@ -416,6 +450,12 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                     f"<b>{enum_name}</b>",
                     ParagraphStyle('EnumHeader', parent=styles['Heading3'], fontSize=12, textColor=colors.HexColor('#1976D2'), spaceAfter=10)
                 ))
+
+                print(f"DEBUG PDF SUMMARY: {enum_name} - columns: {enum_data.columns.tolist()}", file=sys.stderr)
+                print(f"DEBUG PDF SUMMARY: PLOT_KEY in columns: {'PLOT_KEY' in enum_data.columns}", file=sys.stderr)
+                if "PLOT_KEY" in enum_data.columns:
+                    print(f"DEBUG PDF SUMMARY: {enum_name} - Number of unique GT Plots: {enum_data['PLOT_KEY'].nunique()}", file=sys.stderr)
+                    print(f"DEBUG PDF SUMMARY: {enum_name} - GT Plot keys: {enum_data['PLOT_KEY'].unique()}", file=sys.stderr)
 
                 # Group by GT Plot (PLOT_KEY)
                 if "PLOT_KEY" in enum_data.columns:
@@ -425,9 +465,72 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                         # Extract plot number from PLOT_KEY
                         plot_display = str(plot_key).split('/')[-1] if '/' in str(plot_key) else str(plot_key)
 
-                        # Count stats for this plot
+                        # Debug: Check measured_subplots for this plot
+                        if "measured_subplots" in plot_data.columns:
+                            measured_val = plot_data["measured_subplots"].iloc[0] if len(plot_data) > 0 else "N/A"
+                            print(f"DEBUG PDF SUMMARY: Plot {plot_display} - has {len(plot_data)} subplots BEFORE spatial filtering, measured_subplots={measured_val}", file=sys.stderr)
+
+                        # SPATIAL FILTER: Remove subplots that are far outside the GT plot
+                        # Get the GT plot polygon if available
+                        if "PLOT_KEY" in plot_data.columns and len(plot_data) > 0:
+                            # Try to get GT plot geometry from raw_data
+                            gt_plot_geom = None
+                            if raw_data and "plots" in raw_data:
+                                plots_df = raw_data["plots"]
+                                if "KEY" in plots_df.columns:
+                                    plot_record = plots_df[plots_df["KEY"] == plot_key]
+                                    if len(plot_record) > 0 and "geometry" in plot_record.columns:
+                                        gt_plot_geom = plot_record.iloc[0]["geometry"]
+
+                            # If we have the GT plot geometry, filter subplots spatially
+                            if gt_plot_geom and hasattr(gt_plot_geom, 'is_valid') and not gt_plot_geom.is_empty:
+                                # Create a buffer around the GT plot (200m tolerance for GPS errors)
+                                # Convert to meters for buffering
+                                try:
+                                    from shapely.ops import transform
+                                    import pyproj
+
+                                    # Create a transformer to convert to UTM (meters) for buffering
+                                    # Use WGS84 to UTM for the plot's location
+                                    centroid = gt_plot_geom.centroid
+                                    utm_zone = int((centroid.x + 180) / 6) + 1
+                                    utm_crs = pyproj.CRS(f"+proj=utm +zone={utm_zone} +datum=WGS84")
+                                    wgs84 = pyproj.CRS("EPSG:4326")
+
+                                    project_to_utm = pyproj.Transformer.from_crs(wgs84, utm_crs, always_xy=True).transform
+                                    project_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84, always_xy=True).transform
+
+                                    # Transform to UTM, buffer, transform back
+                                    gt_plot_utm = transform(project_to_utm, gt_plot_geom)
+                                    buffered_utm = gt_plot_utm.buffer(200)  # 200m buffer
+                                    buffered_wgs84 = transform(project_to_wgs84, buffered_utm)
+
+                                    # Filter subplots to only those that intersect with buffered GT plot
+                                    plot_data_filtered = []
+                                    for idx, row in plot_data.iterrows():
+                                        subplot_geom = row.get("geometry")
+                                        if subplot_geom and hasattr(subplot_geom, 'is_valid') and not subplot_geom.is_empty:
+                                            # Check if subplot intersects with buffered GT plot
+                                            if buffered_wgs84.intersects(subplot_geom):
+                                                plot_data_filtered.append(row)
+                                            else:
+                                                subplot_id = row.get("subplot_id", "unknown")
+                                                print(f"DEBUG PDF SUMMARY: Excluding subplot {subplot_id} - outside GT plot boundary", file=sys.stderr)
+
+                                    if len(plot_data_filtered) > 0:
+                                        plot_data = pd.DataFrame(plot_data_filtered)
+                                        print(f"DEBUG PDF SUMMARY: Plot {plot_display} - {len(plot_data)} subplots AFTER spatial filtering", file=sys.stderr)
+                                    else:
+                                        print(f"DEBUG PDF SUMMARY: Plot {plot_display} - WARNING: All subplots filtered out by spatial check", file=sys.stderr)
+
+                                except Exception as e:
+                                    print(f"DEBUG PDF SUMMARY: Spatial filtering failed: {str(e)}, using all subplots", file=sys.stderr)
+                            else:
+                                print(f"DEBUG PDF SUMMARY: Plot {plot_display} - No GT plot geometry available, skipping spatial filter", file=sys.stderr)
+
+                        # Count stats for this plot (after spatial filtering)
                         plot_total = len(plot_data)
-                        plot_valid = plot_data["geom_valid"].sum()
+                        plot_valid = plot_data["geom_valid"].sum() if len(plot_data) > 0 else 0
                         plot_invalid = plot_total - plot_valid
 
                         try:
@@ -514,7 +617,7 @@ We detect measurement issues by comparing tree measurements to expected ranges a
 <b>High Stem Counts:</b><br/>
 • <b>Trees with >20 stems:</b> More than 20 stems counted at breast height (measurement error, incorrect counting, or coppiced/multi-stemmed tree requiring verification)<br/><br/>
 
-<b>Common causes:</b> Measurement errors (wrong unit, typo), data entry mistakes, misidentified species, exceptional growing conditions, damaged/diseased trees, or incorrect stem counting.
+<i>Note: Median calculation methodology is based on the Rabobank script.</i>
 """
     story.append(Paragraph(outlier_explanation, ParagraphStyle(
         "OutlierExplanation",
@@ -638,6 +741,10 @@ We detect measurement issues by comparing tree measurements to expected ranges a
         # Height outliers details
         if total_height_outliers > 0:
             story.append(Paragraph("Height Outliers - Details", subheading_style))
+            story.append(Paragraph(
+                "<i>Ratio = Measured Height ÷ Group Median Height (e.g., 4.0x means the tree is 4 times taller than the median). Median calculated per Rabobank methodology.</i>",
+                ParagraphStyle('RatioExplanation', parent=styles['Normal'], fontSize=8, textColor=colors.grey, spaceAfter=8, leftIndent=10)
+            ))
 
             # Debug: Print available columns
             print(f"DEBUG PDF: Height outliers columns: {height_outliers_df.columns.tolist()}", file=sys.stderr)
@@ -704,6 +811,10 @@ We detect measurement issues by comparing tree measurements to expected ranges a
         # Circumference outliers details
         if total_circ_outliers > 0:
             story.append(Paragraph("Circumference Outliers - Details", subheading_style))
+            story.append(Paragraph(
+                "<i>Ratio = Measured Circumference ÷ Group Median Circumference (e.g., 4.0x means the tree is 4 times thicker than the median). Median calculated per Rabobank methodology.</i>",
+                ParagraphStyle('RatioExplanation', parent=styles['Normal'], fontSize=8, textColor=colors.grey, spaceAfter=8, leftIndent=10)
+            ))
 
             # Prepare detailed outlier data
             circ_details_df = circ_outliers_df.copy()

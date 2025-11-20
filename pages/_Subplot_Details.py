@@ -162,7 +162,7 @@ st.sidebar.caption("Thresholds for various data quality checks")
 st.sidebar.info(
     """
     **Outlier Detection Method:**
-    Height & Circumference outliers use **VEGETATION_KEY grouping** (official method).
+    Height & Circumference outliers use **VEGETATION_KEY grouping** (Rabobank methodology).
     - Trees in same group → compared to group median
     - Fixed thresholds: **4x** and **0.25x**
     """
@@ -1841,7 +1841,7 @@ with tabs[0]:
         st.stop()
 
     st.caption(
-        "Using VEGETATION_KEY grouping (official method) - trees planted together should have similar heights"
+        "Using VEGETATION_KEY grouping (Rabobank methodology) - trees planted together should have similar heights"
     )
 
     # CHECK 1: Height outliers using VEGETATION_KEY grouping
@@ -1895,7 +1895,7 @@ with tabs[0]:
                 height_check, median_check, how="inner", on="VEGETATION_KEY"
             )
 
-            # Apply outlier detection (4x and 1/4x median - official method)
+            # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
             height_total["Upper_outliers"] = height_total.apply(
                 lambda row: (
                     "outlier"

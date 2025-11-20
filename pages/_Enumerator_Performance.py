@@ -934,7 +934,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 "unknown_species": pd.DataFrame(),
                             }
 
-                            # Height outliers (using VEGETATION_KEY grouping - official method)
+                            # Height outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                             if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
                                 print(f"DEBUG: Checking height outliers...", file=sys.stderr)
                                 # Filter to records with valid height and VEGETATION_KEY
@@ -955,7 +955,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         height_check, median_check, how="inner", on="VEGETATION_KEY"
                                     )
 
-                                    # Apply outlier detection (4x and 1/4x median - official method)
+                                    # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
                                     height_total["Upper_outliers"] = height_total.apply(
                                         lambda row: (
                                             "outlier"
@@ -1012,7 +1012,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     veg_errors["height_outliers"] = outliers
                                     total_veg_errors += len(outliers)
 
-                            # Circumference outliers (using VEGETATION_KEY grouping - official method)
+                            # Circumference outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                             circ_cols = [c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns]
                             print(f"DEBUG: Circumference columns: {circ_cols}", file=sys.stderr)
                             if circ_cols and "VEGETATION_KEY" in meas_enum.columns:
@@ -1036,7 +1036,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                             circ_check, median_check, how="inner", on="VEGETATION_KEY"
                                         )
 
-                                        # Apply outlier detection (4x and 1/4x median - official method)
+                                        # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
                                         circ_total["Upper_outliers"] = circ_total.apply(
                                             lambda row: (
                                                 "outlier"
@@ -1210,10 +1210,51 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                 for date_idx, date in enumerate(dates):
                     # Get data for this date
                     date_data = enum_data[enum_data["date_only"] == date].copy()
+
+                    # CRITICAL: Filter to only subplots that have vegetation data (actual measurements)
+                    # Use vegetation data as source of truth instead of measured_subplots field
+                    if raw_data and "plots_subplots_vegetation" in raw_data:
+                        veg_data = raw_data["plots_subplots_vegetation"]
+                        if "SUBPLOT_KEY" in veg_data.columns and "subplot_id" in date_data.columns:
+                            veg_subplot_ids = veg_data["SUBPLOT_KEY"].unique()
+                            date_data_with_veg = date_data[date_data["subplot_id"].isin(veg_subplot_ids)].copy()
+
+                            if len(date_data_with_veg) > 0:
+                                print(f"DEBUG PDF: Date {date} - Filtered to {len(date_data_with_veg)} subplots with vegetation data", file=sys.stderr)
+                                date_data = date_data_with_veg
+                            else:
+                                print(f"DEBUG PDF: Date {date} - No subplots with vegetation data, using all {len(date_data)}", file=sys.stderr)
+                        else:
+                            print(f"DEBUG PDF: Date {date} - Vegetation data structure issue, using measured_subplots field", file=sys.stderr)
+                            # Fallback: use measured_subplots field
+                            if "subplot_id" in date_data.columns and "measured_subplots" in date_data.columns:
+                                date_data["subplot_number"] = date_data["subplot_id"].apply(
+                                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                                )
+                                date_data["measured_subplots_int"] = date_data["measured_subplots"].apply(
+                                    lambda x: int(x) if pd.notna(x) else 999
+                                )
+                                date_data = date_data[date_data["subplot_number"] <= date_data["measured_subplots_int"]].copy()
+                                date_data = date_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
+                    else:
+                        print(f"DEBUG PDF: Date {date} - No vegetation data available, using measured_subplots field", file=sys.stderr)
+                        # Fallback: use measured_subplots field
+                        if "subplot_id" in date_data.columns and "measured_subplots" in date_data.columns:
+                            date_data["subplot_number"] = date_data["subplot_id"].apply(
+                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                            )
+                            date_data["measured_subplots_int"] = date_data["measured_subplots"].apply(
+                                lambda x: int(x) if pd.notna(x) else 999
+                            )
+                            date_data = date_data[date_data["subplot_number"] <= date_data["measured_subplots_int"]].copy()
+                            date_data = date_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
+
                     date_total = get_total_measured_subplots(date_data)
                     date_invalid = (~date_data["geom_valid"]).sum()
                     date_valid = date_data["geom_valid"].sum()
                     date_error_rate = (date_invalid / date_total * 100) if date_total > 0 else 0
+
+                    print(f"DEBUG PDF: Date {date} - date_data has {len(date_data)} records after filtering, date_total={date_total}", file=sys.stderr)
 
                     # Date header
                     date_header_style = ParagraphStyle(
@@ -1267,6 +1308,12 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                     # Create map overviews grouped by GT Plot for this date
                     if len(date_data) > 0 and MATPLOTLIB_AVAILABLE:
+                        print(f"DEBUG PDF: date_data columns: {date_data.columns.tolist()}", file=sys.stderr)
+                        print(f"DEBUG PDF: PLOT_KEY in columns: {'PLOT_KEY' in date_data.columns}", file=sys.stderr)
+                        if "PLOT_KEY" in date_data.columns:
+                            print(f"DEBUG PDF: Number of unique GT Plots: {date_data['PLOT_KEY'].nunique()}", file=sys.stderr)
+                            print(f"DEBUG PDF: GT Plot keys: {date_data['PLOT_KEY'].unique()}", file=sys.stderr)
+
                         # Group by GT Plot (PLOT_KEY)
                         if "PLOT_KEY" in date_data.columns:
                             for plot_key in sorted(date_data["PLOT_KEY"].unique()):
@@ -2284,7 +2331,7 @@ with tabs[TAB_ERROR_DETAILS]:
                     meas_enum = merge_with_enumerator(meas_enum, enum_data)
                     species_col = get_species_column(meas_enum)
 
-                    # Height outliers (using VEGETATION_KEY grouping - official method)
+                    # Height outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                     if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
                         height_check = meas_enum[
                             meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
@@ -2523,7 +2570,7 @@ with tabs[TAB_ERROR_DETAILS]:
                         meas_enum = add_tree_name_column(meas_enum)
                         species_col = get_species_column(meas_enum)
 
-                        # Height outliers (using VEGETATION_KEY grouping - official method)
+                        # Height outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                         if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
                             height_check = meas_enum[
                                 meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()

@@ -660,7 +660,7 @@ if st.session_state.data is not None:
                     except Exception as e:
                         st.warning(f"Could not export Geometry Errors: {str(e)}")
 
-                    # SHEET 2: Height Outliers (using VEGETATION_KEY grouping - official method)
+                    # SHEET 2: Height Outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                     if has_measurements and len(meas_with_enum) > 0:
                         try:
                             # Use VEGETATION_KEY grouping instead of species-based
@@ -729,7 +729,7 @@ if st.session_state.data is not None:
                         except Exception as e:
                             st.warning(f"Could not export Height Outliers: {str(e)}")
 
-                    # SHEET 3: Circumference Outliers (using VEGETATION_KEY grouping - official method)
+                    # SHEET 3: Circumference Outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                     if has_measurements and len(meas_with_enum) > 0:
                         try:
                             # Find circumference column

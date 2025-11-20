@@ -273,13 +273,15 @@ def process_excel_file(uploaded_file):
         max_area=config.MAX_SUBPLOT_AREA_SIZE,
     )
 
-    # Ensure enumerator and time columns are preserved
+    # Ensure enumerator, time, and PLOT_KEY columns are preserved
     # (They might be lost during geometry operations)
     preserve_cols = []
     if "enumerator" in subplots_for_validation.columns:
         preserve_cols.append("enumerator")
     if time_col and time_col in subplots_for_validation.columns:
         preserve_cols.append(time_col)
+    if "PLOT_KEY" in subplots_for_validation.columns:
+        preserve_cols.append("PLOT_KEY")
 
     if preserve_cols:
         # Merge back the preserved columns using subplot_id
@@ -1263,13 +1265,15 @@ def process_json_data(json_data):
         max_area=config.MAX_SUBPLOT_AREA_SIZE,
     )
 
-    # Ensure enumerator and time columns are preserved
+    # Ensure enumerator, time, and PLOT_KEY columns are preserved
     # (They might be lost during geometry operations)
     preserve_cols = []
     if "enumerator" in subplots_for_validation.columns:
         preserve_cols.append("enumerator")
     if time_col and time_col in subplots_for_validation.columns:
         preserve_cols.append(time_col)
+    if "PLOT_KEY" in subplots_for_validation.columns:
+        preserve_cols.append("PLOT_KEY")
 
     if preserve_cols:
         # Merge back the preserved columns using subplot_id
