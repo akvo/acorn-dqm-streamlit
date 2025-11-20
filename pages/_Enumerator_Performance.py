@@ -1265,60 +1265,139 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                     print(f"DEBUG PDF: Date {date} - Invalid: {len(date_invalid_data)}, Missing Veg: {len(date_missing_veg)}", file=sys.stderr)
 
-                    # Create a map overview for this date showing all subplots
+                    # Create map overviews grouped by GT Plot for this date
                     if len(date_data) > 0 and MATPLOTLIB_AVAILABLE:
-                        try:
-                            print(f"DEBUG PDF: Creating map overview for date {date}", file=sys.stderr)
+                        # Group by GT Plot (PLOT_KEY)
+                        if "PLOT_KEY" in date_data.columns:
+                            for plot_key in sorted(date_data["PLOT_KEY"].unique()):
+                                plot_data = date_data[date_data["PLOT_KEY"] == plot_key]
 
-                            fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+                                # Extract plot number from PLOT_KEY
+                                plot_display = str(plot_key).split('/')[-1] if '/' in str(plot_key) else str(plot_key)
 
-                            # Plot all subplots for this date
-                            for idx, row in date_data.iterrows():
-                                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                                    geom = row["geometry"]
-                                    is_valid = row.get("geom_valid", False)
-                                    color = '#4CAF50' if is_valid else '#F44336'
-                                    alpha = 0.3 if is_valid else 0.6
+                                # Count stats for this plot
+                                plot_total = len(plot_data)
+                                plot_valid = plot_data["geom_valid"].sum()
+                                plot_invalid = plot_total - plot_valid
 
-                                    if geom.geom_type == 'Polygon':
-                                        x, y = geom.exterior.xy
-                                        ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                                    elif geom.geom_type == 'MultiPolygon':
-                                        for poly in geom.geoms:
-                                            x, y = poly.exterior.xy
+                                try:
+                                    print(f"DEBUG PDF: Creating map for GT Plot {plot_display} with {len(plot_data)} subplots", file=sys.stderr)
+
+                                    fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
+
+                                    # Plot all subplots for this GT plot
+                                    for idx, row in plot_data.iterrows():
+                                        if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                                            geom = row["geometry"]
+                                            is_valid = row.get("geom_valid", False)
+                                            color = '#4CAF50' if is_valid else '#F44336'
+                                            alpha = 0.3 if is_valid else 0.6
+
+                                            if geom.geom_type == 'Polygon':
+                                                x, y = geom.exterior.xy
+                                                ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                            elif geom.geom_type == 'MultiPolygon':
+                                                for poly in geom.geoms:
+                                                    x, y = poly.exterior.xy
+                                                    ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+
+                                            # Add label for invalid ones
+                                            if not is_valid:
+                                                centroid = geom.centroid
+                                                ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
+
+                                    ax.set_aspect('equal')
+                                    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                                    ax.set_xlabel('Longitude', fontsize=8)
+                                    ax.set_ylabel('Latitude', fontsize=8)
+                                    ax.tick_params(labelsize=8)
+                                    ax.set_title(
+                                        f"GT Plot: {plot_display} ({date.strftime('%B %d, %Y')})\nSubplots: {plot_total} | Valid: {plot_valid}, Invalid: {plot_invalid}",
+                                        fontsize=9, fontweight='bold'
+                                    )
+
+                                    # Add legend
+                                    from matplotlib.patches import Patch
+                                    legend_elements = [
+                                        Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({plot_valid})'),
+                                        Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({plot_invalid})'),
+                                    ]
+                                    ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
+
+                                    plt.tight_layout()
+
+                                    # Convert to image for PDF
+                                    map_buffer = BytesIO()
+                                    plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                    plt.close(fig)
+                                    map_buffer.seek(0)
+
+                                    # Add to PDF
+                                    map_img = RLImage(map_buffer, width=4.5*inch, height=3.2*inch)
+                                    story.append(map_img)
+                                    story.append(Spacer(1, 0.15*inch))
+                                    print(f"DEBUG PDF: Successfully added map for GT Plot {plot_display} to PDF", file=sys.stderr)
+
+                                except Exception as e:
+                                    print(f"DEBUG PDF: Error creating map for GT Plot {plot_display}: {str(e)}", file=sys.stderr)
+                                    import traceback
+                                    traceback.print_exc(file=sys.stderr)
+
+                            story.append(Spacer(1, 0.2*inch))
+                        else:
+                            # Fallback to single overview map if PLOT_KEY not available
+                            try:
+                                print(f"DEBUG PDF: Creating map overview for date {date} (no PLOT_KEY column)", file=sys.stderr)
+
+                                fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+
+                                # Plot all subplots for this date
+                                for idx, row in date_data.iterrows():
+                                    if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                                        geom = row["geometry"]
+                                        is_valid = row.get("geom_valid", False)
+                                        color = '#4CAF50' if is_valid else '#F44336'
+                                        alpha = 0.3 if is_valid else 0.6
+
+                                        if geom.geom_type == 'Polygon':
+                                            x, y = geom.exterior.xy
                                             ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                        elif geom.geom_type == 'MultiPolygon':
+                                            for poly in geom.geoms:
+                                                x, y = poly.exterior.xy
+                                                ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
 
-                                    # Add label for invalid ones
-                                    if not is_valid:
-                                        centroid = geom.centroid
-                                        ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
+                                        # Add label for invalid ones
+                                        if not is_valid:
+                                            centroid = geom.centroid
+                                            ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
 
-                            ax.set_aspect('equal')
-                            ax.grid(True, alpha=0.3)
-                            ax.set_xlabel('Longitude', fontsize=9)
-                            ax.set_ylabel('Latitude', fontsize=9)
-                            ax.tick_params(labelsize=8)
-                            ax.set_title(f"Subplot Overview - {date.strftime('%B %d, %Y')}\nGreen=Valid, Red=Invalid",
-                                        fontsize=10, fontweight='bold')
+                                ax.set_aspect('equal')
+                                ax.grid(True, alpha=0.3)
+                                ax.set_xlabel('Longitude', fontsize=9)
+                                ax.set_ylabel('Latitude', fontsize=9)
+                                ax.tick_params(labelsize=8)
+                                ax.set_title(f"Subplot Overview - {date.strftime('%B %d, %Y')}\nGreen=Valid, Red=Invalid",
+                                            fontsize=10, fontweight='bold')
 
-                            plt.tight_layout()
+                                plt.tight_layout()
 
-                            # Convert to image for PDF
-                            map_buffer = BytesIO()
-                            plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-                            plt.close(fig)
-                            map_buffer.seek(0)
+                                # Convert to image for PDF
+                                map_buffer = BytesIO()
+                                plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                plt.close(fig)
+                                map_buffer.seek(0)
 
-                            # Add to PDF
-                            map_img = RLImage(map_buffer, width=5*inch, height=3.33*inch)
-                            story.append(map_img)
-                            story.append(Spacer(1, 0.2 * inch))
-                            print(f"DEBUG PDF: Successfully added map overview to PDF", file=sys.stderr)
+                                # Add to PDF
+                                map_img = RLImage(map_buffer, width=5*inch, height=3.33*inch)
+                                story.append(map_img)
+                                story.append(Spacer(1, 0.2 * inch))
+                                print(f"DEBUG PDF: Successfully added map overview to PDF", file=sys.stderr)
 
-                        except Exception as e:
-                            print(f"DEBUG PDF: Error creating map overview: {str(e)}", file=sys.stderr)
-                            import traceback
-                            traceback.print_exc(file=sys.stderr)
+                            except Exception as e:
+                                print(f"DEBUG PDF: Error creating map overview: {str(e)}", file=sys.stderr)
+                                import traceback
+                                traceback.print_exc(file=sys.stderr)
 
                     if len(date_invalid_data) > 0 or len(date_missing_veg) > 0:
                         print(f"DEBUG PDF: Entered date error section, processing {len(date_invalid_data)} invalid subplots", file=sys.stderr)

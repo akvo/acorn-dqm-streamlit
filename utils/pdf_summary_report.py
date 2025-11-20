@@ -388,10 +388,10 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 leftIndent=10,
             )))
 
-    # Show individual maps for each data collector
+    # Show individual maps grouped by GT Plot, then subplots
     if "enumerator" in filtered_gdf.columns and MATPLOTLIB_AVAILABLE:
         story.append(Spacer(1, 0.3*inch))
-        story.append(Paragraph("Maps by Data Collector", subheading_style))
+        story.append(Paragraph("Maps by Data Collector and GT Plot", subheading_style))
 
         for enum_name in sorted(filtered_gdf["enumerator"].unique()):
             enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
@@ -411,71 +411,87 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
 
             if len(enum_data) > 0:
-                # Count stats
-                enum_total = len(enum_data)
-                enum_valid = enum_data["geom_valid"].sum()
-                enum_invalid = enum_total - enum_valid
+                # Add enumerator header
+                story.append(Paragraph(
+                    f"<b>{enum_name}</b>",
+                    ParagraphStyle('EnumHeader', parent=styles['Heading3'], fontSize=12, textColor=colors.HexColor('#1976D2'), spaceAfter=10)
+                ))
 
-                try:
-                    print(f"DEBUG PDF: Creating map for {enum_name} with {len(enum_data)} subplots", file=sys.stderr)
+                # Group by GT Plot (PLOT_KEY)
+                if "PLOT_KEY" in enum_data.columns:
+                    for plot_key in sorted(enum_data["PLOT_KEY"].unique()):
+                        plot_data = enum_data[enum_data["PLOT_KEY"] == plot_key]
 
-                    fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+                        # Extract plot number from PLOT_KEY
+                        plot_display = str(plot_key).split('/')[-1] if '/' in str(plot_key) else str(plot_key)
 
-                    # Count polygons plotted
-                    polygons_plotted = 0
+                        # Count stats for this plot
+                        plot_total = len(plot_data)
+                        plot_valid = plot_data["geom_valid"].sum()
+                        plot_invalid = plot_total - plot_valid
 
-                    # Plot this enumerator's subplots
-                    for idx, row in enum_data.iterrows():
-                        if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
-                            geom = row["geometry"]
-                            is_valid = row.get("geom_valid", False)
-                            color = '#4CAF50' if is_valid else '#F44336'
-                            alpha = 0.3 if is_valid else 0.6
+                        try:
+                            print(f"DEBUG PDF: Creating map for {enum_name} - Plot {plot_display} with {len(plot_data)} subplots", file=sys.stderr)
 
-                            if geom.geom_type == 'Polygon':
-                                x, y = geom.exterior.xy
-                                ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                                polygons_plotted += 1
-                            elif geom.geom_type == 'MultiPolygon':
-                                for poly in geom.geoms:
-                                    x, y = poly.exterior.xy
-                                    ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                                    polygons_plotted += 1
+                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
 
-                    print(f"DEBUG PDF: Plotted {polygons_plotted} polygons for {enum_name}", file=sys.stderr)
+                            # Count polygons plotted
+                            polygons_plotted = 0
 
-                    ax.set_aspect('equal')
-                    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                    ax.set_xlabel('Longitude', fontsize=9)
-                    ax.set_ylabel('Latitude', fontsize=9)
-                    ax.set_title(
-                        f'{enum_name} | Valid: {enum_valid}, Invalid: {enum_invalid}',
-                        fontsize=11,
-                        fontweight='bold'
-                    )
+                            # Plot subplots for this GT plot
+                            for idx, row in plot_data.iterrows():
+                                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                                    geom = row["geometry"]
+                                    is_valid = row.get("geom_valid", False)
+                                    color = '#4CAF50' if is_valid else '#F44336'
+                                    alpha = 0.3 if is_valid else 0.6
 
-                    # Add legend
-                    from matplotlib.patches import Patch
-                    legend_elements = [
-                        Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({enum_valid})'),
-                        Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({enum_invalid})'),
-                    ]
-                    ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
+                                    if geom.geom_type == 'Polygon':
+                                        x, y = geom.exterior.xy
+                                        ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                        polygons_plotted += 1
+                                    elif geom.geom_type == 'MultiPolygon':
+                                        for poly in geom.geoms:
+                                            x, y = poly.exterior.xy
+                                            ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                            polygons_plotted += 1
 
-                    plt.tight_layout()
+                            print(f"DEBUG PDF: Plotted {polygons_plotted} polygons for plot {plot_display}", file=sys.stderr)
 
-                    # Convert to image
-                    map_buffer = BytesIO()
-                    plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-                    plt.close(fig)
-                    map_buffer.seek(0)
+                            ax.set_aspect('equal')
+                            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+                            ax.set_xlabel('Longitude', fontsize=8)
+                            ax.set_ylabel('Latitude', fontsize=8)
+                            ax.set_title(
+                                f'GT Plot: {plot_display} | Subplots: {plot_total} | Valid: {plot_valid}, Invalid: {plot_invalid}',
+                                fontsize=9,
+                                fontweight='bold'
+                            )
 
-                    enum_img = RLImage(map_buffer, width=5.5*inch, height=3.7*inch)
-                    story.append(enum_img)
-                    story.append(Spacer(1, 0.2*inch))
+                            # Add legend
+                            from matplotlib.patches import Patch
+                            legend_elements = [
+                                Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({plot_valid})'),
+                                Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({plot_invalid})'),
+                            ]
+                            ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
 
-                except Exception as e:
-                    print(f"DEBUG PDF: Error creating map for {enum_name}: {str(e)}", file=sys.stderr)
+                            plt.tight_layout()
+
+                            # Convert to image
+                            map_buffer = BytesIO()
+                            plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                            plt.close(fig)
+                            map_buffer.seek(0)
+
+                            plot_img = RLImage(map_buffer, width=4.5*inch, height=3.2*inch)
+                            story.append(plot_img)
+                            story.append(Spacer(1, 0.15*inch))
+
+                        except Exception as e:
+                            print(f"DEBUG PDF: Error creating map for plot {plot_display}: {str(e)}", file=sys.stderr)
+
+                story.append(Spacer(1, 0.2*inch))
 
     story.append(PageBreak())
 
@@ -484,8 +500,8 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
     # Add outlier explanations
     outlier_explanation = """
-<b>What are outliers?</b><br/>
-Outliers are tree measurements (height or circumference) that are significantly different from other trees in the same planting group. We detect outliers by comparing each tree to the median (middle value) of its group:<br/><br/>
+<b>What are outliers and measurement issues?</b><br/>
+We detect measurement issues by comparing tree measurements to expected ranges and group medians:<br/><br/>
 
 <b>Height Outliers:</b><br/>
 • <b>Extremely tall trees:</b> Height is more than 4 times the group median (measurement error, wrong species, or exceptionally favorable growing conditions)<br/>
@@ -495,7 +511,10 @@ Outliers are tree measurements (height or circumference) that are significantly 
 • <b>Extremely thick trees:</b> Circumference is more than 4 times the group median (measurement error, wrong tree, or multiple stems counted as one)<br/>
 • <b>Extremely thin trees:</b> Circumference is less than 0.25 times the group median (measurement error, young sapling, or damaged tree)<br/><br/>
 
-<b>Common causes:</b> Measurement errors (wrong unit, typo), data entry mistakes, misidentified species, exceptional growing conditions, or damaged/diseased trees.
+<b>High Stem Counts:</b><br/>
+• <b>Trees with >20 stems:</b> More than 20 stems counted at breast height (measurement error, incorrect counting, or coppiced/multi-stemmed tree requiring verification)<br/><br/>
+
+<b>Common causes:</b> Measurement errors (wrong unit, typo), data entry mistakes, misidentified species, exceptional growing conditions, damaged/diseased trees, or incorrect stem counting.
 """
     story.append(Paragraph(outlier_explanation, ParagraphStyle(
         "OutlierExplanation",
@@ -579,15 +598,24 @@ Outliers are tree measurements (height or circumference) that are significantly 
                     ].copy()
                     circ_outliers_df = pd.concat([circ_outliers_df, outliers]).drop_duplicates()
 
+        # High Stem Counts (>20 stems)
+        high_stems_df = pd.DataFrame()
+        if "nr_stems_bh" in meas_with_enum.columns:
+            high_stems = meas_with_enum[meas_with_enum["nr_stems_bh"] > 20].copy()
+            if len(high_stems) > 0:
+                high_stems_df = high_stems.copy()
+
         # Summary statistics
         total_height_outliers = len(height_outliers_df)
         total_circ_outliers = len(circ_outliers_df)
+        total_high_stems = len(high_stems_df)
 
         outlier_summary_data = [
             ["Outlier Type", "Count"],
             ["Height Outliers", str(total_height_outliers)],
             ["Circumference Outliers", str(total_circ_outliers)],
-            ["Total Vegetation Outliers", str(total_height_outliers + total_circ_outliers)],
+            ["High Stem Counts (>20)", str(total_high_stems)],
+            ["Total Vegetation Issues", str(total_height_outliers + total_circ_outliers + total_high_stems)],
         ]
 
         outlier_summary_table = Table(outlier_summary_data, colWidths=[3*inch, 2*inch])
@@ -736,6 +764,52 @@ Outliers are tree measurements (height or circumference) that are significantly 
             if len(circ_details_df) > 15:
                 story.append(Paragraph(
                     f"<i>Showing top 15 of {len(circ_details_df)} circumference outliers</i>",
+                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
+                ))
+
+        story.append(Spacer(1, 0.3*inch))
+
+        # High Stem Counts details
+        if total_high_stems > 0:
+            story.append(Paragraph("High Stem Counts - Details", subheading_style))
+
+            # Prepare detailed high stem data
+            high_stems_details = high_stems_df.copy()
+
+            # Sort by stem count (highest first)
+            if "nr_stems_bh" in high_stems_details.columns:
+                high_stems_details = high_stems_details.sort_values("nr_stems_bh", ascending=False)
+
+            # Create detailed table
+            stem_detail_data = [["Stems (BH)", "Threshold", "Issue"]]
+            for _, row in high_stems_details.head(15).iterrows():
+                stems = row.get("nr_stems_bh", 0)
+
+                stem_detail_data.append([
+                    f"{int(stems)}",
+                    ">20",
+                    "High stem count"
+                ])
+
+            stem_detail_table = Table(stem_detail_data, colWidths=[2*inch, 2*inch, 2.7*inch])
+            stem_detail_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('PADDING', (0, 1), (-1, -1), 6),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+            ]))
+            story.append(stem_detail_table)
+
+            if len(high_stems_details) > 15:
+                story.append(Paragraph(
+                    f"<i>Showing top 15 of {len(high_stems_details)} high stem counts</i>",
                     ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
                 ))
 
