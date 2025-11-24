@@ -33,6 +33,12 @@ def merge_with_enumerator(veg_df, filtered_gdf):
     if "enumerator" in filtered_gdf.columns:
         cols_to_merge.append("enumerator")
 
+    # Add SubmissionDate if it exists
+    if "SubmissionDate" in filtered_gdf.columns:
+        cols_to_merge.append("SubmissionDate")
+    elif "starttime" in filtered_gdf.columns:
+        cols_to_merge.append("starttime")
+
     # Extract only the columns we need
     merge_df = filtered_gdf[cols_to_merge].copy()
 

@@ -483,9 +483,19 @@ if st.session_state.data is not None:
                     meas_df = meas_df_all.copy()
                     complete_df = complete_df_all.copy()
 
+                # DEBUG: Check what columns are in filtered_gdf
+                import sys
+                print(f"DEBUG EXPORT: filtered_gdf columns: {filtered_gdf.columns.tolist()}", file=sys.stderr)
+                print(f"DEBUG EXPORT: Has SubmissionDate: {'SubmissionDate' in filtered_gdf.columns}", file=sys.stderr)
+                print(f"DEBUG EXPORT: Has starttime: {'starttime' in filtered_gdf.columns}", file=sys.stderr)
+
                 # Merge with enumerator
                 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
                 veg_with_enum = add_tree_name_column(veg_with_enum)
+
+                print(f"DEBUG EXPORT: veg_with_enum columns after merge: {veg_with_enum.columns.tolist()}", file=sys.stderr)
+                print(f"DEBUG EXPORT: veg_with_enum has SubmissionDate: {'SubmissionDate' in veg_with_enum.columns}", file=sys.stderr)
+                print(f"DEBUG EXPORT: veg_with_enum has starttime: {'starttime' in veg_with_enum.columns}", file=sys.stderr)
 
                 if has_measurements:
                     meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
@@ -507,6 +517,14 @@ if st.session_state.data is not None:
                         return pd.DataFrame()
 
                     result = pd.DataFrame()
+
+                    # Submitted Date (FIRST COLUMN)
+                    if "SubmissionDate" in df.columns:
+                        result["Submitted Date"] = df["SubmissionDate"]
+                    elif "starttime" in df.columns:
+                        result["Submitted Date"] = df["starttime"]
+                    else:
+                        result["Submitted Date"] = ""
 
                     # Plot ID (from SUBPLOT_KEY - extract plot portion)
                     if "SUBPLOT_KEY" in df.columns:
@@ -586,6 +604,14 @@ if st.session_state.data is not None:
                         if len(invalid_subplots) > 0:
                             # Prepare export dataframe
                             result = pd.DataFrame()
+
+                            # Submitted Date (FIRST COLUMN)
+                            if "SubmissionDate" in invalid_subplots.columns:
+                                result["Submitted Date"] = invalid_subplots["SubmissionDate"]
+                            elif "starttime" in invalid_subplots.columns:
+                                result["Submitted Date"] = invalid_subplots["starttime"]
+                            else:
+                                result["Submitted Date"] = ""
 
                             # Plot ID (extract from subplot_id)
                             if "subplot_id" in invalid_subplots.columns:

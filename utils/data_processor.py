@@ -99,6 +99,28 @@ def merge_all_data(sheets_dict):
         m_plots["enumerator"] = m_plots["enumerator_subplot"]
         m_plots = m_plots.drop(columns=["enumerator_subplot"])
 
+    # SubmissionDate - prefer subplot version, fallback to plot version
+    if "SubmissionDate_subplot" in m_plots.columns and "SubmissionDate_plot" in m_plots.columns:
+        m_plots["SubmissionDate"] = m_plots["SubmissionDate_subplot"].fillna(m_plots["SubmissionDate_plot"])
+        m_plots = m_plots.drop(columns=["SubmissionDate_plot", "SubmissionDate_subplot"])
+    elif "SubmissionDate_plot" in m_plots.columns:
+        m_plots["SubmissionDate"] = m_plots["SubmissionDate_plot"]
+        m_plots = m_plots.drop(columns=["SubmissionDate_plot"])
+    elif "SubmissionDate_subplot" in m_plots.columns:
+        m_plots["SubmissionDate"] = m_plots["SubmissionDate_subplot"]
+        m_plots = m_plots.drop(columns=["SubmissionDate_subplot"])
+
+    # starttime - prefer subplot version, fallback to plot version
+    if "starttime_subplot" in m_plots.columns and "starttime_plot" in m_plots.columns:
+        m_plots["starttime"] = m_plots["starttime_subplot"].fillna(m_plots["starttime_plot"])
+        m_plots = m_plots.drop(columns=["starttime_plot", "starttime_subplot"])
+    elif "starttime_plot" in m_plots.columns:
+        m_plots["starttime"] = m_plots["starttime_plot"]
+        m_plots = m_plots.drop(columns=["starttime_plot"])
+    elif "starttime_subplot" in m_plots.columns:
+        m_plots["starttime"] = m_plots["starttime_subplot"]
+        m_plots = m_plots.drop(columns=["starttime_subplot"])
+
     # KEY and PARENT_KEY - keep subplot version
     if "KEY_subplot" in m_plots.columns:
         m_plots["KEY"] = m_plots["KEY_subplot"]
@@ -190,17 +212,16 @@ def process_excel_file(uploaded_file):
     m_plots = merged["plots_subplots"]
 
     # Process subplots for geometry validation
-    # Determine which time column to use
-    time_col = None
-    if "starttime" in m_plots.columns:
-        time_col = "starttime"
-    elif "SubmissionDate" in m_plots.columns:
-        time_col = "SubmissionDate"
-
     # Build column list dynamically based on what exists
     cols_to_select = []
-    if time_col:
-        cols_to_select.append(time_col)
+
+    # Add date columns if they exist
+    if "SubmissionDate" in m_plots.columns:
+        cols_to_select.append("SubmissionDate")
+    if "starttime" in m_plots.columns:
+        cols_to_select.append("starttime")
+
+    # Add enumerator if it exists
     if "enumerator" in m_plots.columns:
         cols_to_select.append("enumerator")
 
@@ -273,13 +294,15 @@ def process_excel_file(uploaded_file):
         max_area=config.MAX_SUBPLOT_AREA_SIZE,
     )
 
-    # Ensure enumerator, time, and PLOT_KEY columns are preserved
+    # Ensure enumerator, date columns, and PLOT_KEY columns are preserved
     # (They might be lost during geometry operations)
     preserve_cols = []
     if "enumerator" in subplots_for_validation.columns:
         preserve_cols.append("enumerator")
-    if time_col and time_col in subplots_for_validation.columns:
-        preserve_cols.append(time_col)
+    if "SubmissionDate" in subplots_for_validation.columns:
+        preserve_cols.append("SubmissionDate")
+    if "starttime" in subplots_for_validation.columns:
+        preserve_cols.append("starttime")
     if "PLOT_KEY" in subplots_for_validation.columns:
         preserve_cols.append("PLOT_KEY")
 
@@ -1189,17 +1212,16 @@ def process_json_data(json_data):
     m_plots = merged["plots_subplots"]
 
     # Process subplots for geometry validation
-    # Determine which time column to use
-    time_col = None
-    if "starttime" in m_plots.columns:
-        time_col = "starttime"
-    elif "SubmissionDate" in m_plots.columns:
-        time_col = "SubmissionDate"
-
     # Build column list dynamically based on what exists
     cols_to_select = []
-    if time_col:
-        cols_to_select.append(time_col)
+
+    # Add date columns if they exist
+    if "SubmissionDate" in m_plots.columns:
+        cols_to_select.append("SubmissionDate")
+    if "starttime" in m_plots.columns:
+        cols_to_select.append("starttime")
+
+    # Add enumerator if it exists
     if "enumerator" in m_plots.columns:
         cols_to_select.append("enumerator")
 
@@ -1265,13 +1287,15 @@ def process_json_data(json_data):
         max_area=config.MAX_SUBPLOT_AREA_SIZE,
     )
 
-    # Ensure enumerator, time, and PLOT_KEY columns are preserved
+    # Ensure enumerator, date columns, and PLOT_KEY columns are preserved
     # (They might be lost during geometry operations)
     preserve_cols = []
     if "enumerator" in subplots_for_validation.columns:
         preserve_cols.append("enumerator")
-    if time_col and time_col in subplots_for_validation.columns:
-        preserve_cols.append(time_col)
+    if "SubmissionDate" in subplots_for_validation.columns:
+        preserve_cols.append("SubmissionDate")
+    if "starttime" in subplots_for_validation.columns:
+        preserve_cols.append("starttime")
     if "PLOT_KEY" in subplots_for_validation.columns:
         preserve_cols.append("PLOT_KEY")
 
