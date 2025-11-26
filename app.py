@@ -535,6 +535,7 @@ if st.session_state.data is not None:
                     detect_height_outliers,
                     detect_circumference_outliers,
                     detect_suspicious_circumference_by_age,
+                    check_unidentified_species,
                 )
                 from utils.export_helpers import adjust_excel_column_widths
 
@@ -1186,6 +1187,69 @@ if st.session_state.data is not None:
                             sheets_created += 1
                     except Exception as e:
                         st.warning(f"Could not export Missing Vegetation: {str(e)}")
+
+                    # SHEET 14: Unknown/Unidentified Species
+                    try:
+                        # Get vegetation data with actual records only
+                        if "VEGETATION_KEY" in veg_df.columns:
+                            veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
+                        else:
+                            veg_df_actual = veg_df.copy()
+
+                        # Check for unidentified species (where species = "other")
+                        unknown_species = check_unidentified_species(veg_df_actual)
+
+                        if len(unknown_species) > 0:
+                            # Ensure enumerator column exists
+                            if "enumerator" not in unknown_species.columns:
+                                # Try to add from filtered_gdf if available
+                                if "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in unknown_species.columns:
+                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
+                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
+                                    unknown_species = unknown_species.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                else:
+                                    unknown_species["enumerator"] = ""
+
+                            # Add tree_name column for display
+                            unknown_species = add_tree_name_column(unknown_species)
+
+                            # Create issue description
+                            def create_unknown_description(row):
+                                parts = []
+
+                                # Add tree name if available
+                                if pd.notna(row.get("tree_name")) and row.get("tree_name") != "other":
+                                    parts.append(f"Tree: {row['tree_name']}")
+                                else:
+                                    parts.append("Species marked as 'other'")
+
+                                # Check which species column has "other"
+                                species_cols = ["woody_species", "bamboo_species", "palm_species",
+                                              "banana_species", "non_woody_species", "vegetation_species_type"]
+                                for col in species_cols:
+                                    if col in row.index and pd.notna(row.get(col)) and str(row.get(col)).lower() == "other":
+                                        parts.append(f"Type: {col.replace('_', ' ').title()}")
+                                        break
+
+                                parts.append("Needs botanical verification")
+
+                                return " | ".join(parts)
+
+                            unknown_species["description"] = unknown_species.apply(create_unknown_description, axis=1)
+
+                            export_df = format_for_export(
+                                unknown_species,
+                                issue_type="Unknown Species",
+                                issue_description_col="description",
+                                additional_cols=["tree_name", "woody_species", "non_woody_species",
+                                               "bamboo_species", "palm_species", "banana_species"],
+                            )
+                            sheet_name = "Unknown Species"
+                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            sheet_dataframes[sheet_name] = export_df
+                            sheets_created += 1
+                    except Exception as e:
+                        st.warning(f"Could not export Unknown Species: {str(e)}")
 
                     # Summary sheet if no data
                     if sheets_created == 0:
