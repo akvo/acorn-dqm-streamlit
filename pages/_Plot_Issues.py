@@ -196,6 +196,23 @@ filtered_gdf = create_sidebar_filters(gdf_subplots)
 # Calculate plot validation on FILTERED data
 plot_summary = calculate_plot_validation(filtered_gdf)
 
+# Filter to only MEASURED subplots for overall metrics
+import re
+if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+    temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
+    temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+    )
+    temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+        lambda x: int(x) if pd.notna(x) else 999
+    )
+    measured_subplot_ids = temp_df[
+        temp_df["subplot_number"] <= temp_df["measured_subplots"]
+    ]["subplot_id"].unique()
+    measured_gdf = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+else:
+    measured_gdf = filtered_gdf.copy()
+
 # Enrich plot_summary with enumerator and date info
 if len(plot_summary) > 0 and "PLOT_KEY" in filtered_gdf.columns:
     # Get first enumerator and starttime per plot
@@ -239,11 +256,11 @@ with col3:
         st.metric("❌ Invalid Plots", "0", "0.0%")
 
 with col4:
-    total_subplots = len(filtered_gdf)
+    total_subplots = len(measured_gdf)
     st.metric("Total Subplots", f"{total_subplots:,}")
 
 with col5:
-    invalid_subplots = (~filtered_gdf["overall_valid"]).sum()
+    invalid_subplots = (~measured_gdf["overall_valid"]).sum()
     invalid_sub_pct = (
         (invalid_subplots / total_subplots * 100) if total_subplots > 0 else 0
     )
@@ -260,17 +277,17 @@ st.markdown("### ⚠️ Subplot Issues Breakdown")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    geom_only = (~filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]).sum()
+    geom_only = (~measured_gdf["geom_valid"] & measured_gdf["veg_valid"]).sum()
     geom_pct = (geom_only / total_subplots * 100) if total_subplots > 0 else 0
     st.metric("🔶 Geometry Issues Only", f"{geom_only:,}", f"{geom_pct:.1f}%")
 
 with col2:
-    veg_only = (filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]).sum()
+    veg_only = (measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]).sum()
     veg_pct = (veg_only / total_subplots * 100) if total_subplots > 0 else 0
     st.metric("🌿 Vegetation Issues Only", f"{veg_only:,}", f"{veg_pct:.1f}%")
 
 with col3:
-    both = (~filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]).sum()
+    both = (~measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]).sum()
     both_pct = (both / total_subplots * 100) if total_subplots > 0 else 0
     st.metric("❌ Both Issues", f"{both:,}", f"{both_pct:.1f}%")
 
@@ -363,8 +380,8 @@ st.markdown("---")
 st.markdown("### 🌿 Subplots with Vegetation Issues Only")
 st.caption("Subplots that pass geometry checks but have ≥10 'other' trees")
 
-veg_issues_only = filtered_gdf[
-    filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]
+veg_issues_only = measured_gdf[
+    measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]
 ].copy()
 
 if len(veg_issues_only) > 0:
@@ -430,8 +447,8 @@ st.markdown("---")
 st.markdown("### 🔶 Subplots with Geometry Issues Only")
 st.caption("Subplots that pass vegetation checks but have geometry problems")
 
-geom_issues_only = filtered_gdf[
-    ~filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]
+geom_issues_only = measured_gdf[
+    ~measured_gdf["geom_valid"] & measured_gdf["veg_valid"]
 ].copy()
 
 if len(geom_issues_only) > 0:
@@ -502,8 +519,8 @@ st.markdown("### 📍 Subplots with Empty Geometry")
 st.caption("Subplots where no valid GPS polygon could be created")
 
 # Filter for empty geometry subplots
-empty_geom_subplots = filtered_gdf[
-    filtered_gdf["reasons"].str.contains("Empty geometry", case=False, na=False)
+empty_geom_subplots = measured_gdf[
+    measured_gdf["reasons"].str.contains("Empty geometry", case=False, na=False)
 ].copy()
 
 if len(empty_geom_subplots) > 0:
@@ -579,8 +596,8 @@ st.markdown("---")
 st.markdown("### ❌ Subplots with Both Geometry & Vegetation Issues")
 st.caption("Subplots that fail both validation checks - highest priority for revisit")
 
-both_issues = filtered_gdf[
-    ~filtered_gdf["geom_valid"] & ~filtered_gdf["veg_valid"]
+both_issues = measured_gdf[
+    ~measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]
 ].copy()
 
 if len(both_issues) > 0:
