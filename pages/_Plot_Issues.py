@@ -6,7 +6,7 @@ Shows plots with ≥8 invalid subplots and detailed error breakdown
 import streamlit as st
 import pandas as pd
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info, show_plot_metrics_row
 
 # Page config
 st.set_page_config(
@@ -190,11 +190,22 @@ def calculate_plot_validation(gdf_subplots):
 # Add vegetation validation
 gdf_subplots = add_vegetation_validation(gdf_subplots, raw_data)
 
-# Calculate plot validation
-plot_summary = calculate_plot_validation(gdf_subplots)
-
 # Apply filters (shows date filter at top of sidebar)
 filtered_gdf = create_sidebar_filters(gdf_subplots)
+
+# Calculate plot validation on FILTERED data
+plot_summary = calculate_plot_validation(filtered_gdf)
+
+# Enrich plot_summary with enumerator and date info
+if len(plot_summary) > 0 and "PLOT_KEY" in filtered_gdf.columns:
+    # Get first enumerator and starttime per plot
+    plot_info = filtered_gdf.groupby("PLOT_KEY").agg({
+        "enumerator": "first",
+        "starttime": "first" if "starttime" in filtered_gdf.columns else lambda x: None
+    }).reset_index()
+
+    # Merge with plot_summary
+    plot_summary = plot_summary.merge(plot_info, on="PLOT_KEY", how="left")
 
 # Show sidebar info (partner and data status)
 show_sidebar_info()
@@ -205,7 +216,7 @@ show_sidebar_info()
 
 st.markdown("### 📊 Overall Summary")
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     total_plots = len(plot_summary) if len(plot_summary) > 0 else 0
@@ -213,17 +224,25 @@ with col1:
 
 with col2:
     if len(plot_summary) > 0:
+        valid_plots = plot_summary["plot_valid"].sum()
+        valid_pct = (valid_plots / total_plots * 100) if total_plots > 0 else 0
+        st.metric("✅ Valid Plots", f"{valid_plots:,}", f"{valid_pct:.1f}%")
+    else:
+        st.metric("✅ Valid Plots", "0", "0.0%")
+
+with col3:
+    if len(plot_summary) > 0:
         invalid_plots = (~plot_summary["plot_valid"]).sum()
         invalid_pct = (invalid_plots / total_plots * 100) if total_plots > 0 else 0
         st.metric("❌ Invalid Plots", f"{invalid_plots:,}", f"{invalid_pct:.1f}%")
     else:
         st.metric("❌ Invalid Plots", "0", "0.0%")
 
-with col3:
+with col4:
     total_subplots = len(filtered_gdf)
     st.metric("Total Subplots", f"{total_subplots:,}")
 
-with col4:
+with col5:
     invalid_subplots = (~filtered_gdf["overall_valid"]).sum()
     invalid_sub_pct = (
         (invalid_subplots / total_subplots * 100) if total_subplots > 0 else 0
@@ -274,37 +293,49 @@ if len(plot_summary) > 0:
         )
 
         # Display table
-        display_df = invalid_plots_df[
-            [
-                "PLOT_KEY",
-                "total_subplots",
-                "invalid_subplots",
-                "valid_subplots",
-                "geom_invalid",
-                "veg_invalid",
-            ]
-        ].copy()
+        display_cols = [
+            "PLOT_KEY",
+            "enumerator",
+            "total_subplots",
+            "invalid_subplots",
+            "valid_subplots",
+            "geom_invalid",
+            "veg_invalid",
+        ]
+
+        # Add starttime if available
+        if "starttime" in invalid_plots_df.columns:
+            display_cols.insert(2, "starttime")
+
+        display_df = invalid_plots_df[display_cols].copy()
 
         # Add row numbers
         display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+        column_config = {
+            "#": st.column_config.NumberColumn("#", width="small"),
+            "PLOT_KEY": "Plot ID",
+            "enumerator": "Enumerator",
+            "total_subplots": st.column_config.NumberColumn("Total", width="small"),
+            "invalid_subplots": st.column_config.NumberColumn(
+                "❌ Invalid", width="small"
+            ),
+            "valid_subplots": st.column_config.NumberColumn(
+                "✅ Valid", width="small"
+            ),
+            "geom_invalid": st.column_config.NumberColumn("🔶 Geom", width="small"),
+            "veg_invalid": st.column_config.NumberColumn("🌿 Veg", width="small"),
+        }
+
+        # Add starttime config if available
+        if "starttime" in display_df.columns:
+            column_config["starttime"] = st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD")
 
         st.dataframe(
             display_df,
             use_container_width=True,
             height=400,
-            column_config={
-                "#": st.column_config.NumberColumn("#", width="small"),
-                "PLOT_KEY": "Plot ID",
-                "total_subplots": st.column_config.NumberColumn("Total", width="small"),
-                "invalid_subplots": st.column_config.NumberColumn(
-                    "❌ Invalid", width="small"
-                ),
-                "valid_subplots": st.column_config.NumberColumn(
-                    "✅ Valid", width="small"
-                ),
-                "geom_invalid": st.column_config.NumberColumn("🔶 Geom", width="small"),
-                "veg_invalid": st.column_config.NumberColumn("🌿 Veg", width="small"),
-            },
+            column_config=column_config,
             hide_index=True,
         )
 
@@ -464,6 +495,84 @@ else:
 st.markdown("---")
 
 # ============================================
+# SUBPLOTS WITH EMPTY GEOMETRY
+# ============================================
+
+st.markdown("### 📍 Subplots with Empty Geometry")
+st.caption("Subplots where no valid GPS polygon could be created")
+
+# Filter for empty geometry subplots
+empty_geom_subplots = filtered_gdf[
+    filtered_gdf["reasons"].str.contains("Empty geometry", case=False, na=False)
+].copy()
+
+if len(empty_geom_subplots) > 0:
+    st.error(
+        f"📍 {len(empty_geom_subplots)} subplots have empty geometry - GPS data collection issues"
+    )
+
+    # Prepare display columns
+    display_cols = [
+        "subplot_id",
+        "PLOT_KEY",
+        "enumerator",
+    ]
+
+    # Add empty_geom_detail if it exists and has non-empty values
+    if "empty_geom_detail" in empty_geom_subplots.columns:
+        # Check if column has any non-empty values
+        has_data = empty_geom_subplots["empty_geom_detail"].notna().any() and \
+                   (empty_geom_subplots["empty_geom_detail"] != "").any()
+        if has_data:
+            display_cols.append("empty_geom_detail")
+        else:
+            # Fall back to reasons column if empty_geom_detail is empty
+            st.info("ℹ️ Detailed GPS statistics not available. Please reload the data to see detailed reasons.")
+            display_cols.append("reasons")
+    else:
+        display_cols.append("reasons")
+
+    # Add starttime if available
+    if "starttime" in empty_geom_subplots.columns:
+        display_cols.insert(3, "starttime")
+
+    display_cols = [col for col in display_cols if col in empty_geom_subplots.columns]
+
+    empty_geom_display = empty_geom_subplots[display_cols].copy()
+
+    # Add row numbers
+    empty_geom_display.insert(0, "#", range(1, len(empty_geom_display) + 1))
+
+    column_config = {
+        "#": st.column_config.NumberColumn("#", width="small"),
+        "subplot_id": "Subplot ID",
+        "PLOT_KEY": "Plot ID",
+        "enumerator": "Enumerator",
+    }
+
+    # Add appropriate issue description column
+    if "empty_geom_detail" in empty_geom_display.columns:
+        column_config["empty_geom_detail"] = "Issue Description"
+    elif "reasons" in empty_geom_display.columns:
+        column_config["reasons"] = "Issue Description"
+
+    # Add starttime config if available
+    if "starttime" in empty_geom_display.columns:
+        column_config["starttime"] = st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD")
+
+    st.dataframe(
+        empty_geom_display,
+        use_container_width=True,
+        height=400,
+        column_config=column_config,
+        hide_index=True,
+    )
+else:
+    st.success("✅ No subplots with empty geometry!")
+
+st.markdown("---")
+
+# ============================================
 # SUBPLOTS WITH BOTH ISSUES
 # ============================================
 
@@ -537,6 +646,8 @@ else:
     st.success("✅ No subplots with both types of issues!")
 
 st.markdown("---")
+
+
 
 # ============================================
 # VALIDATION RULES REFERENCE

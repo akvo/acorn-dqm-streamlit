@@ -10,6 +10,7 @@ import requests
 from io import BytesIO
 from ui.components import (
     show_header,
+    show_plot_metrics_row,
     show_metrics_row,
     show_status_message,
     create_sidebar_filters,
@@ -142,7 +143,31 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Settings display
+    # GPS Accuracy Settings
+    st.markdown("## ⚙️ GPS Accuracy Settings")
+
+    # Initialize session state for accuracy_zero_valid if not exists
+    if "accuracy_zero_valid" not in st.session_state:
+        st.session_state.accuracy_zero_valid = True
+
+    # Toggle for accepting 0m accuracy
+    accept_zero_accuracy = st.checkbox(
+        "Accept 0m GPS accuracy",
+        value=st.session_state.accuracy_zero_valid,
+        help="When checked, GPS points with 0m accuracy are accepted. When unchecked, they are filtered out. "
+             "Note: 0m accuracy may indicate device errors, but in some cases it's valid data.",
+        key="accuracy_zero_toggle"
+    )
+    st.session_state.accuracy_zero_valid = accept_zero_accuracy
+
+    if accept_zero_accuracy:
+        st.caption("✅ GPS points with 0m accuracy will be **accepted**")
+    else:
+        st.caption("❌ GPS points with 0m accuracy will be **filtered out**")
+
+    st.markdown("---")
+
+    # Validation Settings display
     st.markdown("## ⚙️ Validation Settings")
     st.caption(f"**Min Subplot Area:** {config.MIN_SUBPLOT_AREA_SIZE} m²")
     st.caption(f"**Max Subplot Area:** {config.MAX_SUBPLOT_AREA_SIZE} m²")
@@ -399,10 +424,82 @@ if st.session_state.data is not None:
     # Get summary
     summary = get_validation_summary(filtered_gdf)
 
+    # Calculate plot-level metrics using same logic as Plot Issues page
+    # Need to add vegetation validation first
+    raw_data = st.session_state.data.get("raw_data", {})
+
+    # Add vegetation validation if not already present
+    if "overall_valid" not in filtered_gdf.columns:
+        # Add SUBPLOT_KEY if needed
+        if "SUBPLOT_KEY" not in filtered_gdf.columns:
+            filtered_gdf["SUBPLOT_KEY"] = filtered_gdf["subplot_id"]
+
+        # Simple vegetation validation for overview
+        if "plots_subplots_vegetation" in raw_data:
+            veg_df = raw_data["plots_subplots_vegetation"]
+            veg_valid_list = []
+            for idx, row in filtered_gdf.iterrows():
+                subplot_key = row["SUBPLOT_KEY"]
+                subplot_veg = veg_df[veg_df["SUBPLOT_KEY"] == subplot_key]
+
+                # Check for 'other' species
+                other_count = 0
+                if "other_species" in subplot_veg.columns:
+                    other_count = subplot_veg["other_species"].notna().sum()
+                elif "vegetation_species_type" in subplot_veg.columns:
+                    other_count = (subplot_veg["vegetation_species_type"].astype(str).str.lower() == "other").sum()
+
+                veg_valid_list.append(other_count < 10)
+
+            filtered_gdf["veg_valid"] = veg_valid_list
+        else:
+            filtered_gdf["veg_valid"] = True
+
+        # Create overall_valid column
+        filtered_gdf["overall_valid"] = filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]
+
+    # Now calculate plot validation using overall_valid
+    import re
+
+    if "PLOT_KEY" not in filtered_gdf.columns and "subplot_id" in filtered_gdf.columns:
+        filtered_gdf["PLOT_KEY"] = filtered_gdf["subplot_id"].str.split("/").str[0]
+
+    if "PLOT_KEY" in filtered_gdf.columns:
+        # Filter to only measured subplots (same as Plot Issues page)
+        if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+            temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
+            temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            )
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+            measured_subplot_ids = temp_df[
+                temp_df["subplot_number"] <= temp_df["measured_subplots"]
+            ]["subplot_id"].unique()
+            gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+        else:
+            gdf_for_plots = filtered_gdf.copy()
+
+        plot_summary = (
+            gdf_for_plots.groupby("PLOT_KEY")
+            .agg({"subplot_id": "count", "overall_valid": "sum"})
+            .reset_index()
+        )
+        plot_summary.columns = ["PLOT_KEY", "total_subplots", "valid_subplots"]
+        plot_summary["invalid_subplots"] = plot_summary["total_subplots"] - plot_summary["valid_subplots"]
+        # Plot is invalid if ≥8 subplots are invalid
+        plot_summary["plot_valid"] = plot_summary["invalid_subplots"] < 8
+    else:
+        plot_summary = pd.DataFrame()
+
     # Main content
     st.markdown("## 📊 Overview Dashboard")
 
-    # Metrics row
+    # Plot-level metrics (Row 1)
+    show_plot_metrics_row(plot_summary)
+
+    # Subplot-level metrics (Row 2)
     show_metrics_row(summary)
 
     # Status message

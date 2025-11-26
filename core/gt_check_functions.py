@@ -602,10 +602,14 @@ def coordinates_from_vertices(vertices, accuracy_m, accuracy_zero_valid=False):
     """Extract coordinates from vertices with accuracy filtering"""
     coordinates = []
     skip_coordinates_counter = 0
+    dropped_over_threshold = 0
+    dropped_zero_accuracy = 0
+    dropped_empty = 0
 
     for vertex in vertices:
         if not vertex.strip():
             skip_coordinates_counter += 1
+            dropped_empty += 1
             continue
 
         parts = vertex.strip().split(" ")
@@ -614,36 +618,86 @@ def coordinates_from_vertices(vertices, accuracy_m, accuracy_zero_valid=False):
         if accuracy_zero_valid:
             if accuracy > accuracy_m:
                 skip_coordinates_counter += 1
+                dropped_over_threshold += 1
                 continue
         else:
-            if accuracy > accuracy_m or abs(accuracy - 0.0) < 1e-9:
+            if accuracy > accuracy_m:
                 skip_coordinates_counter += 1
+                dropped_over_threshold += 1
+                continue
+            elif abs(accuracy - 0.0) < 1e-9:
+                skip_coordinates_counter += 1
+                dropped_zero_accuracy += 1
                 continue
 
         lon = float(parts[0])
         lat = float(parts[1])
         coordinates.append((lat, lon))
 
-    return coordinates, skip_coordinates_counter
+    stats = {
+        "dropped_over_threshold": dropped_over_threshold,
+        "dropped_zero_accuracy": dropped_zero_accuracy,
+        "dropped_empty": dropped_empty,
+    }
+
+    return coordinates, skip_coordinates_counter, stats
 
 
 def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
-    """Create geometry from SurveyCTO coordinate string"""
+    """Create geometry from SurveyCTO coordinate string
+
+    Returns: tuple (geometry, metadata_dict)
+    """
     polygon_string = pd_row[column]
-    if is_invalid_polygon_string(polygon_string, pd_row, column):
-        return shapely.geometry.polygon.Polygon()
+
+    # Check if no GPS data
+    if pd.isna(polygon_string):
+        return shapely.geometry.polygon.Polygon(), {"reason": "No GPS coordinates were recorded"}
+
+    # Check if Excel cell limit exceeded
+    if len(polygon_string) == 32767:
+        return shapely.geometry.polygon.Polygon(), {"reason": "GPS data exceeded Excel's cell limit (32,767 characters)"}
 
     vertices = polygon_string.split(";")
-    coordinates, skip_coordinates_counter = coordinates_from_vertices(
+    total_vertices = len(vertices)
+
+    coordinates, skip_coordinates_counter, stats = coordinates_from_vertices(
         vertices, accuracy_m, accuracy_zero_valid
     )
 
-    if len(coordinates) < 3 or (len(coordinates) < (skip_coordinates_counter * 4)):
+    valid_points = len(coordinates)
+    total_dropped = skip_coordinates_counter
+
+    # Check if geometry should be rejected
+    if len(coordinates) < 3:
+        # Not enough points to form a polygon
+        reason = f"{total_vertices} collected, {total_dropped} dropped"
+        if stats["dropped_over_threshold"] > 0 or stats["dropped_zero_accuracy"] > 0:
+            details = []
+            if stats["dropped_over_threshold"] > 0:
+                details.append(f"{stats['dropped_over_threshold']} >{accuracy_m}m")
+            if stats["dropped_zero_accuracy"] > 0:
+                details.append(f"{stats['dropped_zero_accuracy']} =0m")
+            reason += ". " + ", ".join(details)
+        return shapely.geometry.polygon.Polygon(), {"reason": reason, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
+
+    elif len(coordinates) < (skip_coordinates_counter * 4):
+        # Ratio check failed: too many points dropped relative to valid points
         print(f"Dropped too many points for pd_row")
-        return shapely.geometry.polygon.Polygon()
+        valid_percentage = (valid_points / total_vertices * 100) if total_vertices > 0 else 0
+        reason = f"{total_vertices} collected, {total_dropped} dropped"
+        if stats["dropped_over_threshold"] > 0 or stats["dropped_zero_accuracy"] > 0:
+            details = []
+            if stats["dropped_over_threshold"] > 0:
+                details.append(f"{stats['dropped_over_threshold']} >{accuracy_m}m")
+            if stats["dropped_zero_accuracy"] > 0:
+                details.append(f"{stats['dropped_zero_accuracy']} =0m")
+            reason += ". " + ", ".join(details)
+        reason += f". < 80% valid ({valid_percentage:.0f}%)"
+        return shapely.geometry.polygon.Polygon(), {"reason": reason, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
 
     geom = shapely.geometry.polygon.Polygon(coordinates)
-    return geom
+    return geom, {"reason": None, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
 
 
 # ============================================

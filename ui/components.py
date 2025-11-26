@@ -91,6 +91,31 @@ def show_partner_selector():
     )
 
 
+def show_plot_metrics_row(plot_summary):
+    """Display plot-level metrics in a row"""
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        total_plots = len(plot_summary) if len(plot_summary) > 0 else 0
+        st.metric("📍 Total Plots", f"{total_plots:,}")
+
+    with col2:
+        if len(plot_summary) > 0:
+            valid_plots = plot_summary["plot_valid"].sum()
+            valid_pct = (valid_plots / total_plots * 100) if total_plots > 0 else 0
+            st.metric("✅ Valid Plots", f"{valid_plots:,}", f"{valid_pct:.1f}%")
+        else:
+            st.metric("✅ Valid Plots", "0", "0.0%")
+
+    with col3:
+        if len(plot_summary) > 0:
+            invalid_plots = (~plot_summary["plot_valid"]).sum()
+            invalid_pct = (invalid_plots / total_plots * 100) if total_plots > 0 else 0
+            st.metric("❌ Invalid Plots", f"{invalid_plots:,}", f"{invalid_pct:.1f}%")
+        else:
+            st.metric("❌ Invalid Plots", "0", "0.0%")
+
+
 def show_metrics_row(summary):
     """Display metrics in a row"""
     col1, col2, col3, col4 = st.columns(4)

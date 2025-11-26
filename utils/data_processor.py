@@ -14,6 +14,7 @@ from core import (
 )
 import config
 import sys
+import streamlit as st
 
 
 def read_excel_all_sheets(uploaded_file):
@@ -254,16 +255,23 @@ def process_excel_file(uploaded_file):
         columns={"SUBPLOT_KEY": "subplot_id"}
     )
 
-    # Create geometry
-    subplots_for_validation["geometry"] = subplots_for_validation.apply(
+    # Get accuracy_zero_valid from session state
+    accuracy_zero_valid = st.session_state.get('accuracy_zero_valid', True)
+
+    # Create geometry and extract metadata
+    geom_results = subplots_for_validation.apply(
         lambda row: geom_from_scto_str(
             row,
             column="gt_subplot",
             accuracy_m=config.GPS_ACCURACY_THRESHOLD,
-            accuracy_zero_valid=False,
+            accuracy_zero_valid=accuracy_zero_valid,
         ),
         axis=1,
     )
+
+    # Split geometry and metadata
+    subplots_for_validation["geometry"] = geom_results.apply(lambda x: x[0])
+    subplots_for_validation["empty_geom_detail"] = geom_results.apply(lambda x: x[1].get("reason", ""))
 
     gdf_subplots = gpd.GeoDataFrame(
         subplots_for_validation, geometry="geometry", crs=4326
@@ -322,15 +330,19 @@ def process_excel_file(uploaded_file):
     # Process plots
     plots_for_validation = sheets["plots"].copy()
     if "gt_plot" in plots_for_validation.columns:
-        plots_for_validation["geometry"] = plots_for_validation.apply(
+        # Create geometry and extract metadata for plots
+        geom_results_plots = plots_for_validation.apply(
             lambda row: geom_from_scto_str(
                 row,
                 column="gt_plot",
                 accuracy_m=config.GPS_ACCURACY_THRESHOLD,
-                accuracy_zero_valid=False,
+                accuracy_zero_valid=accuracy_zero_valid,
             ),
             axis=1,
         )
+        # Split geometry and metadata
+        plots_for_validation["geometry"] = geom_results_plots.apply(lambda x: x[0])
+        plots_for_validation["empty_geom_detail"] = geom_results_plots.apply(lambda x: x[1].get("reason", ""))
         gdf_plots = gpd.GeoDataFrame(
             plots_for_validation, geometry="geometry", crs=4326
         )
@@ -1247,16 +1259,23 @@ def process_json_data(json_data):
         columns={"SUBPLOT_KEY": "subplot_id"}
     )
 
-    # Create geometry
-    subplots_for_validation["geometry"] = subplots_for_validation.apply(
+    # Get accuracy_zero_valid from session state
+    accuracy_zero_valid = st.session_state.get('accuracy_zero_valid', True)
+
+    # Create geometry and extract metadata
+    geom_results = subplots_for_validation.apply(
         lambda row: geom_from_scto_str(
             row,
             column="gt_subplot",
             accuracy_m=config.GPS_ACCURACY_THRESHOLD,
-            accuracy_zero_valid=False,
+            accuracy_zero_valid=accuracy_zero_valid,
         ),
         axis=1,
     )
+
+    # Split geometry and metadata
+    subplots_for_validation["geometry"] = geom_results.apply(lambda x: x[0])
+    subplots_for_validation["empty_geom_detail"] = geom_results.apply(lambda x: x[1].get("reason", ""))
 
     gdf_subplots = gpd.GeoDataFrame(
         subplots_for_validation, geometry="geometry", crs=4326
@@ -1315,15 +1334,19 @@ def process_json_data(json_data):
     # Process plots
     plots_for_validation = sheets["plots"].copy()
     if "gt_plot" in plots_for_validation.columns:
-        plots_for_validation["geometry"] = plots_for_validation.apply(
+        # Create geometry and extract metadata for plots
+        geom_results_plots = plots_for_validation.apply(
             lambda row: geom_from_scto_str(
                 row,
                 column="gt_plot",
                 accuracy_m=config.GPS_ACCURACY_THRESHOLD,
-                accuracy_zero_valid=False,
+                accuracy_zero_valid=accuracy_zero_valid,
             ),
             axis=1,
         )
+        # Split geometry and metadata
+        plots_for_validation["geometry"] = geom_results_plots.apply(lambda x: x[0])
+        plots_for_validation["empty_geom_detail"] = geom_results_plots.apply(lambda x: x[1].get("reason", ""))
         gdf_plots = gpd.GeoDataFrame(
             plots_for_validation, geometry="geometry", crs=4326
         )
