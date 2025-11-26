@@ -421,9 +421,6 @@ if st.session_state.data is not None:
     # Show sidebar info (partner and data status)
     show_sidebar_info()
 
-    # Get summary
-    summary = get_validation_summary(filtered_gdf)
-
     # Calculate plot-level metrics using same logic as Plot Issues page
     # Need to add vegetation validation first
     raw_data = st.session_state.data.get("raw_data", {})
@@ -491,7 +488,25 @@ if st.session_state.data is not None:
         # Plot is invalid if ≥8 subplots are invalid
         plot_summary["plot_valid"] = plot_summary["invalid_subplots"] < 8
     else:
+        # Fallback: Still try to filter by measured subplots even without PLOT_KEY
         plot_summary = pd.DataFrame()
+        if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+            temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
+            temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            )
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+            measured_subplot_ids = temp_df[
+                temp_df["subplot_number"] <= temp_df["measured_subplots"]
+            ]["subplot_id"].unique()
+            gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+        else:
+            gdf_for_plots = filtered_gdf.copy()
+
+    # Calculate summary from MEASURED subplots only (not all 16 subplots per plot)
+    summary = get_validation_summary(gdf_for_plots)
 
     # Main content
     st.markdown("## 📊 Overview Dashboard")
