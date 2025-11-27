@@ -165,32 +165,48 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
     story.append(Spacer(1, 1*inch))
 
-    # Overall Statistics
-    # Total subplots is the count of subplot records
-    total_subplots = len(filtered_gdf)
+    # Overall Statistics - Filter to only measured subplots
+    # Filter to only measured subplots (same as app.py and Plot Issues page)
+    if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+        temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
+        temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+        )
+        temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+            lambda x: int(x) if pd.notna(x) else 999
+        )
+        measured_subplot_ids = temp_df[
+            temp_df["subplot_number"] <= temp_df["measured_subplots"]
+        ]["subplot_id"].unique()
+        measured_gdf = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+    else:
+        measured_gdf = filtered_gdf.copy()
 
-    total_valid = filtered_gdf["geom_valid"].sum() if "geom_valid" in filtered_gdf.columns else 0
-    total_invalid = len(filtered_gdf) - total_valid  # Count of invalid records
-    error_rate = (total_invalid / len(filtered_gdf) * 100) if len(filtered_gdf) > 0 else 0
+    # Total subplots is the count of MEASURED subplot records only
+    total_subplots = len(measured_gdf)
 
-    # Count unique enumerators and plots
-    unique_enumerators = filtered_gdf["enumerator"].nunique() if "enumerator" in filtered_gdf.columns else 0
+    total_valid = measured_gdf["geom_valid"].sum() if "geom_valid" in measured_gdf.columns else 0
+    total_invalid = len(measured_gdf) - total_valid  # Count of invalid records
+    error_rate = (total_invalid / len(measured_gdf) * 100) if len(measured_gdf) > 0 else 0
 
-    # Count unique GT plots per data collector
+    # Count unique enumerators and plots (from measured subplots only)
+    unique_enumerators = measured_gdf["enumerator"].nunique() if "enumerator" in measured_gdf.columns else 0
+
+    # Count unique GT plots per data collector (from measured subplots only)
     unique_plots = 0
-    if "subplot_id" in filtered_gdf.columns:
+    if "subplot_id" in measured_gdf.columns:
         # Extract plot ID from subplot_id (format: uuid:.../sub_plot[n])
-        filtered_gdf_copy = filtered_gdf.copy()
-        filtered_gdf_copy["plot_id"] = filtered_gdf_copy["subplot_id"].apply(
+        measured_gdf_copy = measured_gdf.copy()
+        measured_gdf_copy["plot_id"] = measured_gdf_copy["subplot_id"].apply(
             lambda x: str(x).split("/sub_plot")[0] if pd.notna(x) and "/sub_plot" in str(x) else str(x)
         )
-        unique_plots = filtered_gdf_copy["plot_id"].nunique()
+        unique_plots = measured_gdf_copy["plot_id"].nunique()
 
     # Summary statistics table
     summary_data = [
         ["Metric", "Value"],
         ["Total Subplots Measured", f"{total_subplots:,}"],
-        ["Valid Subplots", f"{total_valid:,} ({total_valid/len(filtered_gdf)*100:.1f}%)"],
+        ["Valid Subplots", f"{total_valid:,} ({total_valid/len(measured_gdf)*100:.1f}%)"],
         ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)"],
         ["GT Plots", f"{unique_plots:,}"],
         ["Data Collectors", f"{unique_enumerators}"],
@@ -218,9 +234,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     # ============= GEOMETRY QUALITY CHECK =============
     story.append(Paragraph("📐 Geometry Quality Check Summary", heading_style))
 
-    # Most common errors
-    if "reasons" in filtered_gdf.columns and total_invalid > 0:
-        invalid_gdf = filtered_gdf[~filtered_gdf["geom_valid"]].copy()
+    # Most common errors (from measured subplots only)
+    if "reasons" in measured_gdf.columns and total_invalid > 0:
+        invalid_gdf = measured_gdf[~measured_gdf["geom_valid"]].copy()
 
         # Count error types
         error_reasons = []
@@ -239,12 +255,12 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
             ))
             story.append(Spacer(1, 0.3*inch))
 
-    # Geometry errors by enumerator with GT plot count
-    if "enumerator" in filtered_gdf.columns and total_invalid > 0:
+    # Geometry errors by enumerator with GT plot count (from measured subplots only)
+    if "enumerator" in measured_gdf.columns and total_invalid > 0:
         # Calculate stats per enumerator
         enum_stats_list = []
-        for enum_name in filtered_gdf["enumerator"].unique():
-            enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
+        for enum_name in measured_gdf["enumerator"].unique():
+            enum_data = measured_gdf[measured_gdf["enumerator"] == enum_name]
 
             # Filter to only measured subplots
             if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
@@ -387,13 +403,13 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 leftIndent=10,
             )))
 
-    # Show individual maps grouped by GT Plot, then subplots
-    if "enumerator" in filtered_gdf.columns and MATPLOTLIB_AVAILABLE:
+    # Show individual maps grouped by GT Plot, then subplots (from measured subplots only)
+    if "enumerator" in measured_gdf.columns and MATPLOTLIB_AVAILABLE:
         story.append(Spacer(1, 0.3*inch))
         story.append(Paragraph("Maps by Data Collector and GT Plot", subheading_style))
 
-        for enum_name in sorted(filtered_gdf["enumerator"].unique()):
-            enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum_name]
+        for enum_name in sorted(measured_gdf["enumerator"].unique()):
+            enum_data = measured_gdf[measured_gdf["enumerator"] == enum_name]
 
             print(f"DEBUG PDF SUMMARY: {enum_name} - BEFORE filtering: {len(enum_data)} subplots", file=sys.stderr)
 
@@ -637,11 +653,11 @@ We detect measurement issues by comparing tree measurements to expected ranges a
         meas_df = raw_data["plots_subplots_vegetation_measurements"].copy()
 
         # Filter to only measured subplots
-        filtered_subplot_ids = filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
-        if len(filtered_subplot_ids) > 0 and "SUBPLOT_KEY" in meas_df.columns:
-            meas_df = meas_df[meas_df["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+        measured_subplot_ids = measured_gdf["subplot_id"].unique() if "subplot_id" in measured_gdf.columns else []
+        if len(measured_subplot_ids) > 0 and "SUBPLOT_KEY" in meas_df.columns:
+            meas_df = meas_df[meas_df["SUBPLOT_KEY"].isin(measured_subplot_ids)].copy()
 
-        meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
+        meas_with_enum = merge_with_enumerator(meas_df, measured_gdf)
         species_col = get_species_column(meas_with_enum)
 
         # Height Outliers
