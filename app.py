@@ -3,11 +3,15 @@ Ground Truth DQM - Overview Dashboard
 Main landing page with data loading and overview analytics
 """
 
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file for dev mode
+
 import streamlit as st
 import pandas as pd
 import config
 import requests
 from io import BytesIO
+from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache_exists
 from ui.components import (
     show_header,
     show_plot_metrics_row,
@@ -26,6 +30,104 @@ from utils.data_processor import (
     process_json_data,
     get_validation_summary,
 )
+import re as regex_module
+
+
+def fetch_surveycto_data(server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label=""):
+    """
+    Fetch data from SurveyCTO API with comprehensive error handling.
+
+    Args:
+        server_name: SurveyCTO server name
+        username: API username
+        password: API password
+        form_id: Form ID to fetch
+        progress_bar: Optional Streamlit progress bar
+        progress_start: Start percentage for progress bar
+        progress_end: End percentage for progress bar
+        label: Label for progress messages (e.g., "GT" or "DQ")
+
+    Returns:
+        tuple: (success: bool, data: dict or None, error_message: str or None)
+    """
+    try:
+        if progress_bar:
+            progress_bar.progress(progress_start, text=f"Fetching {label} data from API...")
+
+        url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
+        params = {"date": "0"}
+
+        response = requests.get(
+            url, auth=(username, password), params=params, timeout=60
+        )
+
+        # Check for specific HTTP errors
+        if response.status_code == 417:
+            try:
+                error_data = response.json()
+                wait_seconds = error_data.get("error", {}).get("message", "")
+                match = regex_module.search(r'(\d+)\s*seconds', wait_seconds)
+                if match:
+                    wait_time = int(match.group(1))
+                    return False, None, f"Rate limit: Please wait {wait_time} seconds before retrying."
+                else:
+                    return False, None, f"Rate limit: {wait_seconds}"
+            except:
+                return False, None, "Rate limit: Please wait approximately 5 minutes before retrying."
+
+        elif response.status_code == 429:
+            return False, None, "Rate limit exceeded. Please wait 60 seconds before trying again."
+
+        elif response.status_code == 503:
+            return False, None, "Service temporarily unavailable. Please wait 60-120 seconds."
+
+        elif response.status_code == 401:
+            return False, None, "Authentication failed. Check your credentials."
+
+        elif response.status_code == 403:
+            return False, None, "Access denied. You may not have permission to access this form."
+
+        elif response.status_code == 404:
+            return False, None, f"Form '{form_id}' not found on server '{server_name}'."
+
+        elif response.status_code == 412:
+            try:
+                error_response = response.json()
+                error_msg = error_response.get("error", {}).get("message", response.text)
+            except:
+                error_msg = response.text
+            return False, None, f"Precondition failed: {error_msg}"
+
+        elif response.status_code >= 500:
+            return False, None, f"Server error (Status: {response.status_code}). Try again later."
+
+        response.raise_for_status()
+        json_data = response.json()
+
+        if progress_bar:
+            mid_progress = progress_start + (progress_end - progress_start) // 2
+            progress_bar.progress(mid_progress, text=f"Processing {label} data...")
+
+        # Process the data
+        data = process_json_data(json_data)
+
+        if progress_bar:
+            progress_bar.progress(progress_end, text=f"{label} data processed!")
+
+        return True, data, None
+
+    except requests.exceptions.Timeout:
+        return False, None, "Request timeout. The request took too long."
+
+    except requests.exceptions.ConnectionError:
+        return False, None, "Connection error. Could not connect to SurveyCTO server."
+
+    except ValueError as e:
+        return False, None, f"Invalid response: {str(e)}"
+
+    except Exception as e:
+        return False, None, f"Unexpected error: {str(e)}"
+
 
 # Page config (must be first)
 st.set_page_config(
@@ -73,6 +175,10 @@ if "username" not in st.session_state:
     st.session_state.username = ""
 if "password" not in st.session_state:
     st.session_state.password = ""
+if "dq_data" not in st.session_state:
+    st.session_state.dq_data = None
+if "dq_filename" not in st.session_state:
+    st.session_state.dq_filename = None
 
 # Header
 show_header()
@@ -82,6 +188,10 @@ with st.sidebar:
     # Show active partner
     active_partner = st.session_state.get("partner", config.PARTNER)
     st.info(f"🔗 **Active Partner:** {active_partner}")
+
+    # Show dev mode indicator if enabled
+    if is_dev_mode():
+        st.warning("🛠️ **Dev Mode Active** - Using local cache")
 
     st.markdown("## 🌐 Data Source: API")
     st.markdown("### 🔐 SurveyCTO Credentials")
@@ -141,6 +251,11 @@ with st.sidebar:
     else:
         st.warning("⚠️ Form ID required")
 
+    # DQ Form ID display
+    st.markdown("### 🔍 DQ Form ID")
+    st.info(f"**DQ Form ID**: `{config.DQ_FORM_ID}`")
+    st.caption("DQ data will also be fetched for comparison")
+
     st.markdown("---")
 
     # GPS Accuracy Settings
@@ -179,7 +294,7 @@ with st.sidebar:
     # Process button
     if credentials_configured and form_id:
         process_btn = st.button(
-            "🚀 Fetch & Validate", type="primary", use_container_width=True
+            "🚀 Fetch GT Data", type="primary", use_container_width=True
         )
     else:
         process_btn = False
@@ -188,172 +303,186 @@ with st.sidebar:
         elif not form_id:
             st.warning("⚠️ Enter form ID")
 
-# Process data (fetch from API, then process)
+# Process data (fetch from API or cache, then process)
 if process_btn and credentials_configured:
     with st.spinner("Fetching and processing data..."):
         try:
             progress_bar = st.progress(0, text="Connecting to SurveyCTO...")
 
-            # Fetch JSON data directly
-            progress_bar.progress(25, text="📡 Downloading from API...")
+            # Check for cached data in dev mode
+            use_cache = is_dev_mode() and cache_exists(config.PARTNER, "gt")
 
-            url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
-            params = {"date": "0"}
+            if use_cache:
+                # Load from cache
+                progress_bar.progress(25, text="📁 Loading from local cache...")
+                json_data = load_from_cache(config.PARTNER, "gt")
+                st.info(f"📁 Loaded GT data from local cache (dev mode) - {len(json_data)} records")
+            else:
+                # Fetch JSON data directly from API
+                progress_bar.progress(25, text="📡 Downloading from API...")
 
-            response = requests.get(
-                url, auth=(username, password), params=params, timeout=60
-            )
+                url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
+                params = {"date": "0"}
 
-            # Check for specific HTTP errors
-            if response.status_code == 417:
-                # SurveyCTO rate limit response
-                progress_bar.empty()
-                try:
-                    error_data = response.json()
-                    wait_seconds = error_data.get("error", {}).get("message", "")
+                response = requests.get(
+                    url, auth=(username, password), params=params, timeout=60
+                )
 
-                    # Extract wait time from message
-                    import re
-                    match = re.search(r'(\d+)\s*seconds', wait_seconds)
-                    if match:
-                        wait_time = int(match.group(1))
-                        wait_minutes = wait_time // 60
-                        wait_remaining = wait_time % 60
+                # Check for specific HTTP errors
+                if response.status_code == 417:
+                    # SurveyCTO rate limit response
+                    progress_bar.empty()
+                    try:
+                        error_data = response.json()
+                        wait_seconds = error_data.get("error", {}).get("message", "")
 
+                        # Extract wait time from message
+                        import re
+                        match = re.search(r'(\d+)\s*seconds', wait_seconds)
+                        if match:
+                            wait_time = int(match.group(1))
+                            wait_minutes = wait_time // 60
+                            wait_remaining = wait_time % 60
+
+                            st.error("🚫 **SurveyCTO Rate Limit**")
+                            st.warning(
+                                f"⏱️ **Please wait {wait_minutes} minutes and {wait_remaining} seconds before retrying.**\n\n"
+                                f"Exact wait time: {wait_time} seconds"
+                            )
+                        else:
+                            st.error("🚫 **SurveyCTO Rate Limit**")
+                            st.warning(
+                                f"⏱️ {wait_seconds}\n\n"
+                                "Please wait before retrying."
+                            )
+                    except:
                         st.error("🚫 **SurveyCTO Rate Limit**")
-                        st.warning(
-                            f"⏱️ **Please wait {wait_minutes} minutes and {wait_remaining} seconds before retrying.**\n\n"
-                            f"Exact wait time: {wait_time} seconds"
-                        )
-                    else:
-                        st.error("🚫 **SurveyCTO Rate Limit**")
-                        st.warning(
-                            f"⏱️ {wait_seconds}\n\n"
-                            "Please wait before retrying."
-                        )
-                except:
-                    st.error("🚫 **SurveyCTO Rate Limit**")
-                    st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
+                        st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
 
-                st.info(
-                    "📘 **About SurveyCTO Rate Limits**\n\n"
-                    "When downloading **all data** (`date=0`), SurveyCTO enforces a **5-minute quiet period** "
-                    "between requests to prevent server overload.\n\n"
-                    "**Options:**\n"
-                    "- ⏰ Wait the specified time and try again\n"
-                    "- 📥 Use Excel export for frequent testing\n"
-                    "- 📅 Use incremental downloads with a date filter (if supported)"
-                )
-                st.stop()
+                    st.info(
+                        "📘 **About SurveyCTO Rate Limits**\n\n"
+                        "When downloading **all data** (`date=0`), SurveyCTO enforces a **5-minute quiet period** "
+                        "between requests to prevent server overload.\n\n"
+                        "**Options:**\n"
+                        "- ⏰ Wait the specified time and try again\n"
+                        "- 📥 Use Excel export for frequent testing\n"
+                        "- 📅 Use incremental downloads with a date filter (if supported)"
+                    )
+                    st.stop()
 
-            elif response.status_code == 429:
-                progress_bar.empty()
-                st.error("🚫 **Rate Limit Exceeded**")
-                st.warning(
-                    "⏱️ SurveyCTO API has a rate limit. You can only fetch data once per minute.\n\n"
-                    "**Please wait 60 seconds before trying again.**"
-                )
-                st.info(
-                    "💡 **Tip:** The API limits are per form and per user. "
-                    "If you need to fetch data more frequently, consider:\n"
-                    "- Waiting a minute between requests\n"
-                    "- Using Excel export for frequent testing\n"
-                    "- Contacting SurveyCTO support for higher limits"
-                )
-                st.stop()
+                elif response.status_code == 429:
+                    progress_bar.empty()
+                    st.error("🚫 **Rate Limit Exceeded**")
+                    st.warning(
+                        "⏱️ SurveyCTO API has a rate limit. You can only fetch data once per minute.\n\n"
+                        "**Please wait 60 seconds before trying again.**"
+                    )
+                    st.info(
+                        "💡 **Tip:** The API limits are per form and per user. "
+                        "If you need to fetch data more frequently, consider:\n"
+                        "- Waiting a minute between requests\n"
+                        "- Using Excel export for frequent testing\n"
+                        "- Contacting SurveyCTO support for higher limits"
+                    )
+                    st.stop()
 
-            elif response.status_code == 503:
-                progress_bar.empty()
-                st.error("🚫 **Service Temporarily Unavailable**")
-                st.warning(
-                    "⏱️ SurveyCTO API is temporarily unavailable (possibly due to rate limiting).\n\n"
-                    "**Please wait 60-120 seconds before trying again.**"
-                )
-                st.stop()
+                elif response.status_code == 503:
+                    progress_bar.empty()
+                    st.error("🚫 **Service Temporarily Unavailable**")
+                    st.warning(
+                        "⏱️ SurveyCTO API is temporarily unavailable (possibly due to rate limiting).\n\n"
+                        "**Please wait 60-120 seconds before trying again.**"
+                    )
+                    st.stop()
 
-            elif response.status_code == 401:
-                progress_bar.empty()
-                st.error("🔐 **Authentication Failed**")
-                st.warning(
-                    "❌ Your username or password is incorrect.\n\n"
-                    "**Please check your credentials and try again.**"
-                )
-                st.stop()
+                elif response.status_code == 401:
+                    progress_bar.empty()
+                    st.error("🔐 **Authentication Failed**")
+                    st.warning(
+                        "❌ Your username or password is incorrect.\n\n"
+                        "**Please check your credentials and try again.**"
+                    )
+                    st.stop()
 
-            elif response.status_code == 403:
-                progress_bar.empty()
-                st.error("🚫 **Access Denied**")
-                st.warning(
-                    "❌ You don't have permission to access this form.\n\n"
-                    "**Possible reasons:**\n"
-                    "- The form ID is incorrect\n"
-                    "- Your account doesn't have access to this form\n"
-                    "- The form is archived or deleted"
-                )
-                st.stop()
+                elif response.status_code == 403:
+                    progress_bar.empty()
+                    st.error("🚫 **Access Denied**")
+                    st.warning(
+                        "❌ You don't have permission to access this form.\n\n"
+                        "**Possible reasons:**\n"
+                        "- The form ID is incorrect\n"
+                        "- Your account doesn't have access to this form\n"
+                        "- The form is archived or deleted"
+                    )
+                    st.stop()
 
-            elif response.status_code == 404:
-                progress_bar.empty()
-                st.error("📋 **Form Not Found**")
-                st.warning(
-                    f"❌ Form ID `{form_id}` does not exist on server `{server_name}`.\n\n"
-                    "**Please check:**\n"
-                    "- The form ID is correct\n"
-                    "- You selected the right partner (which auto-fills the form ID)\n"
-                    "- The form exists on your SurveyCTO server"
-                )
-                st.stop()
+                elif response.status_code == 404:
+                    progress_bar.empty()
+                    st.error("📋 **Form Not Found**")
+                    st.warning(
+                        f"❌ Form ID `{form_id}` does not exist on server `{server_name}`.\n\n"
+                        "**Please check:**\n"
+                        "- The form ID is correct\n"
+                        "- You selected the right partner (which auto-fills the form ID)\n"
+                        "- The form exists on your SurveyCTO server"
+                    )
+                    st.stop()
 
-            elif response.status_code == 412:
-                progress_bar.empty()
-                st.error("🚫 **Precondition Failed**")
+                elif response.status_code == 412:
+                    progress_bar.empty()
+                    st.error("🚫 **Precondition Failed**")
 
-                # Try to get the server's error message
-                try:
-                    error_response = response.json()
-                    error_msg = error_response.get("error", {}).get("message", response.text)
-                except:
-                    error_msg = response.text
+                    # Try to get the server's error message
+                    try:
+                        error_response = response.json()
+                        error_msg = error_response.get("error", {}).get("message", response.text)
+                    except:
+                        error_msg = response.text
 
-                st.warning(
-                    "❌ SurveyCTO rejected the request because a precondition was not met.\n\n"
-                    "**This usually happens when:**\n"
-                    "- Your authentication session has expired\n"
-                    "- The form has been modified since your last request\n"
-                    "- Required request headers are missing or incorrect\n"
-                    "- Your account permissions have changed\n\n"
-                    "**Try these steps:**\n"
-                    "1. Re-enter your credentials and try again\n"
-                    "2. Check that you still have access to this form\n"
-                    "3. If the issue persists, try using Excel export instead"
-                )
+                    st.warning(
+                        "❌ SurveyCTO rejected the request because a precondition was not met.\n\n"
+                        "**This usually happens when:**\n"
+                        "- Your authentication session has expired\n"
+                        "- The form has been modified since your last request\n"
+                        "- Required request headers are missing or incorrect\n"
+                        "- Your account permissions have changed\n\n"
+                        "**Try these steps:**\n"
+                        "1. Re-enter your credentials and try again\n"
+                        "2. Check that you still have access to this form\n"
+                        "3. If the issue persists, try using Excel export instead"
+                    )
 
-                if error_msg:
-                    st.error(f"**Server Error Message:**\n\n{error_msg}")
+                    if error_msg:
+                        st.error(f"**Server Error Message:**\n\n{error_msg}")
 
-                st.info(
-                    "💡 **Alternative:** Download the data as Excel from SurveyCTO and upload it here to avoid API issues."
-                )
-                st.stop()
+                    st.info(
+                        "💡 **Alternative:** Download the data as Excel from SurveyCTO and upload it here to avoid API issues."
+                    )
+                    st.stop()
 
-            elif response.status_code >= 500:
-                progress_bar.empty()
-                st.error("⚠️ **Server Error**")
-                st.warning(
-                    f"❌ SurveyCTO server returned an error (Status: {response.status_code}).\n\n"
-                    "**This is a problem with SurveyCTO's servers, not this app.**\n\n"
-                    "Please try again in a few minutes."
-                )
-                st.stop()
+                elif response.status_code >= 500:
+                    progress_bar.empty()
+                    st.error("⚠️ **Server Error**")
+                    st.warning(
+                        f"❌ SurveyCTO server returned an error (Status: {response.status_code}).\n\n"
+                        "**This is a problem with SurveyCTO's servers, not this app.**\n\n"
+                        "Please try again in a few minutes."
+                    )
+                    st.stop()
 
-            # Raise for any other HTTP errors
-            response.raise_for_status()
+                # Raise for any other HTTP errors
+                response.raise_for_status()
 
-            json_data = response.json()
+                json_data = response.json()
 
-            st.success(f"✅ Fetched {len(json_data)} submissions")
+                st.success(f"✅ Fetched {len(json_data)} submissions")
 
-            # Process using new JSON processor
+                # Save to cache if dev mode is enabled
+                if is_dev_mode():
+                    save_to_cache(config.PARTNER, "gt", json_data)
+                    st.caption("💾 Saved GT data to local cache")
+
+            # Process using new JSON processor (common path for both cache and API)
             progress_bar.progress(50, text="📖 Processing data...")
             data = process_json_data(json_data)
 

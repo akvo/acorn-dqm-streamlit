@@ -414,16 +414,15 @@ def get_species_column(df: pd.DataFrame) -> Optional[str]:
 
 def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add a 'tree_name' column that is the union of all species columns.
+    Add a 'tree_name' column using first non-empty species column value.
 
     Logic:
-    1. First check other_species (local tree name)
-    2. Then check language_other_species (language field)
-    3. Then check species columns (woody, bamboo, palm, banana, non_woody)
-    4. Skip any values that are exactly "other"
-
-    This ensures when woody_species="other", we use the actual tree name from
-    other_species instead of the language field.
+    1. Check woody species columns (woody_spec, woody_species)
+    2. Check bamboo species columns (bamboo_spec, bamboo_species)
+    3. Check banana species columns (banana_spec, banana_species)
+    4. Check palm_species
+    5. Check living_fences
+    6. "other" is a valid species name (NOT skipped)
 
     Args:
         df: DataFrame with species columns
@@ -436,15 +435,13 @@ def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
 
     result = df.copy()
 
-    # Priority order: specific names first, then general species columns
+    # Species columns in priority order (woody trees only)
     species_cols = [
-        "other_species",           # Local name (highest priority for display)
-        "language_other_species",  # Language field
-        "non_woody_species",
-        "woody_species",
-        "bamboo_species",
-        "banana_species",
+        "woody_spec", "woody_species",
+        "bamboo_spec", "bamboo_species",
+        "banana_spec", "banana_species",
         "palm_species",
+        "living_fences",
     ]
 
     # Filter to only columns that exist in the dataframe
@@ -452,20 +449,16 @@ def add_tree_name_column(df: pd.DataFrame) -> pd.DataFrame:
 
     if not available_cols:
         # No species columns found, return as-is
+        result["tree_name"] = "Unknown"
         return result
 
-    # Initialize tree_name with None
-    result["tree_name"] = None
+    def get_first_species(row):
+        for col in available_cols:
+            val = row.get(col)
+            if pd.notna(val) and str(val).strip():
+                return str(val).strip()
+        return "Unknown"
 
-    # Go through columns in priority order and fill tree_name
-    for col in available_cols:
-        # Create a mask for rows where tree_name is still None
-        mask = result["tree_name"].isna()
-
-        # For this column, get non-null values that are NOT "other"
-        valid_values = result[col].notna() & (result[col] != "other")
-
-        # Fill tree_name where it's None and we have a valid value
-        result.loc[mask & valid_values, "tree_name"] = result.loc[mask & valid_values, col]
+    result["tree_name"] = result.apply(get_first_species, axis=1)
 
     return result

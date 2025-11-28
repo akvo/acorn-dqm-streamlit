@@ -1,0 +1,958 @@
+"""
+GT vs DQ Comparison Page
+Compare Ground Truth data with Data Quality validation data
+"""
+
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file for dev mode
+
+import streamlit as st
+import pandas as pd
+import re
+import requests
+import config
+from ui.components import show_header, show_sidebar_info
+from utils.data_processor import process_json_data
+from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache_exists
+
+# Import folium for maps
+try:
+    import folium
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except ImportError:
+    FOLIUM_AVAILABLE = False
+
+# Page config
+st.set_page_config(
+    page_title="GT vs DQ Comparison - Ground Truth DQM",
+    page_icon="🔄",
+    layout="wide",
+)
+
+# Refresh partner config from URL
+config.refresh_partner_config()
+
+# Check if GT data exists
+if "data" not in st.session_state or st.session_state.data is None:
+    st.warning("⚠️ No GT data loaded. Please fetch GT data from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
+    st.stop()
+
+# Header
+show_header()
+
+st.markdown("## 🔄 GT vs DQ Comparison")
+st.caption("Compare Ground Truth data with Data Quality validation data")
+
+# Show dev mode indicator if enabled
+if is_dev_mode():
+    st.info("🛠️ **Dev Mode Active** - Using local cache when available")
+
+# ============================================
+# DQ DATA FETCH SECTION
+# ============================================
+st.markdown("### 🔍 Fetch DQ Data")
+st.info(f"**DQ Form ID:** `{config.DQ_FORM_ID}`")
+
+# Check if DQ data already loaded
+dq_loaded = st.session_state.get("dq_data") is not None
+
+if dq_loaded:
+    st.success(f"✅ DQ data loaded: {st.session_state.get('dq_filename', 'Unknown')}")
+    fetch_btn_label = "🔄 Refresh DQ Data"
+else:
+    st.warning("⚠️ DQ data not loaded yet. Click button below to fetch.")
+    fetch_btn_label = "🚀 Fetch DQ Data"
+
+# Get credentials from session state
+server_name = st.session_state.get("server_name", "")
+username = st.session_state.get("username", "")
+password = st.session_state.get("password", "")
+
+credentials_configured = bool(server_name and username and password)
+
+if not credentials_configured:
+    st.error("❌ API credentials not configured. Please configure them on the home page.")
+else:
+    if st.button(fetch_btn_label, type="primary"):
+        with st.spinner("Fetching DQ data..."):
+            try:
+                progress_bar = st.progress(0, text="Connecting to SurveyCTO for DQ data...")
+
+                dq_form_id = config.DQ_FORM_ID
+
+                # Check for cached data in dev mode
+                use_cache = is_dev_mode() and cache_exists(config.PARTNER, "dq")
+
+                if use_cache:
+                    # Load from cache
+                    progress_bar.progress(25, text="📁 Loading DQ data from local cache...")
+                    json_data = load_from_cache(config.PARTNER, "dq")
+                    st.info(f"📁 Loaded DQ data from local cache (dev mode) - {len(json_data)} records")
+                else:
+                    # Fetch from API
+                    progress_bar.progress(25, text=f"Downloading DQ data ({dq_form_id})...")
+
+                    url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{dq_form_id}"
+                    params = {"date": "0"}
+
+                    response = requests.get(
+                        url, auth=(username, password), params=params, timeout=60
+                    )
+
+                    # Handle errors
+                    if response.status_code == 417:
+                        # SurveyCTO rate limit response
+                        progress_bar.empty()
+                        try:
+                            error_data = response.json()
+                            wait_seconds = error_data.get("error", {}).get("message", "")
+
+                            # Extract wait time from message
+                            match = re.search(r'(\d+)\s*seconds', wait_seconds)
+                            if match:
+                                wait_time = int(match.group(1))
+                                wait_minutes = wait_time // 60
+                                wait_remaining = wait_time % 60
+
+                                st.error("🚫 **SurveyCTO Rate Limit** (DQ Form)")
+                                st.warning(
+                                    f"⏱️ **Please wait {wait_minutes} minutes and {wait_remaining} seconds before retrying.**\n\n"
+                                    f"Exact wait time: {wait_time} seconds"
+                                )
+                            else:
+                                st.error("🚫 **SurveyCTO Rate Limit** (DQ Form)")
+                                st.warning(
+                                    f"⏱️ {wait_seconds}\n\n"
+                                    "Please wait before retrying."
+                                )
+                        except:
+                            st.error("🚫 **SurveyCTO Rate Limit** (DQ Form)")
+                            st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
+
+                        st.info(
+                            "📘 **About SurveyCTO Rate Limits**\n\n"
+                            "When downloading **all data** (`date=0`), SurveyCTO enforces a **5-minute quiet period** "
+                            "between requests to prevent server overload.\n\n"
+                            "**Options:**\n"
+                            "- ⏰ Wait the specified time and try again\n"
+                            "- 📥 Use Excel export for frequent testing"
+                        )
+                        st.stop()
+
+                    elif response.status_code == 429:
+                        progress_bar.empty()
+                        st.error("🚫 **Rate Limit Exceeded** (DQ Form)")
+                        st.warning(
+                            "⏱️ SurveyCTO API has a rate limit. You can only fetch data once per minute.\n\n"
+                            "**Please wait 60 seconds before trying again.**"
+                        )
+                        st.stop()
+
+                    elif response.status_code in [401, 403, 404]:
+                        progress_bar.empty()
+                        st.error(f"❌ **DQ Form Error** (Status: {response.status_code})")
+                        st.warning(f"Could not access DQ form: `{dq_form_id}`")
+                        st.stop()
+
+                    elif response.status_code >= 400:
+                        progress_bar.empty()
+                        st.error(f"❌ **DQ Fetch Failed** (Status: {response.status_code})")
+                        st.stop()
+
+                    response.raise_for_status()
+                    json_data = response.json()
+
+                    st.success(f"✅ Fetched {len(json_data)} DQ submissions")
+
+                    # Save to cache if dev mode is enabled
+                    if is_dev_mode():
+                        save_to_cache(config.PARTNER, "dq", json_data)
+                        st.caption("💾 Saved DQ data to local cache")
+
+                # Process DQ data (common path for both cache and API)
+                progress_bar.progress(50, text="Processing DQ data...")
+                dq_data = process_json_data(json_data)
+
+                progress_bar.progress(100, text="✅ DQ validation complete!")
+
+                # Store in session state
+                st.session_state.dq_data = dq_data
+                st.session_state.dq_filename = f"API: {dq_form_id}"
+
+                st.success(f"✅ Processed {len(dq_data['subplots'])} DQ subplots successfully!")
+                progress_bar.empty()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ **DQ Fetch Error**")
+                st.warning(f"Error fetching DQ data: {str(e)}")
+
+st.markdown("---")
+
+# Only show comparison if DQ data is loaded
+if not dq_loaded:
+    st.info("👆 Please fetch DQ data above to see the comparison.")
+    st.stop()
+
+# Import comparison utilities
+from utils.comparison_utils import (
+    match_plots_by_centroid,
+    get_tree_count_by_name,
+    get_tree_records_by_species,
+    get_total_tree_count,
+    get_vegetation_coverage,
+)
+
+# Show sidebar info
+with st.sidebar:
+    show_sidebar_info()
+    st.markdown("---")
+    st.markdown("### Data Status")
+    st.success(f"✅ GT: {st.session_state.filename}")
+    if st.session_state.get("dq_filename"):
+        st.success(f"✅ DQ: {st.session_state.dq_filename}")
+
+
+# ============================================
+# HELPER FUNCTIONS
+# ============================================
+
+def filter_to_measured_subplots(gdf):
+    """Filter GeoDataFrame to only include measured subplots."""
+    if gdf is None or len(gdf) == 0:
+        return gdf
+
+    if "subplot_id" not in gdf.columns or "measured_subplots" not in gdf.columns:
+        return gdf
+
+    temp_df = gdf[["subplot_id", "measured_subplots"]].copy()
+    temp_df["subplot_number"] = temp_df["subplot_id"].apply(
+        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1))
+        if re.search(r'\[(\d+)\]', str(x)) else 999
+    )
+    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
+        lambda x: int(x) if pd.notna(x) else 999
+    )
+    measured_subplot_ids = temp_df[
+        temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
+    ]["subplot_id"].unique()
+
+    return gdf[gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+
+
+def get_plot_level_stats(gdf):
+    """Calculate plot-level validation statistics."""
+    if gdf is None or len(gdf) == 0 or "PLOT_KEY" not in gdf.columns:
+        return {"total_plots": 0, "valid_plots": 0, "invalid_plots": 0}
+
+    # Use overall_valid if available, otherwise geom_valid
+    valid_col = "overall_valid" if "overall_valid" in gdf.columns else "geom_valid"
+    if valid_col not in gdf.columns:
+        return {"total_plots": len(gdf["PLOT_KEY"].unique()), "valid_plots": 0, "invalid_plots": 0}
+
+    plot_summary = gdf.groupby("PLOT_KEY").agg(
+        total_subplots=("subplot_id", "count") if "subplot_id" in gdf.columns else (valid_col, "count"),
+        invalid_subplots=(valid_col, lambda x: (~x).sum())
+    ).reset_index()
+
+    # Plot is invalid if >= 8 subplots are invalid
+    plot_summary["is_valid"] = plot_summary["invalid_subplots"] < 8
+
+    return {
+        "total_plots": len(plot_summary),
+        "valid_plots": int(plot_summary["is_valid"].sum()),
+        "invalid_plots": int((~plot_summary["is_valid"]).sum())
+    }
+
+
+def get_subplot_stats(gdf):
+    """Calculate subplot-level statistics."""
+    if gdf is None or len(gdf) == 0:
+        return {"total": 0, "valid": 0, "invalid": 0}
+
+    total = len(gdf)
+    valid_col = "overall_valid" if "overall_valid" in gdf.columns else "geom_valid"
+    if valid_col in gdf.columns:
+        valid = int(gdf[valid_col].sum())
+    else:
+        valid = 0
+
+    return {"total": total, "valid": valid, "invalid": total - valid}
+
+
+# ============================================
+# LOAD AND PREPARE DATA
+# ============================================
+
+# Get GT data (subplots for stats, plots for geometry comparison)
+gt_gdf = st.session_state.data["subplots"].copy()
+gt_plots_gdf = st.session_state.data.get("plots")  # Plot-level geometry
+gt_raw = st.session_state.data.get("raw_data", {})
+
+# Get DQ data (subplots for stats, plots for geometry comparison)
+dq_gdf = st.session_state.dq_data["subplots"].copy()
+dq_plots_gdf = st.session_state.dq_data.get("plots")  # Plot-level geometry
+dq_raw = st.session_state.dq_data.get("raw_data", {})
+
+# ============================================
+# GT DATE FILTER (to exclude training data)
+# ============================================
+st.markdown("### 📅 GT Data Filter")
+st.caption("Filter GT data by submission date to exclude training data")
+
+# Get date range from GT plots
+if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 and 'SubmissionDate' in gt_plots_gdf.columns:
+    # Parse dates
+    gt_plots_gdf['_parsed_date'] = pd.to_datetime(gt_plots_gdf['SubmissionDate'], errors='coerce')
+    valid_dates = gt_plots_gdf['_parsed_date'].dropna()
+
+    if len(valid_dates) > 0:
+        min_date = valid_dates.min().date()
+        max_date = valid_dates.max().date()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date (inclusive)", value=min_date, min_value=min_date, max_value=max_date)
+        with col2:
+            end_date = st.date_input("End Date (inclusive)", value=max_date, min_value=min_date, max_value=max_date)
+
+        # Filter GT plots by date range (inclusive)
+        mask = (gt_plots_gdf['_parsed_date'].dt.date >= start_date) & (gt_plots_gdf['_parsed_date'].dt.date <= end_date)
+        gt_plots_gdf = gt_plots_gdf[mask].copy()
+
+        # Get filtered plot keys
+        filtered_plot_keys = set()
+        if 'PLOT_KEY' in gt_plots_gdf.columns:
+            filtered_plot_keys = set(gt_plots_gdf['PLOT_KEY'].unique())
+        elif 'plot_id' in gt_plots_gdf.columns:
+            filtered_plot_keys = set(gt_plots_gdf['plot_id'].unique())
+
+        # Filter GT subplots to only include filtered plots
+        if 'PLOT_KEY' not in gt_gdf.columns and 'subplot_id' in gt_gdf.columns:
+            gt_gdf['PLOT_KEY'] = gt_gdf['subplot_id'].str.split('/').str[0]
+
+        if 'PLOT_KEY' in gt_gdf.columns and len(filtered_plot_keys) > 0:
+            gt_gdf = gt_gdf[gt_gdf['PLOT_KEY'].isin(filtered_plot_keys)].copy()
+
+        st.info(f"📊 Showing **{len(gt_plots_gdf)}** GT plots from {start_date} to {end_date}")
+    else:
+        st.warning("⚠️ No valid dates found in GT data")
+else:
+    st.warning("⚠️ SubmissionDate not available in GT plots data")
+
+st.markdown("---")
+
+# Ensure PLOT_KEY exists in subplots
+if "PLOT_KEY" not in gt_gdf.columns and "subplot_id" in gt_gdf.columns:
+    gt_gdf["PLOT_KEY"] = gt_gdf["subplot_id"].str.split("/").str[0]
+
+if "PLOT_KEY" not in dq_gdf.columns and "subplot_id" in dq_gdf.columns:
+    dq_gdf["PLOT_KEY"] = dq_gdf["subplot_id"].str.split("/").str[0]
+
+# Filter to measured subplots only
+gt_measured = filter_to_measured_subplots(gt_gdf)
+dq_measured = filter_to_measured_subplots(dq_gdf)
+
+# Match plots by centroid distance (needed for overlap count)
+if gt_plots_gdf is not None and dq_plots_gdf is not None and len(gt_plots_gdf) > 0 and len(dq_plots_gdf) > 0:
+    matches_df = match_plots_by_centroid(gt_plots_gdf, dq_plots_gdf, distance_threshold=50.0)
+else:
+    matches_df = match_plots_by_centroid(gt_measured, dq_measured, distance_threshold=50.0)
+
+matched_count = len(matches_df)
+
+# Find unmatched plots
+matched_gt_keys = set(matches_df["gt_plot_key"]) if len(matches_df) > 0 else set()
+matched_dq_keys = set(matches_df["dq_plot_key"]) if len(matches_df) > 0 else set()
+gt_only_keys = set(gt_measured["PLOT_KEY"].unique()) - matched_gt_keys if "PLOT_KEY" in gt_measured.columns else set()
+dq_only_keys = set(dq_measured["PLOT_KEY"].unique()) - matched_dq_keys if "PLOT_KEY" in dq_measured.columns else set()
+
+# ============================================
+# DQ VALIDATION SUMMARY (Row 1)
+# ============================================
+
+st.markdown("### 📊 DQ Data Quality Summary")
+
+dq_plot_stats = get_plot_level_stats(dq_measured)
+dq_subplot_stats = get_subplot_stats(dq_measured)
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    st.metric("DQ Total Plots", dq_plot_stats["total_plots"])
+
+with col2:
+    st.metric("DQ Valid Plots", dq_plot_stats["valid_plots"])
+
+with col3:
+    st.metric("Overlap with GT", matched_count)
+
+with col4:
+    st.metric("DQ Total Subplots", dq_subplot_stats["total"])
+
+with col5:
+    st.metric("DQ Valid Subplots", dq_subplot_stats["valid"])
+
+st.markdown("---")
+
+
+# ============================================
+# DQ SUBPLOT ISSUES TABLE
+# ============================================
+
+st.markdown("### ⚠️ DQ Subplot Issues")
+st.caption("Invalid subplots in DQ data with reasons for failure")
+
+# Get invalid DQ subplots
+dq_invalid_subplots = dq_measured[~dq_measured["geom_valid"]].copy() if "geom_valid" in dq_measured.columns else pd.DataFrame()
+
+if len(dq_invalid_subplots) > 0:
+    st.warning(f"⚠️ {len(dq_invalid_subplots)} DQ subplots have validation issues")
+
+    # Prepare display columns
+    display_cols = ["subplot_id", "PLOT_KEY", "enumerator", "reasons"]
+
+    # Add optional columns if they exist
+    for col in ["area_m2", "nr_vertices", "length_width_ratio", "mrr_ratio", "in_radius"]:
+        if col in dq_invalid_subplots.columns:
+            display_cols.append(col)
+
+    display_cols = [col for col in display_cols if col in dq_invalid_subplots.columns]
+
+    dq_issues_display = dq_invalid_subplots[display_cols].copy()
+
+    # Add row numbers
+    dq_issues_display.insert(0, "#", range(1, len(dq_issues_display) + 1))
+
+    st.dataframe(
+        dq_issues_display,
+        use_container_width=True,
+        height=300,
+        column_config={
+            "#": st.column_config.NumberColumn("#", width="small"),
+            "subplot_id": "Subplot ID",
+            "PLOT_KEY": "Plot ID",
+            "enumerator": "Enumerator",
+            "reasons": "Issue Description",
+            "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+            "nr_vertices": st.column_config.NumberColumn("Vertices", width="small"),
+            "length_width_ratio": st.column_config.NumberColumn("L/W Ratio", format="%.2f"),
+            "mrr_ratio": st.column_config.NumberColumn("MRR Ratio", format="%.2f"),
+            "in_radius": st.column_config.CheckboxColumn("In Radius"),
+        },
+        hide_index=True,
+    )
+else:
+    st.success("✅ All DQ subplots pass validation!")
+
+st.markdown("---")
+
+
+# ============================================
+# MAP VIEW (GT vs DQ)
+# ============================================
+
+st.markdown("### 🗺️ Map View")
+st.caption("GT plots (blue) vs DQ plots (orange). Toggle subplot layers to see individual subplots (green=valid, red=invalid)")
+
+if FOLIUM_AVAILABLE:
+    # Use plot-level geometries for the map
+    gt_with_geom = gt_plots_gdf[~gt_plots_gdf.geometry.is_empty].copy() if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 else None
+    dq_with_geom = dq_plots_gdf[~dq_plots_gdf.geometry.is_empty].copy() if dq_plots_gdf is not None and len(dq_plots_gdf) > 0 else None
+
+    has_gt = gt_with_geom is not None and len(gt_with_geom) > 0
+    has_dq = dq_with_geom is not None and len(dq_with_geom) > 0
+
+    # DQ Plot selector dropdown
+    selected_plot_key = None
+    selected_geom = None
+    if has_dq:
+        # Build dropdown options: Plot ID + Enumerator
+        dq_options = ["Show All"]
+        dq_plot_map = {}
+        for idx, row in dq_with_geom.iterrows():
+            plot_key = row.get('PLOT_KEY', row.get('plot_id', 'Unknown'))
+            # Get enumerator from subplot data
+            enumerator = ""
+            if 'PLOT_KEY' in dq_measured.columns:
+                plot_subs = dq_measured[dq_measured['PLOT_KEY'] == plot_key]
+                if len(plot_subs) > 0:
+                    enumerator = plot_subs.iloc[0].get('enumerator', '')
+            label = f"{plot_key} - {enumerator}" if enumerator else str(plot_key)
+            dq_options.append(label)
+            dq_plot_map[label] = (plot_key, row.geometry)
+
+        selected = st.selectbox("🔍 Jump to DQ Plot:", dq_options, index=0)
+        if selected != "Show All":
+            selected_plot_key, selected_geom = dq_plot_map[selected]
+
+    if has_gt or has_dq:
+        # Calculate map center
+        if selected_plot_key and selected_geom:
+            # Zoom to selected plot
+            centroid = selected_geom.centroid
+            center_lat, center_lon = centroid.y, centroid.x
+            zoom_start = 17
+        else:
+            # Show all plots
+            all_bounds = []
+            if has_gt:
+                all_bounds.append(gt_with_geom.total_bounds)
+            if has_dq:
+                all_bounds.append(dq_with_geom.total_bounds)
+
+            if all_bounds:
+                min_x = min(b[0] for b in all_bounds)
+                min_y = min(b[1] for b in all_bounds)
+                max_x = max(b[2] for b in all_bounds)
+                max_y = max(b[3] for b in all_bounds)
+                center_lat = (min_y + max_y) / 2
+                center_lon = (min_x + max_x) / 2
+            else:
+                center_lat, center_lon = config.MAP_CENTER
+            zoom_start = 12
+
+        # Create map
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=zoom_start,
+            tiles="OpenStreetMap"
+        )
+
+        # Add satellite layer option
+        folium.TileLayer(
+            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri",
+            name="Satellite",
+        ).add_to(m)
+
+        # Create feature groups for plots and subplots
+        gt_group = folium.FeatureGroup(name="🔵 GT Plots", show=True)
+        dq_group = folium.FeatureGroup(name="🟠 DQ Plots", show=True)
+        gt_subplot_group = folium.FeatureGroup(name="🟢 GT Subplots", show=False)
+        dq_subplot_group = folium.FeatureGroup(name="🟢 DQ Subplots", show=False)
+
+        # Helper to get enumerator and date from plot/subplot data
+        def get_plot_info(plot_key, measured_gdf, plots_gdf):
+            enumerator = 'N/A'
+            date = 'N/A'
+            # Get enumerator from subplot data
+            if 'PLOT_KEY' in measured_gdf.columns:
+                plot_subs = measured_gdf[measured_gdf['PLOT_KEY'] == plot_key]
+                if len(plot_subs) > 0:
+                    enumerator = plot_subs.iloc[0].get('enumerator', 'N/A')
+            # Get date from plots data (SubmissionDate)
+            if plots_gdf is not None and len(plots_gdf) > 0:
+                plot_row = plots_gdf[
+                    (plots_gdf.get('PLOT_KEY', pd.Series()) == plot_key) |
+                    (plots_gdf.get('plot_id', pd.Series()) == plot_key)
+                ]
+                if len(plot_row) > 0:
+                    date = plot_row.iloc[0].get('SubmissionDate', plot_row.iloc[0].get('submission_date', 'N/A'))
+            return enumerator, date
+
+        # Add GT plots (blue)
+        if has_gt:
+            for idx, row in gt_with_geom.iterrows():
+                if row.geometry.is_empty:
+                    continue
+
+                geom = row.geometry
+                plot_key = row.get('PLOT_KEY', row.get('plot_id', 'N/A'))
+                enumerator, date = get_plot_info(plot_key, gt_measured, gt_plots_gdf)
+                tooltip = f"<b>GT Plot:</b> {plot_key}<br><b>Enumerator:</b> {enumerator}<br><b>Date:</b> {date}"
+
+                def add_polygon_to_group(polygon, group, color, fill_color, tooltip_text):
+                    coords = [[lat, lon] for lon, lat in polygon.exterior.coords]
+                    folium.Polygon(
+                        locations=coords,
+                        color=color,
+                        fill_color=fill_color,
+                        weight=3,
+                        fill_opacity=0.3,
+                        tooltip=folium.Tooltip(tooltip_text)
+                    ).add_to(group)
+
+                if geom.geom_type == 'Polygon':
+                    add_polygon_to_group(geom, gt_group, "#2196F3", "#64B5F6", tooltip)
+                elif geom.geom_type == 'MultiPolygon':
+                    for poly in geom.geoms:
+                        add_polygon_to_group(poly, gt_group, "#2196F3", "#64B5F6", tooltip)
+
+        # Add DQ plots (orange)
+        if has_dq:
+            for idx, row in dq_with_geom.iterrows():
+                if row.geometry.is_empty:
+                    continue
+
+                geom = row.geometry
+                plot_key = row.get('PLOT_KEY', row.get('plot_id', 'N/A'))
+                enumerator, date = get_plot_info(plot_key, dq_measured, dq_plots_gdf)
+                tooltip = f"<b>DQ Plot:</b> {plot_key}<br><b>Enumerator:</b> {enumerator}<br><b>Date:</b> {date}"
+
+                if geom.geom_type == 'Polygon':
+                    coords = [[lat, lon] for lon, lat in geom.exterior.coords]
+                    folium.Polygon(
+                        locations=coords,
+                        color="#FF9800",
+                        fill_color="#FFB74D",
+                        weight=3,
+                        fill_opacity=0.3,
+                        tooltip=folium.Tooltip(tooltip)
+                    ).add_to(dq_group)
+                elif geom.geom_type == 'MultiPolygon':
+                    for poly in geom.geoms:
+                        coords = [[lat, lon] for lon, lat in poly.exterior.coords]
+                        folium.Polygon(
+                            locations=coords,
+                            color="#FF9800",
+                            fill_color="#FFB74D",
+                            weight=3,
+                            fill_opacity=0.3,
+                            tooltip=folium.Tooltip(tooltip)
+                        ).add_to(dq_group)
+
+        # Helper function to add subplot to group
+        def add_subplot_to_group(subplot_row, group, is_valid):
+            geom = subplot_row.geometry
+            if geom is None or geom.is_empty:
+                return
+
+            subplot_id = subplot_row.get('subplot_id', 'N/A')
+            enumerator = subplot_row.get('enumerator', 'N/A')
+            reasons = subplot_row.get('reasons', '') if not is_valid else 'Valid'
+
+            # Red for invalid, green for valid
+            if is_valid:
+                color = "#4CAF50"  # Green
+                fill_color = "#81C784"
+            else:
+                color = "#F44336"  # Red
+                fill_color = "#E57373"
+
+            status = "✅ Valid" if is_valid else "❌ Invalid"
+            tooltip_text = f"<b>Subplot:</b> {subplot_id}<br><b>Status:</b> {status}<br><b>Enumerator:</b> {enumerator}"
+            if not is_valid and reasons:
+                tooltip_text += f"<br><b>Issues:</b> {reasons}"
+
+            if geom.geom_type == 'Polygon':
+                coords = [[lat, lon] for lon, lat in geom.exterior.coords]
+                folium.Polygon(
+                    locations=coords,
+                    color=color,
+                    fill_color=fill_color,
+                    weight=2,
+                    fill_opacity=0.4,
+                    tooltip=folium.Tooltip(tooltip_text)
+                ).add_to(group)
+            elif geom.geom_type == 'MultiPolygon':
+                for poly in geom.geoms:
+                    coords = [[lat, lon] for lon, lat in poly.exterior.coords]
+                    folium.Polygon(
+                        locations=coords,
+                        color=color,
+                        fill_color=fill_color,
+                        weight=2,
+                        fill_opacity=0.4,
+                        tooltip=folium.Tooltip(tooltip_text)
+                    ).add_to(group)
+
+        # Add GT subplots (green=valid, red=invalid)
+        gt_subplots_with_geom = gt_measured[~gt_measured.geometry.is_empty].copy() if len(gt_measured) > 0 else None
+        if gt_subplots_with_geom is not None and len(gt_subplots_with_geom) > 0:
+            for idx, row in gt_subplots_with_geom.iterrows():
+                is_valid = row.get('geom_valid', True)
+                add_subplot_to_group(row, gt_subplot_group, is_valid)
+
+        # Add DQ subplots (green=valid, red=invalid)
+        dq_subplots_with_geom = dq_measured[~dq_measured.geometry.is_empty].copy() if len(dq_measured) > 0 else None
+        if dq_subplots_with_geom is not None and len(dq_subplots_with_geom) > 0:
+            for idx, row in dq_subplots_with_geom.iterrows():
+                is_valid = row.get('geom_valid', True)
+                add_subplot_to_group(row, dq_subplot_group, is_valid)
+
+        # Add groups to map
+        gt_group.add_to(m)
+        dq_group.add_to(m)
+        gt_subplot_group.add_to(m)
+        dq_subplot_group.add_to(m)
+
+        # Add layer control
+        folium.LayerControl().add_to(m)
+
+        # Display map
+        st_folium(m, width=None, height=500, use_container_width=True)
+
+        # Legend
+        st.markdown("""
+        **Legend:**
+        - 🔵 GT Plots (Blue) | 🟠 DQ Plots (Orange)
+        - 🟢 Valid Subplots (Green) | 🔴 Invalid Subplots (Red)
+
+        *Use layer control (top-right) to toggle layers. Subplot layers are hidden by default.*
+        """)
+    else:
+        st.warning("No geometries available to display on map.")
+else:
+    st.warning("📦 Folium not installed. Install with: `pip install folium streamlit-folium`")
+
+st.markdown("---")
+
+
+# ============================================
+# MATCHED PLOTS COMPARISON TABLE
+# ============================================
+
+st.markdown("### 📋 Matched Plots (Distance < 50m)")
+st.caption("Plots with centroids within 50 meters of each other")
+
+if len(matches_df) > 0:
+    # Build comparison table
+    comparison_data = []
+
+    for idx, row in matches_df.iterrows():
+        gt_key = row["gt_plot_key"]
+        dq_key = row["dq_plot_key"]
+        distance = row["distance_m"]
+
+        # Get subplot counts
+        gt_subplots = len(gt_measured[gt_measured["PLOT_KEY"] == gt_key])
+        dq_subplots = len(dq_measured[dq_measured["PLOT_KEY"] == dq_key])
+
+        # Get tree counts
+        gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured)
+        dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured)
+
+        comparison_data.append({
+            "#": idx + 1,
+            "GT Plot ID": gt_key,
+            "DQ Plot ID": dq_key,
+            "Distance (m)": f"{distance:.1f}",
+            "GT Subplots": gt_subplots,
+            "DQ Subplots": dq_subplots,
+            "Subplot Diff": dq_subplots - gt_subplots,
+            "GT Trees": gt_trees,
+            "DQ Trees": dq_trees,
+            "Tree Diff": dq_trees - gt_trees
+        })
+
+    comparison_df = pd.DataFrame(comparison_data)
+    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+    # ============================================
+    # EXPANDABLE DQ PLOT DETAILS
+    # ============================================
+
+    st.markdown("### 📝 DQ Plot Details")
+    st.caption("Expand each row to see detailed DQ plot information")
+
+    for idx, row in matches_df.iterrows():
+        dq_key = row["dq_plot_key"]
+        gt_key = row["gt_plot_key"]
+        distance = row["distance_m"]
+
+        with st.expander(f"DQ Plot: {dq_key} (matched with GT: {gt_key}, Distance: {distance:.1f}m)"):
+            # Get plot details
+            dq_plot_data = dq_measured[dq_measured["PLOT_KEY"] == dq_key]
+            gt_plot_data = gt_measured[gt_measured["PLOT_KEY"] == gt_key]
+
+            if len(dq_plot_data) > 0:
+                dq_first_row = dq_plot_data.iloc[0]
+                has_gt_data = len(gt_plot_data) > 0
+                gt_first_row = gt_plot_data.iloc[0] if has_gt_data else None
+
+                # Plot Information - DQ
+                st.markdown("**DQ Plot Information:**")
+                info_col1, info_col2, info_col3 = st.columns(3)
+                with info_col1:
+                    st.write(f"**Plot ID:** {dq_key}")
+                with info_col2:
+                    enumerator = dq_first_row.get("enumerator", "N/A")
+                    st.write(f"**Enumerator:** {enumerator}")
+                with info_col3:
+                    # Try SubmissionDate first, then date
+                    dq_date = dq_first_row.get("SubmissionDate") or dq_first_row.get("starttime") or dq_first_row.get("date", "N/A")
+                    if pd.notna(dq_date) and dq_date != "N/A":
+                        try:
+                            dq_date = pd.to_datetime(dq_date).strftime("%Y-%m-%d")
+                        except:
+                            pass
+                    st.write(f"**Date:** {dq_date}")
+
+                # Plot Information - GT
+                st.markdown("**GT Plot Information:**")
+                gt_col1, gt_col2, gt_col3 = st.columns(3)
+                with gt_col1:
+                    st.write(f"**Plot ID:** {gt_key}")
+                with gt_col2:
+                    gt_enumerator = gt_first_row.get("enumerator", "N/A") if has_gt_data else "N/A"
+                    st.write(f"**Enumerator:** {gt_enumerator}")
+                with gt_col3:
+                    if has_gt_data:
+                        gt_date = gt_first_row.get("SubmissionDate") or gt_first_row.get("starttime") or gt_first_row.get("date", "N/A")
+                        if pd.notna(gt_date) and gt_date != "N/A":
+                            try:
+                                gt_date = pd.to_datetime(gt_date).strftime("%Y-%m-%d")
+                            except:
+                                pass
+                    else:
+                        gt_date = "N/A"
+                    st.write(f"**Date:** {gt_date}")
+
+                # Subplot Summary
+                st.markdown("**Subplot Summary:**")
+                total_subplots = len(dq_plot_data)
+                valid_col = "overall_valid" if "overall_valid" in dq_plot_data.columns else "geom_valid"
+                if valid_col in dq_plot_data.columns:
+                    valid_subplots = int(dq_plot_data[valid_col].sum())
+                else:
+                    valid_subplots = 0
+                invalid_subplots = total_subplots - valid_subplots
+
+                sub_col1, sub_col2, sub_col3 = st.columns(3)
+                with sub_col1:
+                    st.write(f"**Total:** {total_subplots}")
+                with sub_col2:
+                    st.write(f"**Valid:** {valid_subplots}")
+                with sub_col3:
+                    st.write(f"**Invalid:** {invalid_subplots}")
+
+                # Tree Species Comparison (GT vs DQ)
+                gt_tree_counts = get_tree_count_by_name(gt_key, gt_raw, gt_measured)
+                dq_tree_counts = get_tree_count_by_name(dq_key, dq_raw, dq_measured)
+
+                if gt_tree_counts or dq_tree_counts:
+                    st.markdown("**Tree Species Comparison (GT vs DQ):**")
+                    all_species = sorted(set(gt_tree_counts.keys()) | set(dq_tree_counts.keys()))
+                    comparison_rows = [{
+                        "Species": sp,
+                        "GT Count": gt_tree_counts.get(sp, 0),
+                        "DQ Count": dq_tree_counts.get(sp, 0),
+                        "Difference": dq_tree_counts.get(sp, 0) - gt_tree_counts.get(sp, 0)
+                    } for sp in all_species]
+                    # Add total row
+                    gt_total = sum(gt_tree_counts.values())
+                    dq_total = sum(dq_tree_counts.values())
+                    comparison_rows.append({
+                        "Species": "**TOTAL**",
+                        "GT Count": gt_total,
+                        "DQ Count": dq_total,
+                        "Difference": dq_total - gt_total
+                    })
+                    st.dataframe(pd.DataFrame(comparison_rows), use_container_width=True, hide_index=True)
+
+                    # Expandable details per species
+                    st.markdown("**Species Details:**")
+                    for sp in all_species:
+                        sp_gt_count = gt_tree_counts.get(sp, 0)
+                        sp_dq_count = dq_tree_counts.get(sp, 0)
+                        sp_diff = sp_dq_count - sp_gt_count
+
+                        with st.expander(f"{sp} | GT: {sp_gt_count} | DQ: {sp_dq_count} | Diff: {sp_diff}"):
+                            detail_col1, detail_col2 = st.columns(2)
+                            with detail_col1:
+                                st.markdown("**GT Records:**")
+                                gt_records = get_tree_records_by_species(gt_key, sp, gt_raw)
+                                if len(gt_records) > 0:
+                                    st.dataframe(gt_records, use_container_width=True, hide_index=True)
+                                else:
+                                    st.caption("No records")
+                            with detail_col2:
+                                st.markdown("**DQ Records:**")
+                                dq_records = get_tree_records_by_species(dq_key, sp, dq_raw)
+                                if len(dq_records) > 0:
+                                    st.dataframe(dq_records, use_container_width=True, hide_index=True)
+                                else:
+                                    st.caption("No records")
+                else:
+                    # Check for vegetation coverage
+                    dq_coverage = get_vegetation_coverage(dq_key, dq_raw, dq_measured)
+                    if dq_coverage:
+                        st.markdown("**Vegetation Coverage (no trees):**")
+                        for cov in dq_coverage:
+                            subplot = cov.get("subplot_key", "")
+                            pct = cov.get("coverage_vegetation", "N/A")
+                            st.write(f"- {subplot}: {pct}%")
+                    else:
+                        st.info("No tree or coverage data available for this plot.")
+
+    st.markdown("---")
+
+else:
+    st.info("No matching plots found between GT and DQ data (centroid distance < 50m)")
+
+
+# ============================================
+# UNMATCHED PLOTS TABLES
+# ============================================
+
+st.markdown("### 🔍 Unmatched Plots")
+
+
+
+
+# DQ plots not in GT
+st.markdown("#### DQ Plots Not Found in GT")
+if len(dq_only_keys) > 0:
+    dq_only_data = []
+    for dq_key in dq_only_keys:
+        plot_data = dq_measured[dq_measured["PLOT_KEY"] == dq_key]
+        if len(plot_data) > 0:
+            first_row = plot_data.iloc[0]
+            valid_col = "overall_valid" if "overall_valid" in plot_data.columns else "geom_valid"
+            geom_valid = plot_data[valid_col].all() if valid_col in plot_data.columns else "N/A"
+
+            dq_only_data.append({
+                "Plot ID": dq_key,
+                "Enumerator": first_row.get("enumerator", "N/A"),
+                "Date": first_row.get("date", "N/A"),
+                "Subplots": len(plot_data),
+                "Trees": get_total_tree_count(dq_key, dq_raw, dq_measured),
+                "Geometry Valid": "Yes" if geom_valid else "No"
+            })
+
+    st.dataframe(pd.DataFrame(dq_only_data), use_container_width=True, hide_index=True)
+else:
+    st.success("All DQ plots have matching GT plots!")
+
+st.markdown("---")
+
+
+# ============================================
+# SUMMARY STATISTICS
+# ============================================
+
+with st.expander("📈 Summary Statistics"):
+    if len(matches_df) > 0:
+        avg_distance = matches_df["distance_m"].mean()
+
+        # Calculate total differences
+        total_subplot_diff = 0
+        total_tree_diff = 0
+
+        for idx, row in matches_df.iterrows():
+            gt_key = row["gt_plot_key"]
+            dq_key = row["dq_plot_key"]
+
+            gt_subplots = len(gt_measured[gt_measured["PLOT_KEY"] == gt_key])
+            dq_subplots = len(dq_measured[dq_measured["PLOT_KEY"] == dq_key])
+            total_subplot_diff += (dq_subplots - gt_subplots)
+
+            gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured)
+            dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured)
+            total_tree_diff += (dq_trees - gt_trees)
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Average Distance", f"{avg_distance:.1f}m")
+        with col2:
+            st.metric("Total Subplot Difference", total_subplot_diff,
+                      help="Sum of (DQ - GT) across all matched plots")
+        with col3:
+            st.metric("Total Tree Difference", total_tree_diff,
+                      help="Sum of (DQ - GT) across all matched plots")
+    else:
+        st.info("No matched plots to calculate statistics.")

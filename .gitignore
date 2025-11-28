@@ -3,3 +3,9 @@ __pycache__
 *.DS_Store
 output/
 venv/
+
+# API response cache (dev mode)
+data_cache/*.json
+
+# Environment variables
+.env
