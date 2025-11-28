@@ -40,6 +40,16 @@ PARTNERS = {
         "max_plot_area": 300000,
         "map_center": [-13.5, 28.5],
     },
+    "AFEC": {
+        "country": "India",
+        "country_iso3": "IND",
+        "dqID": "data_quality_ground_truth_collection_afec_2025_december",
+        "gtID": "ground_truth_collection_afec_2025_december",
+        "description": "AFEC - India",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [14.6, 77.4],
+    },
 }
 
 # ============================================
