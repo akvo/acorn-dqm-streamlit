@@ -787,20 +787,79 @@ def assign_geom_valid_geojson(
 class GeometryFixer:
     """Handles geometry fixing operations"""
 
+    def _apply_fix(self, gdf: gpd.GeoDataFrame, fix_func, operation_name: str) -> gpd.GeoDataFrame:
+        """Apply a fix function and track changes"""
+        before_empty = gdf.geometry.is_empty.copy()
+        gdf["geometry"] = gdf.geometry.apply(fix_func)
+        self._track_empty_change(gdf, before_empty, operation_name)
+        return gdf
+
+    def _track_empty_change(self, gdf: gpd.GeoDataFrame, before_empty: pd.Series, operation_name: str):
+        """Track when geometry becomes empty"""
+        after_empty = gdf.geometry.is_empty
+        newly_empty = (~before_empty) & after_empty
+
+        if newly_empty.any():
+            # Mark which operation caused emptiness
+            gdf.loc[newly_empty, "became_empty_at"] = operation_name
+            print(f"  → {newly_empty.sum()} geometries became empty during {operation_name}")
+
+    def _merge_empty_details(self, row: pd.Series) -> str:
+        """Merge GPS details with fix operation details"""
+        if not row.geometry.is_empty:
+            return row.get("empty_geom_detail", "")
+
+        # If already has GPS detail, keep it
+        if pd.notna(row.get("empty_geom_detail", "")) and row["empty_geom_detail"] != "":
+            return row["empty_geom_detail"]
+
+        # If became empty during fixing, add explanation
+        if pd.notna(row.get("became_empty_at", "")) and row["became_empty_at"] != "":
+            operation = row["became_empty_at"]
+
+            # Add human-readable explanations
+            explanations = {
+                "remove_duplicate_vertices": f"Became empty after removing duplicate vertices ({row.get('original_vertices', 0)} original vertices → insufficient unique points)",
+                "geometry_type_degradation": "Polygon degraded to Point/LineString during fixing - geometry too narrow or thin",
+                "simplify_geometry": "Became empty after geometry simplification (tolerance 0.1m) - shape too complex or thin",
+                "fix_with_zero_buffer": "Became empty during zero-buffer fix operation",
+                "replace_area_zero": "Geometry has zero area - likely duplicate or collinear points",
+                "replace_out_of_bound_geometries": "Coordinates outside valid bounds (lat: -80 to 84, lon: -180 to 180)",
+                "replace_invalid": "Invalid geometry could not be repaired",
+                "replace_none_geometries": "Geometry became None during fixing",
+                "fix_self_intersecting_square": "Became empty after fixing self-intersecting square",
+                "fix_with_orient": "Became empty after fixing orientation",
+                "fix_with_rewind": "Became empty after rewinding geometry",
+                "fix_with_2d_polygon": "Became empty during 2D conversion",
+                "replace_multipolygons": "MultiPolygon could not be resolved to single polygon",
+            }
+
+            return explanations.get(operation, f"Became empty during {operation}")
+
+        return "Empty geometry (reason unknown)"
+
     def fix_geometry(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        """Apply all geometry fixes in sequence"""
+        """Apply all geometry fixes in sequence with tracking"""
+        # Initialize tracking columns
         gdf["original_vertices"] = gdf.geometry.apply(
             lambda x: len(x.exterior.coords) if x.geom_type == "Polygon" else 0
         )
-        gdf["geometry"] = gdf.geometry.apply(remove_duplicate_vertices)
+        gdf["became_empty_at"] = ""  # Track which fix operation caused emptiness
+
+        # Step 1: Remove duplicate vertices
+        gdf = self._apply_fix(gdf, remove_duplicate_vertices, "remove_duplicate_vertices")
 
         valid = gdf.is_valid.sum()
 
-        gdf["geometry"] = gdf.geometry.apply(fix_self_intersecting_square)
-        gdf["geometry"] = gdf.geometry.apply(fix_with_orient)
-        gdf["geometry"] = gdf.geometry.apply(fix_with_rewind)
-        gdf["geometry"] = gdf.geometry.apply(fix_with_zero_buffer)
-        gdf["geometry"] = gdf.geometry.apply(fix_with_2d_polygon)
+        # Step 2-6: Apply various fix operations
+        gdf = self._apply_fix(gdf, fix_self_intersecting_square, "fix_self_intersecting_square")
+        gdf = self._apply_fix(gdf, fix_with_orient, "fix_with_orient")
+        gdf = self._apply_fix(gdf, fix_with_rewind, "fix_with_rewind")
+        gdf = self._apply_fix(gdf, fix_with_zero_buffer, "fix_with_zero_buffer")
+        gdf = self._apply_fix(gdf, fix_with_2d_polygon, "fix_with_2d_polygon")
+
+        # Step 7: Replace degraded geometry types (Point/LineString/MultiLineString)
+        before_type_check = gdf.geometry.is_empty.copy()
         gdf["geometry"] = gdf["geometry"].apply(
             lambda geom: (
                 geom
@@ -808,17 +867,25 @@ class GeometryFixer:
                 else Polygon()
             )
         )
-        gdf["geometry"] = gdf.geometry.apply(replace_multipolygons)
-        gdf["geometry"] = gdf.geometry.apply(simplify_geometry, tolerance=0.1)
+        self._track_empty_change(gdf, before_type_check, "geometry_type_degradation")
+
+        # Step 8-9: More fix operations
+        gdf = self._apply_fix(gdf, replace_multipolygons, "replace_multipolygons")
+        gdf = self._apply_fix(gdf, lambda g: simplify_geometry(g, tolerance=0.1), "simplify_geometry")
 
         print(f"\nFixed {gdf.is_valid.sum() - valid} polygons")
         empty = gdf.is_empty.sum()
 
-        gdf["geometry"] = gdf.geometry.apply(replace_area_zero)
-        gdf["geometry"] = gdf.geometry.apply(replace_none_geometries)
-        gdf["geometry"] = gdf.geometry.apply(replace_out_of_bound_geometries)
-        gdf["geometry"] = gdf.geometry.apply(replace_invalid)
+        # Step 10-13: Replace invalid geometries
+        gdf = self._apply_fix(gdf, replace_area_zero, "replace_area_zero")
+        gdf = self._apply_fix(gdf, replace_none_geometries, "replace_none_geometries")
+        gdf = self._apply_fix(gdf, replace_out_of_bound_geometries, "replace_out_of_bound_geometries")
+        gdf = self._apply_fix(gdf, replace_invalid, "replace_invalid")
+
         print(f"Replaced {gdf.is_empty.sum() - empty} polygons with empty polygons\n")
+
+        # Update empty_geom_detail for geometries that became empty during fixing
+        gdf["empty_geom_detail"] = gdf.apply(lambda row: self._merge_empty_details(row), axis=1)
 
         return gdf
 

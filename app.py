@@ -1246,6 +1246,10 @@ if st.session_state.data is not None:
                                         parts.append(f"Type: {col.replace('_', ' ').title()}")
                                         break
 
+                                if pd.notna(row.get("language_other_species")) and row.get("language_other_species") != "":
+                                    parts.append(f"Local: {row['language_other_species']}")
+
+                                
                                 parts.append("Needs botanical verification")
 
                                 return " | ".join(parts)
