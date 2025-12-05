@@ -636,7 +636,7 @@ def get_tree_classification_debug_info(vegetation_df: pd.DataFrame) -> Dict[str,
 
 def validate_species_lists(vegetation_df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     """
-    Validate species categorization (woody, palm, bamboo, banana).
+    Validate species categorization (woody, palm, bamboo, banana, living_fences).
 
     Returns dict with DataFrames for each species category
     """
@@ -647,6 +647,7 @@ def validate_species_lists(vegetation_df: pd.DataFrame) -> Dict[str, pd.DataFram
         "palm": "palm_species",
         "bamboo": "bamboo_species",
         "banana": "banana_species",
+        "living_fences": "living_fences_species",
     }
 
     for category, col in species_cols.items():

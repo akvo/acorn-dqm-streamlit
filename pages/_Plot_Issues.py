@@ -5,8 +5,10 @@ Shows plots with ≥8 invalid subplots and detailed error breakdown
 
 import streamlit as st
 import pandas as pd
+import re
 import config
 from ui.components import show_header, create_sidebar_filters, show_sidebar_info, show_plot_metrics_row
+from utils.comparison_utils import get_tree_count_by_name, get_tree_records_by_species, get_total_tree_count
 
 # Page config
 st.set_page_config(
@@ -197,7 +199,6 @@ filtered_gdf = create_sidebar_filters(gdf_subplots)
 plot_summary = calculate_plot_validation(filtered_gdf)
 
 # Filter to only MEASURED subplots for overall metrics
-import re
 if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
     temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
     temp_df["subplot_number"] = temp_df["subplot_id"].apply(
@@ -694,3 +695,228 @@ with st.expander("📖 Validation Rules Reference"):
         st.markdown("**Overall Validation:**")
         st.write("• Subplot must pass **BOTH** geometry AND vegetation")
         st.write("• Any failure = subplot marked invalid")
+
+st.markdown("---")
+
+# ============================================
+# LIVING FENCES TABLE
+# ============================================
+
+st.markdown("### 🌿 Plots with Living Fences")
+st.caption("Plots that have recorded living fences vegetation")
+
+# Get living fences data from raw_data
+raw_data = st.session_state.data.get("raw_data", {})
+veg_df = raw_data.get("plots_subplots_vegetation")
+
+if veg_df is not None and len(veg_df) > 0 and "vegetation_species_type" in veg_df.columns:
+    # Filter to records where vegetation_species_type is "living_fences"
+    living_fences_df = veg_df[
+        veg_df["vegetation_species_type"].astype(str).str.lower() == "living_fences"
+    ].copy()
+
+    if len(living_fences_df) > 0:
+        # Extract PLOT_KEY from SUBPLOT_KEY (format: uuid:xxx/sub_plot[n])
+        if "SUBPLOT_KEY" in living_fences_df.columns:
+            living_fences_df["PLOT_KEY"] = living_fences_df["SUBPLOT_KEY"].apply(
+                lambda x: str(x).split("/")[0] if pd.notna(x) and "/" in str(x) else str(x)
+            )
+
+        # Count occurrences per plot
+        living_fences_summary = (
+            living_fences_df.groupby("PLOT_KEY")
+            .size()
+            .reset_index(name="Count")
+        )
+
+        # Add "Has Living Fences" column
+        living_fences_summary["Has Living Fences"] = "Yes"
+
+        # Prepare display dataframe
+        display_df = living_fences_summary[["PLOT_KEY", "Has Living Fences", "Count"]].copy()
+        display_df = display_df.sort_values("Count", ascending=False)
+
+        # Add row numbers
+        display_df.insert(0, "#", range(1, len(display_df) + 1))
+
+        st.info(f"📊 {len(display_df)} plots have living fences recorded")
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=400,
+            column_config={
+                "#": st.column_config.NumberColumn("#", width="small"),
+                "PLOT_KEY": "Plot ID",
+                "Has Living Fences": st.column_config.TextColumn("Has Living Fences", width="small"),
+                "Count": st.column_config.NumberColumn("Count", width="small"),
+            },
+            hide_index=True,
+        )
+
+        # Download button
+        csv_data = display_df.to_csv(index=False)
+        st.download_button(
+            label="📥 Download Living Fences CSV",
+            data=csv_data,
+            file_name=f"{config.PARTNER}_living_fences.csv",
+            mime="text/csv",
+        )
+    else:
+        st.success("✅ No plots with living fences recorded")
+else:
+    st.info("No living fences data available in the dataset")
+
+st.markdown("---")
+
+# ============================================
+# PLOT DETAILS EXPLORER
+# ============================================
+
+st.markdown("### 🔍 Plot Details Explorer")
+st.caption("Select a plot to view detailed information including tree data")
+
+# Get all unique plot keys
+if "PLOT_KEY" in filtered_gdf.columns:
+    all_plot_keys = sorted(filtered_gdf["PLOT_KEY"].dropna().unique().tolist())
+
+    if len(all_plot_keys) > 0:
+        # Build dropdown options with subplot count
+        plot_options = ["-- Select a plot --"]
+        for pk in all_plot_keys:
+            subplot_count = len(filtered_gdf[filtered_gdf["PLOT_KEY"] == pk])
+            # Check if plot is in invalid list
+            is_invalid = pk in plot_summary[~plot_summary["plot_valid"]]["PLOT_KEY"].values if len(plot_summary) > 0 else False
+            status_icon = "❌" if is_invalid else "✅"
+            plot_options.append(f"{status_icon} {pk} ({subplot_count} subplots)")
+
+        selected_plot_display = st.selectbox(
+            "Select a plot to view details",
+            options=plot_options,
+            index=0,
+            key="plot_explorer_select"
+        )
+
+        # Extract plot key from selection
+        if selected_plot_display != "-- Select a plot --":
+            # Remove status icon and subplot count to get plot key
+            selected_plot_key = selected_plot_display.split(" ", 1)[1].rsplit(" (", 1)[0]
+
+            # Get plot data
+            plot_subplots = filtered_gdf[filtered_gdf["PLOT_KEY"] == selected_plot_key].copy()
+            raw_data = st.session_state.data.get("raw_data", {})
+
+            if len(plot_subplots) > 0:
+                with st.expander(f"📋 Plot Details: {selected_plot_key}", expanded=True):
+                    first_row = plot_subplots.iloc[0]
+
+                    # Plot Information
+                    st.markdown("**Plot Information:**")
+                    info_col1, info_col2, info_col3 = st.columns(3)
+                    with info_col1:
+                        st.write(f"**Plot ID:** {selected_plot_key}")
+                    with info_col2:
+                        enumerator = first_row.get("enumerator", "N/A")
+                        st.write(f"**Enumerator:** {enumerator}")
+                    with info_col3:
+                        plot_date = first_row.get("SubmissionDate") or first_row.get("starttime") or first_row.get("date", "N/A")
+                        if pd.notna(plot_date) and plot_date != "N/A":
+                            try:
+                                plot_date = pd.to_datetime(plot_date).strftime("%Y-%m-%d")
+                            except:
+                                pass
+                        st.write(f"**Date:** {plot_date}")
+
+                    # Subplot Summary
+                    st.markdown("**Subplot Summary:**")
+                    total_subplots = len(plot_subplots)
+                    valid_col = "overall_valid" if "overall_valid" in plot_subplots.columns else "geom_valid"
+                    if valid_col in plot_subplots.columns:
+                        valid_subplots = int(plot_subplots[valid_col].sum())
+                    else:
+                        valid_subplots = 0
+                    invalid_subplots = total_subplots - valid_subplots
+
+                    sub_col1, sub_col2, sub_col3 = st.columns(3)
+                    with sub_col1:
+                        st.metric("Total", total_subplots)
+                    with sub_col2:
+                        st.metric("✅ Valid", valid_subplots)
+                    with sub_col3:
+                        st.metric("❌ Invalid", invalid_subplots)
+
+                    # Tree Species Table
+                    st.markdown("**Tree Species Summary:**")
+                    tree_counts = get_tree_count_by_name(selected_plot_key, raw_data, filtered_gdf)
+
+                    if tree_counts:
+                        # Build tree summary table
+                        tree_data = []
+                        for species_name, count in sorted(tree_counts.items(), key=lambda x: x[1], reverse=True):
+                            # Get subplot breakdown for this species
+                            species_records = get_tree_records_by_species(selected_plot_key, species_name, raw_data)
+                            if len(species_records) > 0:
+                                subplot_list = sorted(species_records["Subplot"].unique().tolist())
+                                subplot_str = ", ".join([str(s) for s in subplot_list])
+                            else:
+                                subplot_str = "N/A"
+
+                            tree_data.append({
+                                "Species": species_name,
+                                "Total Count": count,
+                                "Subplots": subplot_str
+                            })
+
+                        # Add total row
+                        total_trees = sum(tree_counts.values())
+                        tree_data.append({
+                            "Species": "**TOTAL**",
+                            "Total Count": total_trees,
+                            "Subplots": "-"
+                        })
+
+                        tree_df = pd.DataFrame(tree_data)
+                        st.dataframe(
+                            tree_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Species": "Species Name",
+                                "Total Count": st.column_config.NumberColumn("Count", width="small"),
+                                "Subplots": "Found in Subplots"
+                            }
+                        )
+
+                        # Expandable species details
+                        st.markdown("**Detailed Tree Records per Species:**")
+                        for species_name, count in sorted(tree_counts.items(), key=lambda x: x[1], reverse=True):
+                            with st.expander(f"{species_name}: {count} trees"):
+                                species_records = get_tree_records_by_species(selected_plot_key, species_name, raw_data)
+                                if len(species_records) > 0:
+                                    st.dataframe(species_records, use_container_width=True, hide_index=True)
+                                else:
+                                    st.caption("No detailed records available")
+                    else:
+                        st.info("No tree data recorded for this plot")
+
+                    # Invalid subplots list
+                    invalid_subs = plot_subplots[~plot_subplots[valid_col]] if valid_col in plot_subplots.columns else pd.DataFrame()
+                    if len(invalid_subs) > 0:
+                        st.markdown("**Invalid Subplots:**")
+                        invalid_display = invalid_subs[["subplot_id", "reasons"]].copy() if "reasons" in invalid_subs.columns else invalid_subs[["subplot_id"]].copy()
+
+                        # Extract subplot number for cleaner display
+                        invalid_display["Subplot #"] = invalid_display["subplot_id"].apply(
+                            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) + 1 if re.search(r'\[(\d+)\]', str(x)) else 0
+                        )
+
+                        if "reasons" in invalid_display.columns:
+                            display_df = invalid_display[["Subplot #", "reasons"]].rename(columns={"reasons": "Issues"})
+                        else:
+                            display_df = invalid_display[["Subplot #"]]
+
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No plots available")
+else:
+    st.warning("PLOT_KEY column not found in data")

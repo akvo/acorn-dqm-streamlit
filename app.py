@@ -263,7 +263,7 @@ with st.sidebar:
 
     # Initialize session state for accuracy_zero_valid if not exists
     if "accuracy_zero_valid" not in st.session_state:
-        st.session_state.accuracy_zero_valid = True
+        st.session_state.accuracy_zero_valid = False
 
     # Toggle for accepting 0m accuracy
     accept_zero_accuracy = st.checkbox(

@@ -123,8 +123,65 @@ with col4:
 
 st.markdown("---")
 
-# Calculate map center
-bounds = filtered_gdf.total_bounds
+# ============================================
+# PLOT SELECTION DROPDOWN
+# ============================================
+
+st.markdown("### 🎯 Plot Selection")
+
+# Get unique plot keys from the filtered data
+if "PLOT_KEY" in filtered_gdf.columns:
+    plot_keys = filtered_gdf["PLOT_KEY"].dropna().unique().tolist()
+    plot_keys_sorted = sorted(plot_keys)
+
+    # Create two columns for plot selection
+    col_select1, col_select2 = st.columns([2, 1])
+
+    with col_select1:
+        # Create display options with subplot count
+        plot_options = ["All Plots - Show entire dataset"]
+        for pk in plot_keys_sorted:
+            count = len(filtered_gdf[filtered_gdf["PLOT_KEY"] == pk])
+            plot_options.append(f"{pk} ({count} subplots)")
+
+        selected_plot_display = st.selectbox(
+            "Select a plot to zoom into",
+            options=plot_options,
+            index=0,
+            help="Select a specific plot to zoom into and highlight its subplots"
+        )
+
+    # Extract the actual plot key from selection
+    if selected_plot_display != "All Plots - Show entire dataset":
+        # Find the matching plot key
+        selected_idx = plot_options.index(selected_plot_display) - 1  # -1 for "All Plots"
+        selected_plot_key = plot_keys_sorted[selected_idx]
+    else:
+        selected_plot_key = None
+
+    with col_select2:
+        if selected_plot_key:
+            st.info(f"📍 Showing **1** plot with **{len(filtered_gdf[filtered_gdf['PLOT_KEY'] == selected_plot_key])}** subplots")
+        else:
+            st.info(f"📍 Showing **{len(plot_keys_sorted)}** plots")
+else:
+    selected_plot_key = None
+    st.caption("No PLOT_KEY column available for plot selection")
+
+st.markdown("---")
+
+# Calculate map center based on selection
+if selected_plot_key:
+    # Zoom to selected plot
+    plot_gdf = filtered_gdf[filtered_gdf["PLOT_KEY"] == selected_plot_key]
+    bounds = plot_gdf.total_bounds
+    # Use higher zoom for single plot
+    zoom_level = 17
+else:
+    # Show all data
+    bounds = filtered_gdf.total_bounds
+    zoom_level = config.DEFAULT_ZOOM
+
 center_lat = (bounds[1] + bounds[3]) / 2
 center_lon = (bounds[0] + bounds[2]) / 2
 
@@ -137,32 +194,32 @@ try:
     if map_style == "OpenStreetMap":
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=config.DEFAULT_ZOOM,
+            zoom_start=zoom_level,
             tiles="OpenStreetMap",
         )
     elif map_style == "Satellite (Esri)":
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=config.DEFAULT_ZOOM,
+            zoom_start=zoom_level,
             tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
             attr="Esri",
         )
     elif map_style == "Terrain":
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=config.DEFAULT_ZOOM,
+            zoom_start=zoom_level,
             tiles="Stamen Terrain",
         )
     elif map_style == "Light (CartoDB)":
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=config.DEFAULT_ZOOM,
+            zoom_start=zoom_level,
             tiles="CartoDB positron",
         )
     else:  # Dark (CartoDB)
         m = folium.Map(
             location=[center_lat, center_lon],
-            zoom_start=config.DEFAULT_ZOOM,
+            zoom_start=zoom_level,
             tiles="CartoDB dark_matter",
         )
 
@@ -203,31 +260,53 @@ try:
             # Skip other geometry types (Point, LineString, etc.)
             continue
 
+        # Check if this subplot belongs to the selected plot
+        is_selected_plot = (selected_plot_key is not None and
+                           row.get('PLOT_KEY') == selected_plot_key)
+
         # Create detailed popup
+        plot_key_display = row.get('PLOT_KEY', 'N/A')
+
+        # Get submission date
+        submission_date = row.get('SubmissionDate') or row.get('starttime') or row.get('date', 'N/A')
+        if pd.notna(submission_date) and submission_date != 'N/A':
+            try:
+                submission_date = pd.to_datetime(submission_date).strftime("%Y-%m-%d")
+            except:
+                submission_date = str(submission_date)
+
         popup_html = f"""
         <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
-            <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'}; 
-                        color: white; padding: 8px; margin: -10px -10px 10px -10px; 
+            <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'};
+                        color: white; padding: 8px; margin: -10px -10px 10px -10px;
                         border-radius: 3px 3px 0 0;">
                 <h3 style="margin: 0; font-size: 16px;">
                     {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
                 </h3>
             </div>
-            
+
             <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                <tr style="background-color: #e3f2fd;">
+                    <td style="padding: 4px; font-weight: bold; width: 40%;">Plot Key:</td>
+                    <td style="padding: 4px; font-size: 11px; word-break: break-all;">{plot_key_display}</td>
+                </tr>
                 <tr>
                     <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
                     <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
                 </tr>
                 <tr style="background-color: #f5f5f5;">
+                    <td style="padding: 4px; font-weight: bold;">Date:</td>
+                    <td style="padding: 4px;">{submission_date}</td>
+                </tr>
+                <tr>
                     <td style="padding: 4px; font-weight: bold;">Area:</td>
                     <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
                 </tr>
-                <tr>
+                <tr style="background-color: #f5f5f5;">
                     <td style="padding: 4px; font-weight: bold;">Vertices:</td>
                     <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
                 </tr>
-                <tr style="background-color: #f5f5f5;">
+                <tr>
                     <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
                     <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
                 </tr>
@@ -249,6 +328,17 @@ try:
                     <td style="padding: 4px;">{area_status}</td>
                 </tr>
             """
+
+        # Add overlap information if present
+        if "overlap_ids" in row.index and row.get("overlap_ids"):
+            overlap_ids = str(row["overlap_ids"])
+            if overlap_ids and overlap_ids != "nan":
+                popup_html += f"""
+                <tr style="background-color: #fff3e0;">
+                    <td style="padding: 4px; font-weight: bold;">Overlaps With:</td>
+                    <td style="padding: 4px; color: #e65100; font-size: 11px;">{overlap_ids}</td>
+                </tr>
+                """
 
         popup_html += "</table>"
 
@@ -284,8 +374,9 @@ try:
             opacity = 1
             fill_opacity = 0.4
 
-        # Create tooltip
-        tooltip_text = f"{row.get('subplot_id', 'N/A')}"
+        # Create tooltip with plot key info
+        plot_short = str(row.get('PLOT_KEY', ''))[-12:] if row.get('PLOT_KEY') else 'N/A'
+        tooltip_text = f"Plot: ...{plot_short} | Subplot: {row.get('subplot_id', 'N/A')}"
         if "area_m2" in row.index:
             tooltip_text += f" • {row.get('area_m2', 0):.0f}m²"
         if not row["geom_valid"]:
@@ -382,6 +473,274 @@ except Exception as e:
     st.markdown("### 📥 Export Data (Map not required)")
 
 # Legend and summary below map
+st.markdown("---")
+
+# ============================================
+# TREE COUNT MAP
+# ============================================
+
+st.markdown("## 🌳 Tree Count Map")
+st.caption("Subplots color-coded by tree count, filterable by vegetation type")
+
+# Get vegetation data
+raw_data = st.session_state.data.get("raw_data", {})
+veg_df = raw_data.get("plots_subplots_vegetation")
+
+if veg_df is not None and len(veg_df) > 0:
+    # Get unique vegetation types
+    veg_types = ["All"]
+    if "vegetation_species_type" in veg_df.columns:
+        unique_types = veg_df["vegetation_species_type"].dropna().unique().tolist()
+        # Clean and sort
+        unique_types = sorted([str(t).strip() for t in unique_types if str(t).strip() and str(t).lower() != 'nan'])
+        veg_types.extend(unique_types)
+
+    # Vegetation type filter and plot selector
+    col_filter1, col_filter2, col_filter3 = st.columns([2, 2, 2])
+    with col_filter1:
+        selected_veg_type = st.selectbox(
+            "Filter by Vegetation Type",
+            options=veg_types,
+            index=0,
+            key="tree_count_veg_filter"
+        )
+
+    # Filter vegetation data by type
+    if selected_veg_type == "All":
+        filtered_veg = veg_df.copy()
+    else:
+        filtered_veg = veg_df[veg_df["vegetation_species_type"] == selected_veg_type].copy()
+
+    # Plot selector for tree count map - filtered by vegetation type
+    with col_filter2:
+        tree_map_plot_keys = ["All Plots"]
+        if "SUBPLOT_KEY" in filtered_veg.columns and "PLOT_KEY" in filtered_gdf.columns:
+            # Get plots that have subplots with the selected vegetation type
+            veg_subplot_keys = filtered_veg["SUBPLOT_KEY"].dropna().unique().tolist()
+            # Extract PLOT_KEY from SUBPLOT_KEY (format: uuid:xxx/sub_plot[n])
+            veg_plot_keys = set()
+            for sk in veg_subplot_keys:
+                if "/" in str(sk):
+                    plot_key = str(sk).split("/")[0]
+                    veg_plot_keys.add(plot_key)
+
+            # Filter to only plots that exist in our geometry data
+            available_plot_keys = set(filtered_gdf["PLOT_KEY"].dropna().unique().tolist())
+            filtered_plot_keys = sorted(veg_plot_keys.intersection(available_plot_keys))
+            tree_map_plot_keys.extend(filtered_plot_keys)
+        elif "PLOT_KEY" in filtered_gdf.columns:
+            # Fallback to all plots if we can't filter
+            plot_keys_list = sorted(filtered_gdf["PLOT_KEY"].dropna().unique().tolist())
+            tree_map_plot_keys.extend(plot_keys_list)
+
+        selected_tree_map_plot = st.selectbox(
+            f"Zoom to Plot ({len(tree_map_plot_keys) - 1} plots with {selected_veg_type})",
+            options=tree_map_plot_keys,
+            index=0,
+            key="tree_count_plot_filter"
+        )
+
+    # Calculate tree count per subplot
+    if "SUBPLOT_KEY" in filtered_veg.columns and "vegetation_type_number" in filtered_veg.columns:
+        # Sum tree counts per subplot
+        tree_counts = (
+            filtered_veg.groupby("SUBPLOT_KEY")["vegetation_type_number"]
+            .sum()
+            .reset_index()
+            .rename(columns={"vegetation_type_number": "tree_count"})
+        )
+
+        # Merge with subplot geometry
+        tree_count_gdf = filtered_gdf.copy()
+
+        # Create SUBPLOT_KEY from subplot_id if not present
+        if "SUBPLOT_KEY" not in tree_count_gdf.columns and "subplot_id" in tree_count_gdf.columns:
+            # subplot_id format: subplots[0]-gt_subplot_gps -> need to match with SUBPLOT_KEY
+            # SUBPLOT_KEY format: uuid:xxx/sub_plot[0]
+            if "PLOT_KEY" in tree_count_gdf.columns:
+                tree_count_gdf["SUBPLOT_KEY"] = tree_count_gdf.apply(
+                    lambda row: f"{row['PLOT_KEY']}/sub_plot[{row['subplot_id'].split('[')[1].split(']')[0] if '[' in str(row['subplot_id']) else '0'}]"
+                    if pd.notna(row.get('subplot_id')) and pd.notna(row.get('PLOT_KEY')) else None,
+                    axis=1
+                )
+
+        # Merge tree counts
+        if "SUBPLOT_KEY" in tree_count_gdf.columns:
+            tree_count_gdf = tree_count_gdf.merge(tree_counts, on="SUBPLOT_KEY", how="left")
+            tree_count_gdf["tree_count"] = tree_count_gdf["tree_count"].fillna(0).astype(int)
+        else:
+            tree_count_gdf["tree_count"] = 0
+
+        # Show stats
+        with col_filter3:
+            total_trees = int(tree_count_gdf["tree_count"].sum())
+            subplots_with_trees = int((tree_count_gdf["tree_count"] > 0).sum())
+            st.metric(f"Total Trees ({selected_veg_type})", f"{total_trees:,}")
+
+        # Define color scale based on tree count
+        def get_tree_count_color(count):
+            """Return color based on tree count (green gradient)"""
+            if count == 0:
+                return "#E0E0E0"  # Grey for no trees
+            elif count <= 5:
+                return "#C8E6C9"  # Light green
+            elif count <= 10:
+                return "#A5D6A7"  #
+            elif count <= 20:
+                return "#81C784"  #
+            elif count <= 50:
+                return "#66BB6A"  #
+            elif count <= 100:
+                return "#4CAF50"  #
+            elif count <= 200:
+                return "#43A047"  #
+            else:
+                return "#2E7D32"  # Dark green for 200+
+
+        # Create tree count map
+        try:
+            # Calculate center based on selected plot
+            if selected_tree_map_plot != "All Plots" and "PLOT_KEY" in tree_count_gdf.columns:
+                plot_gdf = tree_count_gdf[tree_count_gdf["PLOT_KEY"] == selected_tree_map_plot]
+                non_empty = plot_gdf[~plot_gdf.geometry.is_empty]
+                tree_map_zoom = 17  # Zoom in close for single plot
+            else:
+                non_empty = tree_count_gdf[~tree_count_gdf.geometry.is_empty]
+                tree_map_zoom = zoom_level
+
+            if len(non_empty) > 0:
+                bounds = non_empty.total_bounds
+                center_lat = (bounds[1] + bounds[3]) / 2
+                center_lon = (bounds[0] + bounds[2]) / 2
+            else:
+                center_lat, center_lon = config.MAP_CENTER
+                tree_map_zoom = config.DEFAULT_ZOOM
+
+            # Create map
+            m2 = folium.Map(
+                location=[center_lat, center_lon],
+                zoom_start=tree_map_zoom,
+                tiles="CartoDB positron",
+            )
+
+            # Add additional tile layers
+            folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m2)
+            folium.TileLayer(
+                tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                attr="Esri",
+                name="Satellite",
+            ).add_to(m2)
+            folium.TileLayer("CartoDB positron", name="Light").add_to(m2)
+            folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m2)
+
+            # Add subplots colored by tree count
+            for idx, row in tree_count_gdf.iterrows():
+                if row.geometry.is_empty:
+                    continue
+
+                geom = row.geometry
+                polygons_to_plot = []
+
+                if geom.geom_type == 'Polygon':
+                    polygons_to_plot = [geom]
+                elif geom.geom_type == 'MultiPolygon':
+                    polygons_to_plot = list(geom.geoms)
+                else:
+                    continue
+
+                tree_count = int(row.get("tree_count", 0))
+                color = get_tree_count_color(tree_count)
+
+                # Get submission date for tree count map
+                tree_submission_date = row.get('SubmissionDate') or row.get('starttime') or row.get('date', 'N/A')
+                if pd.notna(tree_submission_date) and tree_submission_date != 'N/A':
+                    try:
+                        tree_submission_date = pd.to_datetime(tree_submission_date).strftime("%Y-%m-%d")
+                    except:
+                        tree_submission_date = str(tree_submission_date)
+
+                # Create popup
+                popup_html = f"""
+                <div style="font-family: Arial; min-width: 200px;">
+                    <h4 style="margin: 0 0 10px 0; color: #2E7D32;">🌳 Tree Count: {tree_count}</h4>
+                    <table style="width: 100%; font-size: 12px;">
+                        <tr><td><b>Plot:</b></td><td style="font-size: 10px;">{row.get('PLOT_KEY', 'N/A')}</td></tr>
+                        <tr><td><b>Subplot:</b></td><td>{row.get('subplot_id', 'N/A')}</td></tr>
+                        <tr><td><b>Date:</b></td><td>{tree_submission_date}</td></tr>
+                        <tr><td><b>Vegetation Type:</b></td><td>{selected_veg_type}</td></tr>
+                        <tr><td><b>Enumerator:</b></td><td>{row.get('enumerator', 'N/A')}</td></tr>
+                    </table>
+                </div>
+                """
+
+                tooltip_text = f"Trees: {tree_count} | {row.get('subplot_id', 'N/A')} | {tree_submission_date}"
+
+                for polygon in polygons_to_plot:
+                    coords = list(polygon.exterior.coords)
+                    coords_latlon = [[lat, lon] for lon, lat in coords]
+
+                    folium.Polygon(
+                        locations=coords_latlon,
+                        popup=folium.Popup(popup_html, max_width=300),
+                        tooltip=tooltip_text,
+                        color="#000000",
+                        fill=True,
+                        fillColor=color,
+                        fillOpacity=0.8,
+                        weight=3,
+                        opacity=1.0,
+                    ).add_to(m2)
+
+            # Add layer control and plugins
+            folium.LayerControl(position="topright").add_to(m2)
+            Fullscreen(position="topleft").add_to(m2)
+            MiniMap(toggle_display=True, position="bottomleft").add_to(m2)
+
+            # Add legend
+            legend_html = """
+            <div style="position: fixed;
+                        bottom: 50px; right: 10px;
+                        width: 150px;
+                        background-color: white;
+                        border: 2px solid #2E7D32;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                        z-index: 1000;
+                        padding: 10px;
+                        font-family: Arial, sans-serif;
+                        font-size: 11px;">
+                <h4 style="margin: 0 0 8px 0; color: #2E7D32;">🌳 Tree Count</h4>
+                <div style="display: flex; align-items: center; margin: 3px 0;">
+                    <span style="background: #E0E0E0; width: 20px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #999;"></span> 0
+                </div>
+                <div style="display: flex; align-items: center; margin: 3px 0;">
+                    <span style="background: #C8E6C9; width: 20px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #999;"></span> 1-5
+                </div>
+                <div style="display: flex; align-items: center; margin: 3px 0;">
+                    <span style="background: #81C784; width: 20px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #999;"></span> 6-20
+                </div>
+                <div style="display: flex; align-items: center; margin: 3px 0;">
+                    <span style="background: #4CAF50; width: 20px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #999;"></span> 21-100
+                </div>
+                <div style="display: flex; align-items: center; margin: 3px 0;">
+                    <span style="background: #2E7D32; width: 20px; height: 12px; display: inline-block; margin-right: 5px; border: 1px solid #999;"></span> 100+
+                </div>
+            </div>
+            """
+            m2.get_root().html.add_child(folium.Element(legend_html))
+
+            # Display map
+            st.info(f"💡 Showing tree counts for **{selected_veg_type}** vegetation type. Click subplots to see details.")
+            st_folium(m2, width=None, height=600, returned_objects=[], key="tree_count_map")
+
+        except Exception as e:
+            st.error(f"⚠️ Tree count map failed to load: {str(e)}")
+
+    else:
+        st.warning("⚠️ Required columns (SUBPLOT_KEY, vegetation_type_number) not found in vegetation data")
+else:
+    st.info("ℹ️ No vegetation data available for tree count map")
+
 st.markdown("---")
 
 col1, col2, col3 = st.columns(3)

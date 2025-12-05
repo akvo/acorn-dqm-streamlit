@@ -403,6 +403,91 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 leftIndent=10,
             )))
 
+    # ============= LIVING FENCES TABLE =============
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph("🌿 Plots with Living Fences", subheading_style))
+
+    # Get living fences data from raw_data
+    veg_df = raw_data.get("plots_subplots_vegetation")
+
+    if veg_df is not None and len(veg_df) > 0 and "vegetation_species_type" in veg_df.columns:
+        # Filter to records where vegetation_species_type is "living_fences"
+        living_fences_df = veg_df[
+            veg_df["vegetation_species_type"].astype(str).str.lower() == "living_fences"
+        ].copy()
+
+        if len(living_fences_df) > 0:
+            # Extract PLOT_KEY from SUBPLOT_KEY (format: uuid:xxx/sub_plot[n])
+            if "SUBPLOT_KEY" in living_fences_df.columns:
+                living_fences_df["PLOT_KEY"] = living_fences_df["SUBPLOT_KEY"].apply(
+                    lambda x: str(x).split("/")[0] if pd.notna(x) and "/" in str(x) else str(x)
+                )
+
+            # Count occurrences per plot
+            living_fences_summary = (
+                living_fences_df.groupby("PLOT_KEY")
+                .size()
+                .reset_index(name="count")
+            )
+
+            # Sort by count descending
+            living_fences_summary = living_fences_summary.sort_values("count", ascending=False)
+
+            story.append(Paragraph(
+                f"{len(living_fences_summary)} plots have living fences recorded.",
+                normal_style
+            ))
+            story.append(Spacer(1, 0.1*inch))
+
+            # Create table data
+            living_fences_table_data = [["Plot ID", "Has Living Fences", "Count"]]
+            for _, row in living_fences_summary.head(20).iterrows():
+                # Truncate plot ID if too long
+                plot_id = str(row["PLOT_KEY"])
+                if len(plot_id) > 40:
+                    plot_id = plot_id[:37] + "..."
+
+                living_fences_table_data.append([
+                    plot_id,
+                    "Yes",
+                    str(int(row["count"]))
+                ])
+
+            living_fences_table = Table(living_fences_table_data, colWidths=[3.5*inch, 1.5*inch, 1.5*inch])
+            living_fences_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('ALIGN', (2, 0), (2, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#E8F5E9')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('PADDING', (0, 1), (-1, -1), 6),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F1F8E9')]),
+            ]))
+            story.append(living_fences_table)
+
+            if len(living_fences_summary) > 20:
+                story.append(Spacer(1, 0.1*inch))
+                story.append(Paragraph(
+                    f"<i>... and {len(living_fences_summary) - 20} more plots with living fences</i>",
+                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
+                ))
+        else:
+            story.append(Paragraph(
+                "No plots with living fences recorded in this dataset.",
+                normal_style
+            ))
+    else:
+        story.append(Paragraph(
+            "Living fences data not available in this dataset.",
+            normal_style
+        ))
+
     # Show individual maps grouped by GT Plot, then subplots (from measured subplots only)
     if "enumerator" in measured_gdf.columns and MATPLOTLIB_AVAILABLE:
         story.append(Spacer(1, 0.3*inch))

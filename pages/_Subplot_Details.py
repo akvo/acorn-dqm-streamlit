@@ -903,7 +903,11 @@ with tabs[4]:
     if len(banana) > 0:
         banana = add_tree_name_column(banana)
 
-    col1, col2, col3, col4 = st.columns(4)
+    living_fences = species_lists.get("living_fences", pd.DataFrame())
+    if len(living_fences) > 0:
+        living_fences = add_tree_name_column(living_fences)
+
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         st.metric("Woody Species", len(woody))
@@ -917,10 +921,13 @@ with tabs[4]:
     with col4:
         st.metric("Banana Species", len(banana))
 
+    with col5:
+        st.metric("Living Fences", len(living_fences))
+
     st.markdown("---")
 
     # Show each list in tabs
-    species_tabs = st.tabs(["Woody", "Palm", "Bamboo", "Banana"])
+    species_tabs = st.tabs(["Woody", "Palm", "Bamboo", "Banana", "Living Fences"])
 
     with species_tabs[0]:
         if len(woody) > 0:
@@ -1014,6 +1021,29 @@ with tabs[4]:
         else:
             st.info("No banana species found")
 
+    with species_tabs[4]:
+        if len(living_fences) > 0:
+            st.markdown(f"**Living Fences Species List** ({len(living_fences)} records)")
+            # Only include columns that exist
+            display_cols = []
+            for col in [
+                "VEGETATION_KEY",
+                "enumerator",
+                "tree_name",
+                "living_fences_species",
+                "vegetation_type_number",
+            ]:
+                if col in living_fences.columns:
+                    display_cols.append(col)
+
+            if len(display_cols) > 0:
+                st.dataframe(living_fences[display_cols], use_container_width=True, height=400)
+            else:
+                st.warning("⚠️ No display columns available")
+                st.write(f"Available columns: {list(living_fences.columns)}")
+        else:
+            st.info("No living fences species found")
+
     st.markdown("---")
 
     # ============================================
@@ -1030,56 +1060,48 @@ with tabs[4]:
         # Load official species lists from TSV files
         import os
 
-        species_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "species")
+        species_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "species", config.PARTNER)
 
         valid_species_by_type = {}
 
-        # Load woody species
-        try:
-            woody_file = os.path.join(species_dir, "woody_species.tsv")
-            if os.path.exists(woody_file):
-                woody_ref = pd.read_csv(woody_file, sep="\t")
-                # Use both value and label for matching
-                valid_species_by_type["woody"] = list(woody_ref["label"].dropna()) + list(woody_ref["value"].dropna())
-            else:
-                valid_species_by_type["woody"] = []
-                st.warning(f"⚠️ Woody species reference file not found: {woody_file}")
-        except Exception as e:
-            valid_species_by_type["woody"] = []
-            st.warning(f"⚠️ Error loading woody species: {str(e)}")
+        # Define species files to load
+        species_files = {
+            "woody": "woody_species.tsv",
+            "bamboo": "bamboo_species.tsv",
+            "banana": "banana_species.tsv",
+            "palm": "palm_species.tsv",
+            "living_fences": "living_fences_species.tsv",
+        }
 
-        # Load bamboo species
-        try:
-            bamboo_file = os.path.join(species_dir, "bamboo_species.tsv")
-            if os.path.exists(bamboo_file):
-                bamboo_ref = pd.read_csv(bamboo_file, sep="\t")
-                valid_species_by_type["bamboo"] = list(bamboo_ref["label"].dropna()) + list(bamboo_ref["value"].dropna())
-            else:
-                valid_species_by_type["bamboo"] = []
-        except Exception as e:
-            valid_species_by_type["bamboo"] = []
-            st.warning(f"⚠️ Error loading bamboo species: {str(e)}")
+        # Track which files were loaded
+        files_loaded = []
+        files_missing = []
 
-        # Load banana species
-        try:
-            banana_file = os.path.join(species_dir, "banana_species.tsv")
-            if os.path.exists(banana_file):
-                banana_ref = pd.read_csv(banana_file, sep="\t")
-                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(banana_ref["value"].dropna())
-            else:
-                valid_species_by_type["banana"] = []
-        except Exception as e:
-            valid_species_by_type["banana"] = []
-            st.warning(f"⚠️ Error loading banana species: {str(e)}")
+        # Load each species file
+        for species_type, filename in species_files.items():
+            try:
+                filepath = os.path.join(species_dir, filename)
+                if os.path.exists(filepath):
+                    species_ref = pd.read_csv(filepath, sep="\t")
+                    # Use both value and label for matching
+                    species_list = []
+                    if "label" in species_ref.columns:
+                        species_list.extend(list(species_ref["label"].dropna()))
+                    if "value" in species_ref.columns:
+                        species_list.extend(list(species_ref["value"].dropna()))
+                    valid_species_by_type[species_type] = species_list
+                    if len(species_list) > 0:
+                        files_loaded.append(species_type)
+                else:
+                    valid_species_by_type[species_type] = []
+                    files_missing.append(species_type)
+            except Exception as e:
+                valid_species_by_type[species_type] = []
+                files_missing.append(species_type)
 
-        # Palm species - use data from dataset if available (no reference file provided)
-        valid_species_by_type["palm"] = []
-        if len(palm) > 0 and "palm_species" in palm.columns:
-            palm_species = palm[
-                (palm["palm_species"].notna()) &
-                (~palm["palm_species"].str.lower().str.contains("other", na=False))
-            ]["palm_species"].unique()
-            valid_species_by_type["palm"] = list(palm_species)
+        # Show info about loaded files
+        if files_missing:
+            st.caption(f"ℹ️ Species files not found for: {', '.join(files_missing)}")
 
         # Combine all valid species for general matching
         all_valid_species = []
@@ -1097,7 +1119,13 @@ with tabs[4]:
             st.info("ℹ️ No valid species found to match against")
         else:
             # Show reference species counts
-            st.caption(f"📚 **Reference Species Loaded:** Woody: {len(valid_species_by_type.get('woody', []))} | Bamboo: {len(valid_species_by_type.get('bamboo', []))} | Banana: {len(valid_species_by_type.get('banana', []))} | Palm: {len(valid_species_by_type.get('palm', []))} | **Total: {len(all_valid_species)}**")
+            counts_parts = []
+            for species_type in ["woody", "bamboo", "banana", "palm", "living_fences"]:
+                count = len(valid_species_by_type.get(species_type, []))
+                if count > 0:
+                    counts_parts.append(f"{species_type.replace('_', ' ').title()}: {count}")
+            counts_str = " | ".join(counts_parts) if counts_parts else "None"
+            st.caption(f"📚 **Reference Species Loaded:** {counts_str} | **Total: {len(all_valid_species)}**")
             st.markdown("")
 
             # Define species columns mapping
@@ -1105,7 +1133,8 @@ with tabs[4]:
                 "woody_species": woody,
                 "palm_species": palm,
                 "bamboo_species": bamboo,
-                "banana_species": banana
+                "banana_species": banana,
+                "living_fences_species": living_fences,
             }
 
             # Find "other" entries with their specified text
@@ -1116,40 +1145,84 @@ with tabs[4]:
                     continue
 
                 # Find entries where species is "other"
-                other_col = species_type.replace("_species", "_species_other")
+                # The actual "other" text is in columns: other_species and language_other_species
+                has_other_species = "other_species" in species_df.columns
+                has_language_other = "language_other_species" in species_df.columns
 
-                if other_col in species_df.columns:
-                    other_rows = species_df[
-                        (species_df[species_type].notna()) &
-                        (species_df[species_type].str.lower().str.contains("other", na=False)) &
-                        (species_df[other_col].notna())
-                    ].copy()
+                if not has_other_species and not has_language_other:
+                    continue
 
-                    if len(other_rows) > 0:
-                        for _, row in other_rows.iterrows():
-                            other_text = str(row[other_col]).strip()
-                            if other_text and other_text.lower() not in ['nan', 'none', '']:
-                                # Find best matches using fuzzy matching
-                                matches = process.extract(
-                                    other_text,
-                                    all_valid_species,
-                                    scorer=fuzz.ratio,
-                                    limit=3
-                                )
+                # Filter rows where the species type contains "other"
+                other_rows = species_df[
+                    (species_df[species_type].notna()) &
+                    (species_df[species_type].str.lower().str.contains("other", na=False))
+                ].copy()
 
-                                # Filter by threshold
-                                good_matches = [m for m in matches if m[1] >= fuzzy_threshold]
+                if len(other_rows) > 0:
+                    for _, row in other_rows.iterrows():
+                        # Get text from other_species column
+                        other_text = ""
+                        if has_other_species and pd.notna(row.get("other_species")):
+                            other_text = str(row["other_species"]).strip()
 
-                                if good_matches:
-                                    fuzzy_matches_list.append({
-                                        "Type": species_type.replace("_species", "").title(),
-                                        "Other Text Entered": other_text,
-                                        "Best Match": good_matches[0][0],
-                                        "Match Score": f"{good_matches[0][1]}%",
-                                        "Alternative Matches": ", ".join([f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]) if len(good_matches) > 1 else "",
-                                        "Enumerator": row.get("enumerator", "N/A"),
-                                        "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A")
-                                    })
+                        # Get text from language_other_species column
+                        language_other_text = ""
+                        if has_language_other and pd.notna(row.get("language_other_species")):
+                            language_other_text = str(row["language_other_species"]).strip()
+
+                        # Get date of collection
+                        collection_date = row.get("SubmissionDate") or row.get("starttime") or row.get("date", "N/A")
+                        if pd.notna(collection_date) and collection_date != "N/A":
+                            try:
+                                collection_date = pd.to_datetime(collection_date).strftime("%Y-%m-%d")
+                            except:
+                                pass
+
+                        # Process other_species
+                        if other_text and other_text.lower() not in ['nan', 'none', '']:
+                            matches = process.extract(
+                                other_text,
+                                all_valid_species,
+                                scorer=fuzz.ratio,
+                                limit=3
+                            )
+                            good_matches = [m for m in matches if m[1] >= fuzzy_threshold]
+
+                            if good_matches:
+                                fuzzy_matches_list.append({
+                                    "Type": species_type.replace("_species", "").title(),
+                                    "Other Text Entered": other_text,
+                                    "Source Column": "other_species",
+                                    "Best Match": good_matches[0][0],
+                                    "Match Score": f"{good_matches[0][1]}%",
+                                    "Alternative Matches": ", ".join([f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]) if len(good_matches) > 1 else "",
+                                    "Enumerator": row.get("enumerator", "N/A"),
+                                    "Date": collection_date,
+                                    "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A")
+                                })
+
+                        # Process language_other_species
+                        if language_other_text and language_other_text.lower() not in ['nan', 'none', '']:
+                            matches = process.extract(
+                                language_other_text,
+                                all_valid_species,
+                                scorer=fuzz.ratio,
+                                limit=3
+                            )
+                            good_matches = [m for m in matches if m[1] >= fuzzy_threshold]
+
+                            if good_matches:
+                                fuzzy_matches_list.append({
+                                    "Type": species_type.replace("_species", "").title(),
+                                    "Other Text Entered": language_other_text,
+                                    "Source Column": "language_other_species",
+                                    "Best Match": good_matches[0][0],
+                                    "Match Score": f"{good_matches[0][1]}%",
+                                    "Alternative Matches": ", ".join([f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]) if len(good_matches) > 1 else "",
+                                    "Enumerator": row.get("enumerator", "N/A"),
+                                    "Date": collection_date,
+                                    "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A")
+                                })
 
             if len(fuzzy_matches_list) == 0:
                 st.success(f"✅ No 'other' species entries found matching threshold of {fuzzy_threshold}%")
@@ -1165,10 +1238,12 @@ with tabs[4]:
                     column_config={
                         "Type": st.column_config.TextColumn("Species Type", width="small"),
                         "Other Text Entered": st.column_config.TextColumn("Text Entered as 'Other'", width="medium"),
+                        "Source Column": st.column_config.TextColumn("Source", width="small"),
                         "Best Match": st.column_config.TextColumn("Best Match", width="medium"),
                         "Match Score": st.column_config.TextColumn("Score", width="small"),
                         "Alternative Matches": st.column_config.TextColumn("Other Possible Matches", width="large"),
                         "Enumerator": st.column_config.TextColumn("Enumerator", width="small"),
+                        "Date": st.column_config.TextColumn("Date", width="small"),
                         "VEGETATION_KEY": st.column_config.TextColumn("Veg Key", width="small"),
                     }
                 )

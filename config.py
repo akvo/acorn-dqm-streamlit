@@ -43,7 +43,7 @@ PARTNERS = {
     "AFEC": {
         "country": "India",
         "country_iso3": "IND",
-        "dqID": "data_quality_ground_truth_collection_afec_2025_december",
+        "dqID": "data_quality_ground_truth_collection_afec_2025_november",
         "gtID": "ground_truth_collection_afec_2025_december",
         "description": "AFEC - India",
         "min_plot_area": 1000,
