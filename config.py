@@ -18,7 +18,7 @@ PARTNERS = {
         "description": "Intellecap - India",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [23.67,85.38],
+        "map_center": [23.67, 85.38],
     },
     "IORA": {
         "country": "India",
