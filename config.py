@@ -10,7 +10,7 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
-    "Intellecap": {
+    "INTELLECAP": {
         "country": "India",
         "country_iso3": "IND",
         "dqID": "data_quality_ground_truth_collection_INTELLECAP_2025_December",
