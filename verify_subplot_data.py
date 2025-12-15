@@ -37,12 +37,9 @@ try:
     m_plots["SubmissionDate"] = pd.to_datetime(m_plots["SubmissionDate"]).dt.date
 
     # Filter by date range
-    m_plots = m_plots[
-        (m_plots["SubmissionDate"] >= start_date)
-        & (m_plots["SubmissionDate"] <= end_date)
-    ]
+    m_plots = m_plots[(m_plots["SubmissionDate"] >= start_date) & (m_plots["SubmissionDate"] <= end_date)]
 
-    print(f"   ✓ Data loaded successfully")
+    print("   ✓ Data loaded successfully")
     print(f"   ✓ Date range: {start_date} to {end_date}")
 
     # Calculate Total Subplots
@@ -63,12 +60,8 @@ try:
         valid_count = m_plots["geom_valid"].sum()
         invalid_count = len(m_plots) - valid_count
 
-        print(
-            f"\n✓ Valid subplots:   {valid_count} ({valid_count/total_subplots*100:.1f}%)"
-        )
-        print(
-            f"✗ Invalid subplots: {invalid_count} ({invalid_count/total_subplots*100:.1f}%)"
-        )
+        print(f"\n✓ Valid subplots:   {valid_count} ({valid_count / total_subplots * 100:.1f}%)")
+        print(f"✗ Invalid subplots: {invalid_count} ({invalid_count / total_subplots * 100:.1f}%)")
 
         # Count issues
         if "reasons" in m_plots.columns:
@@ -86,9 +79,7 @@ try:
                     if reason:
                         issue_types[reason] = issue_types.get(reason, 0) + 1
 
-            for issue, count in sorted(
-                issue_types.items(), key=lambda x: x[1], reverse=True
-            ):
+            for issue, count in sorted(issue_types.items(), key=lambda x: x[1], reverse=True):
                 print(f"  • {issue}: {count}")
     else:
         print("\n⚠️  Geometry validation not yet run on this data.")
@@ -102,9 +93,7 @@ try:
     print("=" * 60)
     print(f"\nTotal plots: {len(plots_df)}")
     print(f"Unique enumerators: {m_plots['enumerator'].nunique()}")
-    print(
-        f"Date range: {m_plots['SubmissionDate'].min()} to {m_plots['SubmissionDate'].max()}"
-    )
+    print(f"Date range: {m_plots['SubmissionDate'].min()} to {m_plots['SubmissionDate'].max()}")
 
     # Show enumerator breakdown
     print("\nSubplots by enumerator:")

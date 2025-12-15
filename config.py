@@ -10,6 +10,16 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "Intellecap": {
+        "country": "India",
+        "country_iso3": "IND",
+        "dqID": "data_quality_ground_truth_collection_INTELLECAP_2025_December",
+        "gtID": "ground_truth_collection_INTELLECAP_2025_December",
+        "description": "Intellecap - India",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [23.67,85.38],
+    },
     "IORA": {
         "country": "India",
         "country_iso3": "IND",
@@ -81,9 +91,7 @@ def get_active_partner():
                     if partner_param in PARTNERS:
                         return partner_param
                     else:
-                        st.warning(
-                            f"⚠️ Unknown partner '{partner_param}'. Using default COMACO."
-                        )
+                        st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default COMACO.")
                         return "COMACO"
 
         # Fallback: try experimental API for older Streamlit versions
@@ -92,9 +100,7 @@ def get_active_partner():
 
             if "partner" in query_params:
                 partner_param = (
-                    query_params["partner"][0]
-                    if isinstance(query_params["partner"], list)
-                    else query_params["partner"]
+                    query_params["partner"][0] if isinstance(query_params["partner"], list) else query_params["partner"]
                 )
 
                 if partner_param:
@@ -103,12 +109,10 @@ def get_active_partner():
                     if partner_param in PARTNERS:
                         return partner_param
                     else:
-                        st.warning(
-                            f"⚠️ Unknown partner '{partner_param}'. Using default COMACO."
-                        )
+                        st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default COMACO.")
                         return "COMACO"
 
-    except Exception as e:
+    except Exception:
         # If any error, use default
         # Silently fail and use default
         pass

@@ -62,20 +62,14 @@ def transform(func, geom):
                 return type(geom)(zip(*func(*zip(*geom.coords))))
             elif geom.geom_type == "Polygon":
                 shell = type(geom.exterior)(zip(*func(*zip(*geom.exterior.coords))))
-                holes = list(
-                    type(ring)(zip(*func(*zip(*ring.coords))))
-                    for ring in geom.interiors
-                )
+                holes = list(type(ring)(zip(*func(*zip(*ring.coords)))) for ring in geom.interiors)
                 return type(geom)(shell, holes)
         except TypeError:
             if geom.geom_type in ("Point", "LineString", "LinearRing"):
                 return type(geom)([func(*c) for c in geom.coords])
             elif geom.geom_type == "Polygon":
                 shell = type(geom.exterior)([func(*c) for c in geom.exterior.coords])
-                holes = list(
-                    type(ring)([func(*c) for c in ring.coords])
-                    for ring in geom.interiors
-                )
+                holes = list(type(ring)([func(*c) for c in ring.coords]) for ring in geom.interiors)
                 return type(geom)(shell, holes)
     elif geom.geom_type.startswith("Multi") or geom.geom_type == "GeometryCollection":
         return type(geom)([transform(func, part) for part in geom.geoms])
@@ -161,9 +155,7 @@ def add_length_width_ratio(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gdf
 
 
-def calculate_minimum_rotated_rectangle(
-    gdf: gpd.GeoDataFrame, geodesic=False
-) -> gpd.GeoDataFrame:
+def calculate_minimum_rotated_rectangle(gdf: gpd.GeoDataFrame, geodesic=False) -> gpd.GeoDataFrame:
     """Calculate minimum rotated rectangle area"""
     if not geodesic:
         gdf["minimum_rotated_rectangle_m2"] = gdf.geometry.apply(
@@ -209,11 +201,7 @@ def calculate_area(
 
         geod = Geod(ellps="WGS84")
         gdf[area_field] = gdf_4326[geometry_field].apply(
-            lambda x: (
-                0
-                if x is None or pd.isna(x)
-                else abs(geod.geometry_area_perimeter(x)[0])
-            )
+            lambda x: (0 if x is None or pd.isna(x) else abs(geod.geometry_area_perimeter(x)[0]))
         )
     else:
         if gdf.crs.is_projected:
@@ -370,9 +358,7 @@ def replace_multipolygons(
         else:
             return geom
     else:
-        raise SyntaxError(
-            "Geometry is not a Polygon, Multipolygon or GeometryCollection"
-        )
+        raise SyntaxError("Geometry is not a Polygon, Multipolygon or GeometryCollection")
 
 
 def replace_none_geometries(geom: Polygon) -> Polygon:
@@ -473,13 +459,9 @@ class WGS84Point:
 
     def __post_init__(self) -> None:
         if not (-90.0 <= self.latitude <= 90.0):
-            raise ValueError(
-                f"latitude should be between -90 and 90 but found {self.latitude!r}"
-            )
+            raise ValueError(f"latitude should be between -90 and 90 but found {self.latitude!r}")
         if not (-180.0 <= self.longitude <= 180.0):
-            raise ValueError(
-                f"longitude should be between -180 and 180 but found {self.longitude!r}"
-            )
+            raise ValueError(f"longitude should be between -180 and 180 but found {self.longitude!r}")
 
 
 def gdf_center(gdf: gpd.GeoDataFrame) -> WGS84Point:
@@ -534,9 +516,7 @@ def validate_overlap(
         .pipe(calculate_area, geodisic=True)
         .assign(
             min_area=lambda x: (
-                x[["area_m2_1", "area_m2_2"]].min(axis=1)
-                if not x.empty
-                else pd.Series(dtype="float64")
+                x[["area_m2_1", "area_m2_2"]].min(axis=1) if not x.empty else pd.Series(dtype="float64")
             ),
             overlay_ratio=lambda x: x.area_m2 / x.min_area,
             overlap=lambda x: min_overlap < x.overlay_ratio.to_numpy(),
@@ -545,17 +525,13 @@ def validate_overlap(
     )
 
     if df_overlap.empty:
-        df_overlap_all = gpd.GeoDataFrame(
-            columns=[id_column, "overlap_ids", "percentage_overlap"]
-        )
+        df_overlap_all = gpd.GeoDataFrame(columns=[id_column, "overlap_ids", "percentage_overlap"])
     else:
         df_overlap_ids = (
             df_overlap.groupby(f"{id_column}_1")[f"{id_column}_2"]
             .apply(lambda x: ";".join([str(i) for i in x if i is not None]))
             .reset_index()
-            .rename(
-                columns={f"{id_column}_1": id_column, f"{id_column}_2": "overlap_ids"}
-            )
+            .rename(columns={f"{id_column}_1": id_column, f"{id_column}_2": "overlap_ids"})
         )
 
         df_overlap_max = (
@@ -656,14 +632,14 @@ def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
 
     # Check if Excel cell limit exceeded
     if len(polygon_string) == 32767:
-        return shapely.geometry.polygon.Polygon(), {"reason": "GPS data exceeded Excel's cell limit (32,767 characters)"}
+        return shapely.geometry.polygon.Polygon(), {
+            "reason": "GPS data exceeded Excel's cell limit (32,767 characters)"
+        }
 
     vertices = polygon_string.split(";")
     total_vertices = len(vertices)
 
-    coordinates, skip_coordinates_counter, stats = coordinates_from_vertices(
-        vertices, accuracy_m, accuracy_zero_valid
-    )
+    coordinates, skip_coordinates_counter, stats = coordinates_from_vertices(vertices, accuracy_m, accuracy_zero_valid)
 
     valid_points = len(coordinates)
     total_dropped = skip_coordinates_counter
@@ -679,11 +655,16 @@ def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
             if stats["dropped_zero_accuracy"] > 0:
                 details.append(f"{stats['dropped_zero_accuracy']} =0m")
             reason += ". " + ", ".join(details)
-        return shapely.geometry.polygon.Polygon(), {"reason": reason, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
+        return shapely.geometry.polygon.Polygon(), {
+            "reason": reason,
+            **stats,
+            "total_vertices": total_vertices,
+            "valid_points": valid_points,
+        }
 
     elif len(coordinates) < (skip_coordinates_counter * 4):
         # Ratio check failed: too many points dropped relative to valid points
-        print(f"Dropped too many points for pd_row")
+        print("Dropped too many points for pd_row")
         valid_percentage = (valid_points / total_vertices * 100) if total_vertices > 0 else 0
         reason = f"{total_vertices} collected, {total_dropped} dropped"
         if stats["dropped_over_threshold"] > 0 or stats["dropped_zero_accuracy"] > 0:
@@ -694,7 +675,12 @@ def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
                 details.append(f"{stats['dropped_zero_accuracy']} =0m")
             reason += ". " + ", ".join(details)
         reason += f". < 80% valid ({valid_percentage:.0f}%)"
-        return shapely.geometry.polygon.Polygon(), {"reason": reason, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
+        return shapely.geometry.polygon.Polygon(), {
+            "reason": reason,
+            **stats,
+            "total_vertices": total_vertices,
+            "valid_points": valid_points,
+        }
 
     geom = shapely.geometry.polygon.Polygon(coordinates)
     return geom, {"reason": None, **stats, "total_vertices": total_vertices, "valid_points": valid_points}
@@ -705,9 +691,7 @@ def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
 # ============================================
 
 
-def collect_reasons_subplot(
-    row: pd.Series, min_subplot_area_size: float, max_subplot_area_size: float
-) -> str:
+def collect_reasons_subplot(row: pd.Series, min_subplot_area_size: float, max_subplot_area_size: float) -> str:
     """Collect all validation failure reasons for subplot"""
     if row.geometry is None:
         return "Geometry missing"
@@ -717,65 +701,29 @@ def collect_reasons_subplot(
         return "Invalid geometry"
 
     reasons = [
-        (
-            "Overlapping polygons"
-            if "overlap_ids" in row.index and row.overlap_ids
-            else ""
-        ),
+        ("Overlapping polygons" if "overlap_ids" in row.index and row.overlap_ids else ""),
         "Duplicate plot id" if "duplicate_id" in row.index and row.duplicate_id else "",
-        (
-            "Boundary not in country"
-            if "in_country" in row.index and not row.in_country
-            else ""
-        ),
-        (
-            "Plot outside of radius"
-            if "in_radius" in row.index and not row.in_radius
-            else ""
-        ),
-        (
-            "Plot too small"
-            if "area_m2" in row.index and row.area_m2 < min_subplot_area_size
-            else ""
-        ),
-        (
-            "Plot too big"
-            if "area_m2" in row.index and row.area_m2 > max_subplot_area_size
-            else ""
-        ),
-        (
-            f"Nr vertices <= {3}"
-            if "nr_vertices_too_small" in row.index and row.nr_vertices_too_small
-            else ""
-        ),
-        (
-            "Plot is protruding"
-            if "protruding_ratio_too_big" in row.index and row.protruding_ratio_too_big
-            else ""
-        ),
+        ("Boundary not in country" if "in_country" in row.index and not row.in_country else ""),
+        ("Plot outside of radius" if "in_radius" in row.index and not row.in_radius else ""),
+        ("Plot too small" if "area_m2" in row.index and row.area_m2 < min_subplot_area_size else ""),
+        ("Plot too big" if "area_m2" in row.index and row.area_m2 > max_subplot_area_size else ""),
+        (f"Nr vertices <= {3}" if "nr_vertices_too_small" in row.index and row.nr_vertices_too_small else ""),
+        ("Plot is protruding" if "protruding_ratio_too_big" in row.index and row.protruding_ratio_too_big else ""),
     ]
 
     return ";".join(filter(None, reasons))
 
 
-def collect_reasons_plot(
-    row: pd.Series, min_plot_area_size: float, max_plot_area_size: float
-) -> str:
+def collect_reasons_plot(row: pd.Series, min_plot_area_size: float, max_plot_area_size: float) -> str:
     """Collect all validation failure reasons for plot"""
     return collect_reasons_subplot(row, min_plot_area_size, max_plot_area_size)
 
 
-def assign_geom_valid_geojson(
-    gdf: gpd.GeoDataFrame, min_area: float, max_area: float
-) -> gpd.GeoDataFrame:
+def assign_geom_valid_geojson(gdf: gpd.GeoDataFrame, min_area: float, max_area: float) -> gpd.GeoDataFrame:
     """Assign validity and geojson to GeoDataFrame"""
-    gdf["reasons"] = gdf.apply(
-        lambda x: collect_reasons_subplot(x, min_area, max_area), axis=1
-    )
+    gdf["reasons"] = gdf.apply(lambda x: collect_reasons_subplot(x, min_area, max_area), axis=1)
     gdf["geom_valid"] = gdf["reasons"].apply(lambda x: len(x) == 0)
-    gdf["geojson"] = gdf.apply(
-        lambda x: to_geojson(x.geometry, x.get("subplot_id", "unknown")), axis=1
-    )
+    gdf["geojson"] = gdf.apply(lambda x: to_geojson(x.geometry, x.get("subplot_id", "unknown")), axis=1)
     return gdf
 
 
@@ -861,11 +809,7 @@ class GeometryFixer:
         # Step 7: Replace degraded geometry types (Point/LineString/MultiLineString)
         before_type_check = gdf.geometry.is_empty.copy()
         gdf["geometry"] = gdf["geometry"].apply(
-            lambda geom: (
-                geom
-                if geom.geom_type not in ["Point", "LineString", "MultiLineString"]
-                else Polygon()
-            )
+            lambda geom: (geom if geom.geom_type not in ["Point", "LineString", "MultiLineString"] else Polygon())
         )
         self._track_empty_change(gdf, before_type_check, "geometry_type_degradation")
 
@@ -950,15 +894,13 @@ class GeometryValidator:
     def validate_length_width_ratio(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Validate length/width ratio"""
         return gdf.pipe(add_length_width_ratio).assign(
-            length_width_ratio_too_big=lambda x: x.length_width_ratio
-            > self.threshold_length_width
+            length_width_ratio_too_big=lambda x: x.length_width_ratio > self.threshold_length_width
         )
 
     def validate_protruding_ratio(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Validate protruding ratio"""
         return gdf.pipe(add_protruding_ratio).assign(
-            protruding_ratio_too_big=lambda x: x.mrr_ratio
-            > self.threshold_protruding_ratio
+            protruding_ratio_too_big=lambda x: x.mrr_ratio > self.threshold_protruding_ratio
         )
 
     def validate_nr_vertices(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -966,19 +908,13 @@ class GeometryValidator:
         return (
             gdf.pipe(number_of_vertices_per_polygon)
             .assign(vertices_dropped=lambda x: x.original_vertices - x.nr_vertices)
-            .assign(
-                vertices_valid_percentage=lambda x: 100
-                * x.nr_vertices
-                / x.original_vertices
-            )
+            .assign(vertices_valid_percentage=lambda x: 100 * x.nr_vertices / x.original_vertices)
             .assign(nr_vertices_too_small=lambda x: x.nr_vertices <= self.max_vertices)
         )
 
     def validate_within_radius(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Validate if all points within radius"""
-        gdf["in_radius"] = gdf.geometry.apply(
-            lambda x: self.all_points_in_radius(x, self.threshold_within_radius)
-        )
+        gdf["in_radius"] = gdf.geometry.apply(lambda x: self.all_points_in_radius(x, self.threshold_within_radius))
         return gdf
 
     def overlap_filter(self, x):

@@ -79,9 +79,7 @@ def get_missing_subplots(
     return missing_df
 
 
-def check_unidentified_species(
-    vegetation_df: pd.DataFrame, species_columns: List[str] = None
-) -> pd.DataFrame:
+def check_unidentified_species(vegetation_df: pd.DataFrame, species_columns: List[str] = None) -> pd.DataFrame:
     """
     Find vegetation records with 'other' species needing botanical verification.
     """
@@ -145,9 +143,7 @@ def detect_height_outliers(
         return df
 
     # Calculate median heights by species
-    species_medians = (
-        df_filtered.groupby(species_col)[height_col].median().reset_index()
-    )
+    species_medians = df_filtered.groupby(species_col)[height_col].median().reset_index()
     species_medians.columns = [species_col, "median_height"]
 
     # Merge back
@@ -157,8 +153,7 @@ def detect_height_outliers(
     df["Upper_outliers"] = df.apply(
         lambda row: (
             "outlier"
-            if pd.notna(row.get("median_height"))
-            and row[height_col] > (row["median_height"] * upper_threshold)
+            if pd.notna(row.get("median_height")) and row[height_col] > (row["median_height"] * upper_threshold)
             else "ok"
         ),
         axis=1,
@@ -216,11 +211,7 @@ def detect_circumference_outliers(
         return df
 
     # Calculate median by species
-    median_circ = (
-        df_filtered.groupby(species_col)[circ_col]
-        .median()
-        .reset_index(name="median_cir")
-    )
+    median_circ = df_filtered.groupby(species_col)[circ_col].median().reset_index(name="median_cir")
 
     # Merge back
     df = df.merge(median_circ, on=species_col, how="left")
@@ -229,8 +220,7 @@ def detect_circumference_outliers(
     df["Upper_outliers"] = df.apply(
         lambda row: (
             "outlier"
-            if pd.notna(row.get("median_cir"))
-            and row[circ_col] > (row["median_cir"] * upper_threshold)
+            if pd.notna(row.get("median_cir")) and row[circ_col] > (row["median_cir"] * upper_threshold)
             else "ok"
         ),
         axis=1,
@@ -290,10 +280,7 @@ def detect_suspicious_circumference_by_age(
         df["suspicious"] = False
         return df
 
-    df["suspicious"] = (
-        (df[circ_col] > young_tree_circ_threshold)
-        & (df[age_col] < young_tree_age_threshold)
-    ) | (
+    df["suspicious"] = ((df[circ_col] > young_tree_circ_threshold) & (df[age_col] < young_tree_age_threshold)) | (
         (df[circ_col] > large_circ_threshold) & (df[age_col] < large_circ_age_threshold)
     )
 
@@ -345,9 +332,7 @@ def check_coverage_only_subplots(
 
     # Subplots with measurements
     if "VEGETATION_KEY" in measurements_df.columns:
-        veg_with_meas = vegetation_df[
-            vegetation_df["VEGETATION_KEY"].isin(measurements_df["VEGETATION_KEY"])
-        ]
+        veg_with_meas = vegetation_df[vegetation_df["VEGETATION_KEY"].isin(measurements_df["VEGETATION_KEY"])]
         subplots_with_meas = set(veg_with_meas[subplot_key_col].unique())
     else:
         subplots_with_meas = set()
@@ -355,9 +340,7 @@ def check_coverage_only_subplots(
     # Coverage only = has vegetation but no measurements
     coverage_only = subplots_with_veg - subplots_with_meas
 
-    coverage_only_df = vegetation_df[
-        vegetation_df[subplot_key_col].isin(coverage_only)
-    ].copy()
+    coverage_only_df = vegetation_df[vegetation_df[subplot_key_col].isin(coverage_only)].copy()
 
     # Check if coverage columns exist
     has_coverage = False
@@ -376,9 +359,7 @@ def check_coverage_only_subplots(
     return coverage_only_df, missing_measurements_df
 
 
-def check_tall_trees(
-    df: pd.DataFrame, height_col: str = "tree_height_m", threshold: float = 30.0
-) -> pd.DataFrame:
+def check_tall_trees(df: pd.DataFrame, height_col: str = "tree_height_m", threshold: float = 30.0) -> pd.DataFrame:
     """
     Flag exceptionally tall trees for review.
 
@@ -418,32 +399,24 @@ def check_primary_vs_young_trees(
 
     if has_young:
         result["primary_only"] = vegetation_df[
-            (vegetation_df["vegetation_type_primary"] == True)
-            & (vegetation_df["vegetation_type_youngtree"] == False)
+            (vegetation_df["vegetation_type_primary"] == True) & (vegetation_df["vegetation_type_youngtree"] == False)
         ].copy()
 
         result["young_only"] = vegetation_df[
-            (vegetation_df["vegetation_type_primary"] == False)
-            & (vegetation_df["vegetation_type_youngtree"] == True)
+            (vegetation_df["vegetation_type_primary"] == False) & (vegetation_df["vegetation_type_youngtree"] == True)
         ].copy()
 
         result["both"] = vegetation_df[
-            (vegetation_df["vegetation_type_primary"] == True)
-            & (vegetation_df["vegetation_type_youngtree"] == True)
+            (vegetation_df["vegetation_type_primary"] == True) & (vegetation_df["vegetation_type_youngtree"] == True)
         ].copy()
 
         result["neither"] = vegetation_df[
-            (vegetation_df["vegetation_type_primary"] == False)
-            & (vegetation_df["vegetation_type_youngtree"] == False)
+            (vegetation_df["vegetation_type_primary"] == False) & (vegetation_df["vegetation_type_youngtree"] == False)
         ].copy()
     else:
-        result["primary_only"] = vegetation_df[
-            vegetation_df["vegetation_type_primary"] == True
-        ].copy()
+        result["primary_only"] = vegetation_df[vegetation_df["vegetation_type_primary"] == True].copy()
 
-        result["no_primary"] = vegetation_df[
-            vegetation_df["vegetation_type_primary"] == False
-        ].copy()
+        result["no_primary"] = vegetation_df[vegetation_df["vegetation_type_primary"] == False].copy()
 
     return result
 
@@ -480,8 +453,7 @@ def get_young_trees_with_other(
 
     # Filter using notebook logic
     young_with_other = vegetation_df[
-        (vegetation_df["vegetation_type_youngtree"] == young_tree_value)
-        & (vegetation_df["woody_species"] == "other")
+        (vegetation_df["vegetation_type_youngtree"] == young_tree_value) & (vegetation_df["woody_species"] == "other")
     ].copy()
 
     # Drop NaN in specified columns (like notebook does)
@@ -524,8 +496,7 @@ def get_primary_trees_with_other(
 
     # Filter using notebook logic
     primary_with_other = vegetation_df[
-        (vegetation_df["vegetation_type_primary"] == primary_value)
-        & (vegetation_df["woody_species"] == "other")
+        (vegetation_df["vegetation_type_primary"] == primary_value) & (vegetation_df["woody_species"] == "other")
     ].copy()
 
     # Drop NaN in specified columns (like notebook does)
@@ -568,8 +539,7 @@ def get_non_primary_trees_with_other(
 
     # Filter using notebook logic
     non_primary_with_other = vegetation_df[
-        (vegetation_df["vegetation_type_primary"] == non_primary_value)
-        & (vegetation_df["woody_species"] == "other")
+        (vegetation_df["vegetation_type_primary"] == non_primary_value) & (vegetation_df["woody_species"] == "other")
     ].copy()
 
     # Drop NaN in specified columns (like notebook does)
@@ -595,24 +565,16 @@ def get_tree_classification_debug_info(vegetation_df: pd.DataFrame) -> Dict[str,
 
     # Check vegetation_type_primary
     if "vegetation_type_primary" in vegetation_df.columns:
-        debug_info["primary_dtype"] = str(
-            vegetation_df["vegetation_type_primary"].dtype
-        )
-        debug_info["primary_values"] = (
-            vegetation_df["vegetation_type_primary"].value_counts().to_dict()
-        )
+        debug_info["primary_dtype"] = str(vegetation_df["vegetation_type_primary"].dtype)
+        debug_info["primary_values"] = vegetation_df["vegetation_type_primary"].value_counts().to_dict()
     else:
         debug_info["primary_dtype"] = "Column not found"
         debug_info["primary_values"] = {}
 
     # Check vegetation_type_youngtree
     if "vegetation_type_youngtree" in vegetation_df.columns:
-        debug_info["young_dtype"] = str(
-            vegetation_df["vegetation_type_youngtree"].dtype
-        )
-        debug_info["young_values"] = (
-            vegetation_df["vegetation_type_youngtree"].value_counts().to_dict()
-        )
+        debug_info["young_dtype"] = str(vegetation_df["vegetation_type_youngtree"].dtype)
+        debug_info["young_values"] = vegetation_df["vegetation_type_youngtree"].value_counts().to_dict()
     else:
         debug_info["young_dtype"] = "Column not found"
         debug_info["young_values"] = {}
@@ -620,12 +582,8 @@ def get_tree_classification_debug_info(vegetation_df: pd.DataFrame) -> Dict[str,
     # Check woody_species
     if "woody_species" in vegetation_df.columns:
         debug_info["woody_dtype"] = str(vegetation_df["woody_species"].dtype)
-        debug_info["woody_values_top10"] = (
-            vegetation_df["woody_species"].value_counts().head(10).to_dict()
-        )
-        debug_info["woody_other_count"] = (
-            vegetation_df["woody_species"] == "other"
-        ).sum()
+        debug_info["woody_values_top10"] = vegetation_df["woody_species"].value_counts().head(10).to_dict()
+        debug_info["woody_other_count"] = (vegetation_df["woody_species"] == "other").sum()
     else:
         debug_info["woody_dtype"] = "Column not found"
         debug_info["woody_values_top10"] = {}

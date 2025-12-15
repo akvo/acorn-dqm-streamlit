@@ -156,11 +156,9 @@ def show_status_message(summary):
     if valid_pct >= 90:
         st.success(f"✅ {valid_pct:.1f}% of subplots are valid")
     elif valid_pct >= 70:
-        st.warning(
-            f"⚠️ {summary['invalid']} subplots need attention ({100-valid_pct:.1f}% invalid)"
-        )
+        st.warning(f"⚠️ {summary['invalid']} subplots need attention ({100 - valid_pct:.1f}% invalid)")
     else:
-        st.error(f"❌ {summary['invalid']} subplots are invalid ({100-valid_pct:.1f}%)")
+        st.error(f"❌ {summary['invalid']} subplots are invalid ({100 - valid_pct:.1f}%)")
 
 
 def show_sidebar_info():
@@ -179,9 +177,7 @@ def show_sidebar_info():
         subplots = st.session_state.data.get("subplots")
         if subplots is not None:
             total = get_total_measured_subplots(subplots)
-            valid = (
-                subplots["geom_valid"].sum() if "geom_valid" in subplots.columns else 0
-            )
+            valid = subplots["geom_valid"].sum() if "geom_valid" in subplots.columns else 0
             st.sidebar.success(f"✅ {total} subplots measured ({valid} valid)")
     else:
         st.sidebar.warning("⚠️ No data loaded")
@@ -203,11 +199,7 @@ def create_sidebar_filters(gdf):
             date_col = "starttime"
         elif "SubmissionDate" in gdf.columns:
             date_col = "SubmissionDate"
-        elif (
-            hasattr(st.session_state, "data")
-            and st.session_state.data
-            and "raw_data" in st.session_state.data
-        ):
+        elif hasattr(st.session_state, "data") and st.session_state.data and "raw_data" in st.session_state.data:
             # Try to add date from raw_data
             raw_data = st.session_state.data.get("raw_data", {})
             if "plots_subplots" in raw_data:
@@ -231,14 +223,8 @@ def create_sidebar_filters(gdf):
                             break
 
                 # Merge the date column if found
-                if (
-                    submission_date_col
-                    and "subplot_id" in gdf.columns
-                    and "SUBPLOT_KEY" in plots_df.columns
-                ):
-                    date_merge = plots_df[
-                        ["SUBPLOT_KEY", submission_date_col]
-                    ].drop_duplicates()
+                if submission_date_col and "subplot_id" in gdf.columns and "SUBPLOT_KEY" in plots_df.columns:
+                    date_merge = plots_df[["SUBPLOT_KEY", submission_date_col]].drop_duplicates()
 
                     # Drop SUBPLOT_KEY if it already exists to avoid duplicate column issues
                     if "SUBPLOT_KEY" in gdf.columns:
@@ -253,9 +239,7 @@ def create_sidebar_filters(gdf):
                     )
 
                     # Drop any columns with '_drop' suffix
-                    drop_cols = [
-                        col for col in gdf_with_date.columns if col.endswith("_drop")
-                    ]
+                    drop_cols = [col for col in gdf_with_date.columns if col.endswith("_drop")]
                     if drop_cols:
                         gdf_with_date = gdf_with_date.drop(columns=drop_cols)
 
@@ -263,9 +247,7 @@ def create_sidebar_filters(gdf):
 
         if date_col:
             # Convert to datetime
-            gdf_with_date[date_col] = pd.to_datetime(
-                gdf_with_date[date_col], errors="coerce"
-            )
+            gdf_with_date[date_col] = pd.to_datetime(gdf_with_date[date_col], errors="coerce")
 
             # Filter out rows with invalid dates
             valid_dates = gdf_with_date[date_col].notna()
@@ -325,17 +307,14 @@ def create_sidebar_filters(gdf):
                                 gdf = gdf.drop(columns=[date_col])
                             if (
                                 "SUBPLOT_KEY" in gdf.columns
-                                and "SUBPLOT_KEY"
-                                not in st.session_state.data["subplots"].columns
+                                and "SUBPLOT_KEY" not in st.session_state.data["subplots"].columns
                             ):
                                 gdf = gdf.drop(columns=["SUBPLOT_KEY"])
                 else:
                     gdf = gdf_with_date.copy()
             else:
                 st.sidebar.warning(f"⚠️ No valid dates in '{date_col}'")
-                st.sidebar.caption(
-                    f"Found {valid_dates.sum()}/{len(gdf_with_date)} valid dates"
-                )
+                st.sidebar.caption(f"Found {valid_dates.sum()}/{len(gdf_with_date)} valid dates")
         else:
             st.sidebar.info("ℹ️ No date column found in data")
             # Show available columns for debugging
@@ -346,14 +325,10 @@ def create_sidebar_filters(gdf):
                     raw_data = st.session_state.data.get("raw_data", {})
                     if "plots_subplots" in raw_data:
                         st.write("**Plot/Subplot columns:**")
-                        st.caption(
-                            ", ".join(
-                                sorted(raw_data["plots_subplots"].columns.tolist())[:20]
-                            )
-                        )
+                        st.caption(", ".join(sorted(raw_data["plots_subplots"].columns.tolist())[:20]))
 
     except Exception as e:
-        st.sidebar.error(f"❌ Date filter error")
+        st.sidebar.error("❌ Date filter error")
         with st.sidebar.expander("🔍 Error Details"):
             st.code(str(e))
             import traceback

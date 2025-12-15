@@ -4,6 +4,7 @@ Compare Ground Truth data with Data Quality validation data
 """
 
 from dotenv import load_dotenv
+
 load_dotenv()  # Load .env file for dev mode
 
 import streamlit as st
@@ -19,6 +20,7 @@ from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache
 try:
     import folium
     from streamlit_folium import st_folium
+
     FOLIUM_AVAILABLE = True
 except ImportError:
     FOLIUM_AVAILABLE = False
@@ -98,9 +100,7 @@ else:
                     url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{dq_form_id}"
                     params = {"date": "0"}
 
-                    response = requests.get(
-                        url, auth=(username, password), params=params, timeout=60
-                    )
+                    response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
                     # Handle errors
                     if response.status_code == 417:
@@ -111,7 +111,7 @@ else:
                             wait_seconds = error_data.get("error", {}).get("message", "")
 
                             # Extract wait time from message
-                            match = re.search(r'(\d+)\s*seconds', wait_seconds)
+                            match = re.search(r"(\d+)\s*seconds", wait_seconds)
                             if match:
                                 wait_time = int(match.group(1))
                                 wait_minutes = wait_time // 60
@@ -124,10 +124,7 @@ else:
                                 )
                             else:
                                 st.error("🚫 **SurveyCTO Rate Limit** (DQ Form)")
-                                st.warning(
-                                    f"⏱️ {wait_seconds}\n\n"
-                                    "Please wait before retrying."
-                                )
+                                st.warning(f"⏱️ {wait_seconds}\n\nPlease wait before retrying.")
                         except:
                             st.error("🚫 **SurveyCTO Rate Limit** (DQ Form)")
                             st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
@@ -187,7 +184,7 @@ else:
                 st.rerun()
 
             except Exception as e:
-                st.error(f"❌ **DQ Fetch Error**")
+                st.error("❌ **DQ Fetch Error**")
                 st.warning(f"Error fetching DQ data: {str(e)}")
 
 st.markdown("---")
@@ -220,6 +217,7 @@ with st.sidebar:
 # HELPER FUNCTIONS
 # ============================================
 
+
 def filter_to_measured_subplots(gdf):
     """Filter GeoDataFrame to only include measured subplots."""
     if gdf is None or len(gdf) == 0:
@@ -230,15 +228,10 @@ def filter_to_measured_subplots(gdf):
 
     temp_df = gdf[["subplot_id", "measured_subplots"]].copy()
     temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1))
-        if re.search(r'\[(\d+)\]', str(x)) else 999
+        lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
     )
-    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
-        lambda x: int(x) if pd.notna(x) else 999
-    )
-    measured_subplot_ids = temp_df[
-        temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
-    ]["subplot_id"].unique()
+    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
+    measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots_int"]]["subplot_id"].unique()
 
     return gdf[gdf["subplot_id"].isin(measured_subplot_ids)].copy()
 
@@ -253,10 +246,14 @@ def get_plot_level_stats(gdf):
     if valid_col not in gdf.columns:
         return {"total_plots": len(gdf["PLOT_KEY"].unique()), "valid_plots": 0, "invalid_plots": 0}
 
-    plot_summary = gdf.groupby("PLOT_KEY").agg(
-        total_subplots=("subplot_id", "count") if "subplot_id" in gdf.columns else (valid_col, "count"),
-        invalid_subplots=(valid_col, lambda x: (~x).sum())
-    ).reset_index()
+    plot_summary = (
+        gdf.groupby("PLOT_KEY")
+        .agg(
+            total_subplots=("subplot_id", "count") if "subplot_id" in gdf.columns else (valid_col, "count"),
+            invalid_subplots=(valid_col, lambda x: (~x).sum()),
+        )
+        .reset_index()
+    )
 
     # Plot is invalid if >= 8 subplots are invalid
     plot_summary["is_valid"] = plot_summary["invalid_subplots"] < 8
@@ -264,7 +261,7 @@ def get_plot_level_stats(gdf):
     return {
         "total_plots": len(plot_summary),
         "valid_plots": int(plot_summary["is_valid"].sum()),
-        "invalid_plots": int((~plot_summary["is_valid"]).sum())
+        "invalid_plots": int((~plot_summary["is_valid"]).sum()),
     }
 
 
@@ -304,10 +301,10 @@ st.markdown("### 📅 GT Data Filter")
 st.caption("Filter GT data by submission date to exclude training data")
 
 # Get date range from GT plots
-if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 and 'SubmissionDate' in gt_plots_gdf.columns:
+if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 and "SubmissionDate" in gt_plots_gdf.columns:
     # Parse dates
-    gt_plots_gdf['_parsed_date'] = pd.to_datetime(gt_plots_gdf['SubmissionDate'], errors='coerce')
-    valid_dates = gt_plots_gdf['_parsed_date'].dropna()
+    gt_plots_gdf["_parsed_date"] = pd.to_datetime(gt_plots_gdf["SubmissionDate"], errors="coerce")
+    valid_dates = gt_plots_gdf["_parsed_date"].dropna()
 
     if len(valid_dates) > 0:
         min_date = valid_dates.min().date()
@@ -320,22 +317,22 @@ if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 and 'SubmissionDate' in gt
             end_date = st.date_input("End Date (inclusive)", value=max_date, min_value=min_date, max_value=max_date)
 
         # Filter GT plots by date range (inclusive)
-        mask = (gt_plots_gdf['_parsed_date'].dt.date >= start_date) & (gt_plots_gdf['_parsed_date'].dt.date <= end_date)
+        mask = (gt_plots_gdf["_parsed_date"].dt.date >= start_date) & (gt_plots_gdf["_parsed_date"].dt.date <= end_date)
         gt_plots_gdf = gt_plots_gdf[mask].copy()
 
         # Get filtered plot keys
         filtered_plot_keys = set()
-        if 'PLOT_KEY' in gt_plots_gdf.columns:
-            filtered_plot_keys = set(gt_plots_gdf['PLOT_KEY'].unique())
-        elif 'plot_id' in gt_plots_gdf.columns:
-            filtered_plot_keys = set(gt_plots_gdf['plot_id'].unique())
+        if "PLOT_KEY" in gt_plots_gdf.columns:
+            filtered_plot_keys = set(gt_plots_gdf["PLOT_KEY"].unique())
+        elif "plot_id" in gt_plots_gdf.columns:
+            filtered_plot_keys = set(gt_plots_gdf["plot_id"].unique())
 
         # Filter GT subplots to only include filtered plots
-        if 'PLOT_KEY' not in gt_gdf.columns and 'subplot_id' in gt_gdf.columns:
-            gt_gdf['PLOT_KEY'] = gt_gdf['subplot_id'].str.split('/').str[0]
+        if "PLOT_KEY" not in gt_gdf.columns and "subplot_id" in gt_gdf.columns:
+            gt_gdf["PLOT_KEY"] = gt_gdf["subplot_id"].str.split("/").str[0]
 
-        if 'PLOT_KEY' in gt_gdf.columns and len(filtered_plot_keys) > 0:
-            gt_gdf = gt_gdf[gt_gdf['PLOT_KEY'].isin(filtered_plot_keys)].copy()
+        if "PLOT_KEY" in gt_gdf.columns and len(filtered_plot_keys) > 0:
+            gt_gdf = gt_gdf[gt_gdf["PLOT_KEY"].isin(filtered_plot_keys)].copy()
 
         st.info(f"📊 Showing **{len(gt_plots_gdf)}** GT plots from {start_date} to {end_date}")
     else:
@@ -407,7 +404,9 @@ st.markdown("### ⚠️ DQ Subplot Issues")
 st.caption("Invalid subplots in DQ data with reasons for failure")
 
 # Get invalid DQ subplots
-dq_invalid_subplots = dq_measured[~dq_measured["geom_valid"]].copy() if "geom_valid" in dq_measured.columns else pd.DataFrame()
+dq_invalid_subplots = (
+    dq_measured[~dq_measured["geom_valid"]].copy() if "geom_valid" in dq_measured.columns else pd.DataFrame()
+)
 
 if len(dq_invalid_subplots) > 0:
     st.warning(f"⚠️ {len(dq_invalid_subplots)} DQ subplots have validation issues")
@@ -456,12 +455,22 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🗺️ Map View")
-st.caption("GT plots (blue) vs DQ plots (orange). Toggle subplot layers to see individual subplots (green=valid, red=invalid)")
+st.caption(
+    "GT plots (blue) vs DQ plots (orange). Toggle subplot layers to see individual subplots (green=valid, red=invalid)"
+)
 
 if FOLIUM_AVAILABLE:
     # Use plot-level geometries for the map
-    gt_with_geom = gt_plots_gdf[~gt_plots_gdf.geometry.is_empty].copy() if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 else None
-    dq_with_geom = dq_plots_gdf[~dq_plots_gdf.geometry.is_empty].copy() if dq_plots_gdf is not None and len(dq_plots_gdf) > 0 else None
+    gt_with_geom = (
+        gt_plots_gdf[~gt_plots_gdf.geometry.is_empty].copy()
+        if gt_plots_gdf is not None and len(gt_plots_gdf) > 0
+        else None
+    )
+    dq_with_geom = (
+        dq_plots_gdf[~dq_plots_gdf.geometry.is_empty].copy()
+        if dq_plots_gdf is not None and len(dq_plots_gdf) > 0
+        else None
+    )
 
     has_gt = gt_with_geom is not None and len(gt_with_geom) > 0
     has_dq = dq_with_geom is not None and len(dq_with_geom) > 0
@@ -474,13 +483,13 @@ if FOLIUM_AVAILABLE:
         dq_options = ["Show All"]
         dq_plot_map = {}
         for idx, row in dq_with_geom.iterrows():
-            plot_key = row.get('PLOT_KEY', row.get('plot_id', 'Unknown'))
+            plot_key = row.get("PLOT_KEY", row.get("plot_id", "Unknown"))
             # Get enumerator from subplot data
             enumerator = ""
-            if 'PLOT_KEY' in dq_measured.columns:
-                plot_subs = dq_measured[dq_measured['PLOT_KEY'] == plot_key]
+            if "PLOT_KEY" in dq_measured.columns:
+                plot_subs = dq_measured[dq_measured["PLOT_KEY"] == plot_key]
                 if len(plot_subs) > 0:
-                    enumerator = plot_subs.iloc[0].get('enumerator', '')
+                    enumerator = plot_subs.iloc[0].get("enumerator", "")
             label = f"{plot_key} - {enumerator}" if enumerator else str(plot_key)
             dq_options.append(label)
             dq_plot_map[label] = (plot_key, row.geometry)
@@ -516,11 +525,7 @@ if FOLIUM_AVAILABLE:
             zoom_start = 12
 
         # Create map
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_start,
-            tiles="OpenStreetMap"
-        )
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles="OpenStreetMap")
 
         # Add satellite layer option
         folium.TileLayer(
@@ -537,21 +542,21 @@ if FOLIUM_AVAILABLE:
 
         # Helper to get enumerator and date from plot/subplot data
         def get_plot_info(plot_key, measured_gdf, plots_gdf):
-            enumerator = 'N/A'
-            date = 'N/A'
+            enumerator = "N/A"
+            date = "N/A"
             # Get enumerator from subplot data
-            if 'PLOT_KEY' in measured_gdf.columns:
-                plot_subs = measured_gdf[measured_gdf['PLOT_KEY'] == plot_key]
+            if "PLOT_KEY" in measured_gdf.columns:
+                plot_subs = measured_gdf[measured_gdf["PLOT_KEY"] == plot_key]
                 if len(plot_subs) > 0:
-                    enumerator = plot_subs.iloc[0].get('enumerator', 'N/A')
+                    enumerator = plot_subs.iloc[0].get("enumerator", "N/A")
             # Get date from plots data (SubmissionDate)
             if plots_gdf is not None and len(plots_gdf) > 0:
                 plot_row = plots_gdf[
-                    (plots_gdf.get('PLOT_KEY', pd.Series()) == plot_key) |
-                    (plots_gdf.get('plot_id', pd.Series()) == plot_key)
+                    (plots_gdf.get("PLOT_KEY", pd.Series()) == plot_key)
+                    | (plots_gdf.get("plot_id", pd.Series()) == plot_key)
                 ]
                 if len(plot_row) > 0:
-                    date = plot_row.iloc[0].get('SubmissionDate', plot_row.iloc[0].get('submission_date', 'N/A'))
+                    date = plot_row.iloc[0].get("SubmissionDate", plot_row.iloc[0].get("submission_date", "N/A"))
             return enumerator, date
 
         # Add GT plots (blue)
@@ -561,7 +566,7 @@ if FOLIUM_AVAILABLE:
                     continue
 
                 geom = row.geometry
-                plot_key = row.get('PLOT_KEY', row.get('plot_id', 'N/A'))
+                plot_key = row.get("PLOT_KEY", row.get("plot_id", "N/A"))
                 enumerator, date = get_plot_info(plot_key, gt_measured, gt_plots_gdf)
                 tooltip = f"<b>GT Plot:</b> {plot_key}<br><b>Enumerator:</b> {enumerator}<br><b>Date:</b> {date}"
 
@@ -573,12 +578,12 @@ if FOLIUM_AVAILABLE:
                         fill_color=fill_color,
                         weight=3,
                         fill_opacity=0.3,
-                        tooltip=folium.Tooltip(tooltip_text)
+                        tooltip=folium.Tooltip(tooltip_text),
                     ).add_to(group)
 
-                if geom.geom_type == 'Polygon':
+                if geom.geom_type == "Polygon":
                     add_polygon_to_group(geom, gt_group, "#2196F3", "#64B5F6", tooltip)
-                elif geom.geom_type == 'MultiPolygon':
+                elif geom.geom_type == "MultiPolygon":
                     for poly in geom.geoms:
                         add_polygon_to_group(poly, gt_group, "#2196F3", "#64B5F6", tooltip)
 
@@ -589,11 +594,11 @@ if FOLIUM_AVAILABLE:
                     continue
 
                 geom = row.geometry
-                plot_key = row.get('PLOT_KEY', row.get('plot_id', 'N/A'))
+                plot_key = row.get("PLOT_KEY", row.get("plot_id", "N/A"))
                 enumerator, date = get_plot_info(plot_key, dq_measured, dq_plots_gdf)
                 tooltip = f"<b>DQ Plot:</b> {plot_key}<br><b>Enumerator:</b> {enumerator}<br><b>Date:</b> {date}"
 
-                if geom.geom_type == 'Polygon':
+                if geom.geom_type == "Polygon":
                     coords = [[lat, lon] for lon, lat in geom.exterior.coords]
                     folium.Polygon(
                         locations=coords,
@@ -601,9 +606,9 @@ if FOLIUM_AVAILABLE:
                         fill_color="#FFB74D",
                         weight=3,
                         fill_opacity=0.3,
-                        tooltip=folium.Tooltip(tooltip)
+                        tooltip=folium.Tooltip(tooltip),
                     ).add_to(dq_group)
-                elif geom.geom_type == 'MultiPolygon':
+                elif geom.geom_type == "MultiPolygon":
                     for poly in geom.geoms:
                         coords = [[lat, lon] for lon, lat in poly.exterior.coords]
                         folium.Polygon(
@@ -612,7 +617,7 @@ if FOLIUM_AVAILABLE:
                             fill_color="#FFB74D",
                             weight=3,
                             fill_opacity=0.3,
-                            tooltip=folium.Tooltip(tooltip)
+                            tooltip=folium.Tooltip(tooltip),
                         ).add_to(dq_group)
 
         # Helper function to add subplot to group
@@ -621,9 +626,9 @@ if FOLIUM_AVAILABLE:
             if geom is None or geom.is_empty:
                 return
 
-            subplot_id = subplot_row.get('subplot_id', 'N/A')
-            enumerator = subplot_row.get('enumerator', 'N/A')
-            reasons = subplot_row.get('reasons', '') if not is_valid else 'Valid'
+            subplot_id = subplot_row.get("subplot_id", "N/A")
+            enumerator = subplot_row.get("enumerator", "N/A")
+            reasons = subplot_row.get("reasons", "") if not is_valid else "Valid"
 
             # Red for invalid, green for valid
             if is_valid:
@@ -638,7 +643,7 @@ if FOLIUM_AVAILABLE:
             if not is_valid and reasons:
                 tooltip_text += f"<br><b>Issues:</b> {reasons}"
 
-            if geom.geom_type == 'Polygon':
+            if geom.geom_type == "Polygon":
                 coords = [[lat, lon] for lon, lat in geom.exterior.coords]
                 folium.Polygon(
                     locations=coords,
@@ -646,9 +651,9 @@ if FOLIUM_AVAILABLE:
                     fill_color=fill_color,
                     weight=2,
                     fill_opacity=0.4,
-                    tooltip=folium.Tooltip(tooltip_text)
+                    tooltip=folium.Tooltip(tooltip_text),
                 ).add_to(group)
-            elif geom.geom_type == 'MultiPolygon':
+            elif geom.geom_type == "MultiPolygon":
                 for poly in geom.geoms:
                     coords = [[lat, lon] for lon, lat in poly.exterior.coords]
                     folium.Polygon(
@@ -657,21 +662,21 @@ if FOLIUM_AVAILABLE:
                         fill_color=fill_color,
                         weight=2,
                         fill_opacity=0.4,
-                        tooltip=folium.Tooltip(tooltip_text)
+                        tooltip=folium.Tooltip(tooltip_text),
                     ).add_to(group)
 
         # Add GT subplots (green=valid, red=invalid)
         gt_subplots_with_geom = gt_measured[~gt_measured.geometry.is_empty].copy() if len(gt_measured) > 0 else None
         if gt_subplots_with_geom is not None and len(gt_subplots_with_geom) > 0:
             for idx, row in gt_subplots_with_geom.iterrows():
-                is_valid = row.get('geom_valid', True)
+                is_valid = row.get("geom_valid", True)
                 add_subplot_to_group(row, gt_subplot_group, is_valid)
 
         # Add DQ subplots (green=valid, red=invalid)
         dq_subplots_with_geom = dq_measured[~dq_measured.geometry.is_empty].copy() if len(dq_measured) > 0 else None
         if dq_subplots_with_geom is not None and len(dq_subplots_with_geom) > 0:
             for idx, row in dq_subplots_with_geom.iterrows():
-                is_valid = row.get('geom_valid', True)
+                is_valid = row.get("geom_valid", True)
                 add_subplot_to_group(row, dq_subplot_group, is_valid)
 
         # Add groups to map
@@ -726,18 +731,20 @@ if len(matches_df) > 0:
         gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured)
         dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured)
 
-        comparison_data.append({
-            "#": idx + 1,
-            "GT Plot ID": gt_key,
-            "DQ Plot ID": dq_key,
-            "Distance (m)": f"{distance:.1f}",
-            "GT Subplots": gt_subplots,
-            "DQ Subplots": dq_subplots,
-            "Subplot Diff": dq_subplots - gt_subplots,
-            "GT Trees": gt_trees,
-            "DQ Trees": dq_trees,
-            "Tree Diff": dq_trees - gt_trees
-        })
+        comparison_data.append(
+            {
+                "#": idx + 1,
+                "GT Plot ID": gt_key,
+                "DQ Plot ID": dq_key,
+                "Distance (m)": f"{distance:.1f}",
+                "GT Subplots": gt_subplots,
+                "DQ Subplots": dq_subplots,
+                "Subplot Diff": dq_subplots - gt_subplots,
+                "GT Trees": gt_trees,
+                "DQ Trees": dq_trees,
+                "Tree Diff": dq_trees - gt_trees,
+            }
+        )
 
     comparison_df = pd.DataFrame(comparison_data)
     st.dataframe(comparison_df, use_container_width=True, hide_index=True)
@@ -774,7 +781,11 @@ if len(matches_df) > 0:
                     st.write(f"**Enumerator:** {enumerator}")
                 with info_col3:
                     # Try SubmissionDate first, then date
-                    dq_date = dq_first_row.get("SubmissionDate") or dq_first_row.get("starttime") or dq_first_row.get("date", "N/A")
+                    dq_date = (
+                        dq_first_row.get("SubmissionDate")
+                        or dq_first_row.get("starttime")
+                        or dq_first_row.get("date", "N/A")
+                    )
                     if pd.notna(dq_date) and dq_date != "N/A":
                         try:
                             dq_date = pd.to_datetime(dq_date).strftime("%Y-%m-%d")
@@ -792,7 +803,11 @@ if len(matches_df) > 0:
                     st.write(f"**Enumerator:** {gt_enumerator}")
                 with gt_col3:
                     if has_gt_data:
-                        gt_date = gt_first_row.get("SubmissionDate") or gt_first_row.get("starttime") or gt_first_row.get("date", "N/A")
+                        gt_date = (
+                            gt_first_row.get("SubmissionDate")
+                            or gt_first_row.get("starttime")
+                            or gt_first_row.get("date", "N/A")
+                        )
                         if pd.notna(gt_date) and gt_date != "N/A":
                             try:
                                 gt_date = pd.to_datetime(gt_date).strftime("%Y-%m-%d")
@@ -827,21 +842,26 @@ if len(matches_df) > 0:
                 if gt_tree_counts or dq_tree_counts:
                     st.markdown("**Tree Species Comparison (GT vs DQ):**")
                     all_species = sorted(set(gt_tree_counts.keys()) | set(dq_tree_counts.keys()))
-                    comparison_rows = [{
-                        "Species": sp,
-                        "GT Count": gt_tree_counts.get(sp, 0),
-                        "DQ Count": dq_tree_counts.get(sp, 0),
-                        "Difference": dq_tree_counts.get(sp, 0) - gt_tree_counts.get(sp, 0)
-                    } for sp in all_species]
+                    comparison_rows = [
+                        {
+                            "Species": sp,
+                            "GT Count": gt_tree_counts.get(sp, 0),
+                            "DQ Count": dq_tree_counts.get(sp, 0),
+                            "Difference": dq_tree_counts.get(sp, 0) - gt_tree_counts.get(sp, 0),
+                        }
+                        for sp in all_species
+                    ]
                     # Add total row
                     gt_total = sum(gt_tree_counts.values())
                     dq_total = sum(dq_tree_counts.values())
-                    comparison_rows.append({
-                        "Species": "**TOTAL**",
-                        "GT Count": gt_total,
-                        "DQ Count": dq_total,
-                        "Difference": dq_total - gt_total
-                    })
+                    comparison_rows.append(
+                        {
+                            "Species": "**TOTAL**",
+                            "GT Count": gt_total,
+                            "DQ Count": dq_total,
+                            "Difference": dq_total - gt_total,
+                        }
+                    )
                     st.dataframe(pd.DataFrame(comparison_rows), use_container_width=True, hide_index=True)
 
                     # Expandable details per species
@@ -892,8 +912,6 @@ else:
 st.markdown("### 🔍 Unmatched Plots")
 
 
-
-
 # DQ plots not in GT
 st.markdown("#### DQ Plots Not Found in GT")
 if len(dq_only_keys) > 0:
@@ -905,14 +923,16 @@ if len(dq_only_keys) > 0:
             valid_col = "overall_valid" if "overall_valid" in plot_data.columns else "geom_valid"
             geom_valid = plot_data[valid_col].all() if valid_col in plot_data.columns else "N/A"
 
-            dq_only_data.append({
-                "Plot ID": dq_key,
-                "Enumerator": first_row.get("enumerator", "N/A"),
-                "Date": first_row.get("date", "N/A"),
-                "Subplots": len(plot_data),
-                "Trees": get_total_tree_count(dq_key, dq_raw, dq_measured),
-                "Geometry Valid": "Yes" if geom_valid else "No"
-            })
+            dq_only_data.append(
+                {
+                    "Plot ID": dq_key,
+                    "Enumerator": first_row.get("enumerator", "N/A"),
+                    "Date": first_row.get("date", "N/A"),
+                    "Subplots": len(plot_data),
+                    "Trees": get_total_tree_count(dq_key, dq_raw, dq_measured),
+                    "Geometry Valid": "Yes" if geom_valid else "No",
+                }
+            )
 
     st.dataframe(pd.DataFrame(dq_only_data), use_container_width=True, hide_index=True)
 else:
@@ -939,20 +959,18 @@ with st.expander("📈 Summary Statistics"):
 
             gt_subplots = len(gt_measured[gt_measured["PLOT_KEY"] == gt_key])
             dq_subplots = len(dq_measured[dq_measured["PLOT_KEY"] == dq_key])
-            total_subplot_diff += (dq_subplots - gt_subplots)
+            total_subplot_diff += dq_subplots - gt_subplots
 
             gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured)
             dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured)
-            total_tree_diff += (dq_trees - gt_trees)
+            total_tree_diff += dq_trees - gt_trees
 
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Average Distance", f"{avg_distance:.1f}m")
         with col2:
-            st.metric("Total Subplot Difference", total_subplot_diff,
-                      help="Sum of (DQ - GT) across all matched plots")
+            st.metric("Total Subplot Difference", total_subplot_diff, help="Sum of (DQ - GT) across all matched plots")
         with col3:
-            st.metric("Total Tree Difference", total_tree_diff,
-                      help="Sum of (DQ - GT) across all matched plots")
+            st.metric("Total Tree Difference", total_tree_diff, help="Sum of (DQ - GT) across all matched plots")
     else:
         st.info("No matched plots to calculate statistics.")

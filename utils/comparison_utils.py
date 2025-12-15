@@ -6,11 +6,7 @@ Provides IoU-based plot matching and tree/vegetation comparison functions.
 import re
 import pandas as pd
 import geopandas as gpd
-from typing import Dict, List, Tuple, Optional, Any
-from shapely.geometry import Polygon
-
-from utils.data_merge_utils import add_tree_name_column
-import config
+from typing import Dict, List, Any
 
 
 def calculate_centroid_distance_meters(geom1, geom2) -> float:
@@ -29,9 +25,9 @@ def calculate_centroid_distance_meters(geom1, geom2) -> float:
 
     try:
         if geom1 is None or geom2 is None:
-            return float('inf')
+            return float("inf")
         if geom1.is_empty or geom2.is_empty:
-            return float('inf')
+            return float("inf")
 
         c1 = geom1.centroid
         c2 = geom2.centroid
@@ -43,7 +39,7 @@ def calculate_centroid_distance_meters(geom1, geom2) -> float:
         dlat = lat2 - lat1
         dlon = lon2 - lon1
 
-        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         c = 2 * math.asin(math.sqrt(a))
 
         # Earth's radius in meters
@@ -51,13 +47,11 @@ def calculate_centroid_distance_meters(geom1, geom2) -> float:
 
         return c * r
     except Exception:
-        return float('inf')
+        return float("inf")
 
 
 def match_plots_by_centroid(
-    gt_gdf: gpd.GeoDataFrame,
-    dq_gdf: gpd.GeoDataFrame,
-    distance_threshold: float = 50.0
+    gt_gdf: gpd.GeoDataFrame, dq_gdf: gpd.GeoDataFrame, distance_threshold: float = 50.0
 ) -> pd.DataFrame:
     """
     Match GT plots to DQ plots by centroid distance.
@@ -94,7 +88,7 @@ def match_plots_by_centroid(
             continue
 
         best_match = None
-        best_distance = float('inf')
+        best_distance = float("inf")
 
         for _, gt_row in gt_valid.iterrows():
             gt_key = gt_row[gt_key_col]
@@ -110,21 +104,13 @@ def match_plots_by_centroid(
                 best_match = gt_key
 
         if best_distance <= distance_threshold and best_match is not None:
-            matches.append({
-                "gt_plot_key": best_match,
-                "dq_plot_key": dq_key,
-                "distance_m": round(best_distance, 1)
-            })
+            matches.append({"gt_plot_key": best_match, "dq_plot_key": dq_key, "distance_m": round(best_distance, 1)})
 
     return pd.DataFrame(matches)
 
 
 # Keep old function for backwards compatibility
-def match_plots_by_iou(
-    gt_gdf: gpd.GeoDataFrame,
-    dq_gdf: gpd.GeoDataFrame,
-    iou_threshold: float = None
-) -> pd.DataFrame:
+def match_plots_by_iou(gt_gdf: gpd.GeoDataFrame, dq_gdf: gpd.GeoDataFrame, iou_threshold: float = None) -> pd.DataFrame:
     """Deprecated: Use match_plots_by_centroid instead."""
     return match_plots_by_centroid(gt_gdf, dq_gdf, distance_threshold=50.0)
 
@@ -150,19 +136,14 @@ def filter_measured_subplots(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
     # Extract subplot number from subplot_id (e.g., "[1]", "[2]")
     temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1))
-        if re.search(r'\[(\d+)\]', str(x)) else 999
+        lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
     )
 
     # Convert measured_subplots to int
-    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
-        lambda x: int(x) if pd.notna(x) else 999
-    )
+    temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
 
     # Keep only subplots where subplot_number <= measured_subplots
-    measured_subplot_ids = temp_df[
-        temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
-    ]["subplot_id"].unique()
+    measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots_int"]]["subplot_id"].unique()
 
     return gdf[gdf["subplot_id"].isin(measured_subplot_ids)].copy()
 
@@ -184,11 +165,7 @@ def get_subplot_count(plot_key: str, gdf: gpd.GeoDataFrame) -> int:
     return len(gdf[gdf["PLOT_KEY"] == plot_key])
 
 
-def get_tree_count_by_name(
-    plot_key: str,
-    raw_data: Dict,
-    gdf: gpd.GeoDataFrame = None
-) -> Dict[str, int]:
+def get_tree_count_by_name(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame = None) -> Dict[str, int]:
     """
     Get tree counts grouped by tree_name for a plot (woody trees only).
     Uses normalized vegetation data from plots_subplots_vegetation.
@@ -229,14 +206,9 @@ def get_tree_count_by_name(
         return tree_counts
 
     # Convert vegetation_type_number to numeric (may be string)
-    plot_veg["vegetation_type_number"] = pd.to_numeric(
-        plot_veg["vegetation_type_number"], errors="coerce"
-    )
+    plot_veg["vegetation_type_number"] = pd.to_numeric(plot_veg["vegetation_type_number"], errors="coerce")
 
-    tree_records = plot_veg[
-        (plot_veg["vegetation_type_number"].notna()) &
-        (plot_veg["vegetation_type_number"] > 0)
-    ]
+    tree_records = plot_veg[(plot_veg["vegetation_type_number"].notna()) & (plot_veg["vegetation_type_number"] > 0)]
 
     # Species columns to check (in priority order)
     species_cols = [
@@ -264,11 +236,7 @@ def get_tree_count_by_name(
     return tree_counts
 
 
-def get_tree_records_by_species(
-    plot_key: str,
-    species_name: str,
-    raw_data: Dict
-) -> pd.DataFrame:
+def get_tree_records_by_species(plot_key: str, species_name: str, raw_data: Dict) -> pd.DataFrame:
     """
     Get individual vegetation records for a specific species in a plot.
 
@@ -302,14 +270,11 @@ def get_tree_records_by_species(
 
     # Convert vegetation_type_number to numeric
     if "vegetation_type_number" in plot_veg.columns:
-        plot_veg["vegetation_type_number"] = pd.to_numeric(
-            plot_veg["vegetation_type_number"], errors="coerce"
-        )
+        plot_veg["vegetation_type_number"] = pd.to_numeric(plot_veg["vegetation_type_number"], errors="coerce")
 
     # Filter for tree records (vegetation_type_number > 0)
     tree_records = plot_veg[
-        (plot_veg["vegetation_type_number"].notna()) &
-        (plot_veg["vegetation_type_number"] > 0)
+        (plot_veg["vegetation_type_number"].notna()) & (plot_veg["vegetation_type_number"] > 0)
     ].copy()
 
     # Species columns to check (in priority order)
@@ -341,7 +306,8 @@ def get_tree_records_by_species(
     # Extract subplot number from SUBPLOT_KEY (e.g., uuid:xxx/sub_plot[1] -> 1)
     def extract_subplot(subplot_key):
         import re
-        match = re.search(r'sub_plot\[(\d+)\]', str(subplot_key))
+
+        match = re.search(r"sub_plot\[(\d+)\]", str(subplot_key))
         return int(match.group(1)) if match else 0
 
     # Build result DataFrame
@@ -434,18 +400,14 @@ def get_vegetation_coverage(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame
     coverage_records = veg_df[coverage_filter]
 
     for _, row in coverage_records.iterrows():
-        coverage_list.append({
-            "subplot_key": row.get("SUBPLOT_KEY", ""),
-            "coverage_vegetation": row.get("coverage_vegetation", None)
-        })
+        coverage_list.append(
+            {"subplot_key": row.get("SUBPLOT_KEY", ""), "coverage_vegetation": row.get("coverage_vegetation", None)}
+        )
 
     return coverage_list
 
 
-def compare_tree_counts(
-    gt_tree_dict: Dict[str, int],
-    dq_tree_dict: Dict[str, int]
-) -> pd.DataFrame:
+def compare_tree_counts(gt_tree_dict: Dict[str, int], dq_tree_dict: Dict[str, int]) -> pd.DataFrame:
     """
     Compare two tree count dictionaries.
 
@@ -462,21 +424,14 @@ def compare_tree_counts(
     for name in sorted(all_names):
         gt_count = gt_tree_dict.get(name, 0)
         dq_count = dq_tree_dict.get(name, 0)
-        comparison.append({
-            "tree_name": name,
-            "gt_count": gt_count,
-            "dq_count": dq_count,
-            "difference": dq_count - gt_count
-        })
+        comparison.append(
+            {"tree_name": name, "gt_count": gt_count, "dq_count": dq_count, "difference": dq_count - gt_count}
+        )
 
     return pd.DataFrame(comparison)
 
 
-def get_plot_details(
-    plot_key: str,
-    gdf: gpd.GeoDataFrame,
-    raw_data: Dict
-) -> Dict[str, Any]:
+def get_plot_details(plot_key: str, gdf: gpd.GeoDataFrame, raw_data: Dict) -> Dict[str, Any]:
     """
     Get all details for a plot for the expandable section.
 
@@ -488,12 +443,7 @@ def get_plot_details(
     Returns:
         dict with plot_info, subplot_summary, trees_by_type, coverage
     """
-    details = {
-        "plot_info": {},
-        "subplot_summary": {},
-        "trees_by_type": {},
-        "coverage": []
-    }
+    details = {"plot_info": {}, "subplot_summary": {}, "trees_by_type": {}, "coverage": []}
 
     if gdf is None or len(gdf) == 0:
         return details
@@ -510,7 +460,7 @@ def get_plot_details(
         "plot_key": plot_key,
         "enumerator": first_row.get("enumerator", ""),
         "date": first_row.get("date", ""),
-        "geom_valid": first_row.get("geom_valid", None)
+        "geom_valid": first_row.get("geom_valid", None),
     }
 
     # Subplot summary
@@ -519,7 +469,7 @@ def get_plot_details(
     details["subplot_summary"] = {
         "total": total_subplots,
         "valid": int(valid_subplots),
-        "invalid": total_subplots - int(valid_subplots)
+        "invalid": total_subplots - int(valid_subplots),
     }
 
     # Trees by type
@@ -553,10 +503,14 @@ def calculate_plot_validation_summary(gdf: gpd.GeoDataFrame) -> Dict[str, int]:
         return {"total_plots": len(gdf["PLOT_KEY"].unique()), "valid_plots": 0, "invalid_plots": 0}
 
     # Group by plot and check validity (plot is invalid if >= 8 subplots are invalid)
-    plot_summary = gdf.groupby("PLOT_KEY").agg(
-        total_subplots=("SUBPLOT_KEY", "count") if "SUBPLOT_KEY" in gdf.columns else (valid_col, "count"),
-        invalid_subplots=(valid_col, lambda x: (~x).sum())
-    ).reset_index()
+    plot_summary = (
+        gdf.groupby("PLOT_KEY")
+        .agg(
+            total_subplots=("SUBPLOT_KEY", "count") if "SUBPLOT_KEY" in gdf.columns else (valid_col, "count"),
+            invalid_subplots=(valid_col, lambda x: (~x).sum()),
+        )
+        .reset_index()
+    )
 
     # Plot is invalid if >= 8 subplots are invalid
     plot_summary["is_valid"] = plot_summary["invalid_subplots"] < 8
@@ -565,8 +519,4 @@ def calculate_plot_validation_summary(gdf: gpd.GeoDataFrame) -> Dict[str, int]:
     valid_plots = plot_summary["is_valid"].sum()
     invalid_plots = total_plots - valid_plots
 
-    return {
-        "total_plots": total_plots,
-        "valid_plots": int(valid_plots),
-        "invalid_plots": int(invalid_plots)
-    }
+    return {"total_plots": total_plots, "valid_plots": int(valid_plots), "invalid_plots": int(invalid_plots)}

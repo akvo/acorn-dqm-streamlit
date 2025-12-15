@@ -6,10 +6,7 @@ Enhanced with: Interactive maps (Folium), PDF export, GeoJSON export
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import json
 import re
-from io import BytesIO
 import config
 from ui.components import show_header, show_sidebar_info, create_sidebar_filters
 
@@ -46,7 +43,8 @@ except ImportError:
 # Try to import matplotlib (optional for polygon visualizations in PDF)
 try:
     import matplotlib
-    matplotlib.use('Agg')  # Use non-interactive backend
+
+    matplotlib.use("Agg")  # Use non-interactive backend
     import matplotlib.pyplot as plt
 
     MATPLOTLIB_AVAILABLE = True
@@ -149,9 +147,9 @@ def create_enumerator_map(enum_data, enumerator_name):
             geom = row.geometry
             polygons_to_plot = []
 
-            if geom.geom_type == 'Polygon':
+            if geom.geom_type == "Polygon":
                 polygons_to_plot = [geom]
-            elif geom.geom_type == 'MultiPolygon':
+            elif geom.geom_type == "MultiPolygon":
                 polygons_to_plot = list(geom.geoms)
             else:
                 # Skip other geometry types (Point, LineString, etc.)
@@ -160,30 +158,30 @@ def create_enumerator_map(enum_data, enumerator_name):
             # Create detailed popup HTML
             popup_html = f"""
             <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
-                <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'}; 
+                <div style="background: {"#4CAF50" if row["geom_valid"] else "#F44336"}; 
                             color: white; padding: 8px; margin: -10px -10px 10px -10px; 
                             border-radius: 3px 3px 0 0;">
                     <h3 style="margin: 0; font-size: 16px;">
-                        {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
+                        {"✅ VALID" if row["geom_valid"] else "❌ INVALID"}
                     </h3>
                 </div>
                 
                 <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
                     <tr>
                         <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
-                        <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
+                        <td style="padding: 4px;">{row.get("subplot_id", "N/A")}</td>
                     </tr>
                     <tr style="background-color: #f5f5f5;">
                         <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
-                        <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
+                        <td style="padding: 4px;">{row.get("enumerator", "N/A")}</td>
                     </tr>
                     <tr>
                         <td style="padding: 4px; font-weight: bold;">Area:</td>
-                        <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
+                        <td style="padding: 4px;">{row.get("area_m2", 0):.1f} m²</td>
                     </tr>
                     <tr style="background-color: #f5f5f5;">
                         <td style="padding: 4px; font-weight: bold;">Vertices:</td>
-                        <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
+                        <td style="padding: 4px;">{row.get("nr_vertices", 0)}</td>
                     </tr>
             """
 
@@ -323,11 +321,8 @@ def capture_map_as_image(enum_data, enumerator_name):
     Returns PIL Image or None
     """
     try:
-        import folium
         from PIL import Image, ImageDraw, ImageFont
         from io import BytesIO
-        import geopandas as gpd
-        from shapely.geometry import box
 
         # Create the map
         map_obj = create_enumerator_map(enum_data, enumerator_name)
@@ -344,23 +339,19 @@ def capture_map_as_image(enum_data, enumerator_name):
             import os
 
             # Save map to temporary HTML file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
                 map_obj.save(f.name)
                 temp_html = f.name
 
             # Create output directory
             temp_dir = tempfile.gettempdir()
-            output_file = 'folium_map_snapshot.png'
+            output_file = "folium_map_snapshot.png"
 
             # Initialize Html2Image
             hti = Html2Image(output_path=temp_dir)
 
             # Capture screenshot
-            hti.screenshot(
-                html_file=temp_html,
-                save_as=output_file,
-                size=(1200, 800)
-            )
+            hti.screenshot(html_file=temp_html, save_as=output_file, size=(1200, 800))
 
             # Read the generated image
             output_path = os.path.join(temp_dir, output_file)
@@ -375,12 +366,12 @@ def capture_map_as_image(enum_data, enumerator_name):
 
                 return img_copy
 
-        except Exception as e:
+        except Exception:
             # Clean up on error
             try:
-                if 'temp_html' in locals() and os.path.exists(temp_html):
+                if "temp_html" in locals() and os.path.exists(temp_html):
                     os.unlink(temp_html)
-                if 'output_path' in locals() and os.path.exists(output_path):
+                if "output_path" in locals() and os.path.exists(output_path):
                     os.unlink(output_path)
             except:
                 pass
@@ -400,12 +391,12 @@ def capture_map_as_image(enum_data, enumerator_name):
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1200,800")
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
                 map_obj.save(f.name)
                 temp_file = f.name
 
             driver = webdriver.Chrome(options=chrome_options)
-            driver.get(f'file://{temp_file}')
+            driver.get(f"file://{temp_file}")
             time.sleep(2)
             screenshot_bytes = driver.get_screenshot_as_png()
             driver.quit()
@@ -422,10 +413,9 @@ def capture_map_as_image(enum_data, enumerator_name):
         # METHOD 3: Matplotlib-based geographic visualization
         try:
             import matplotlib
-            matplotlib.use('Agg')  # Non-interactive backend
+
+            matplotlib.use("Agg")  # Non-interactive backend
             import matplotlib.pyplot as plt
-            from matplotlib.patches import Polygon
-            import numpy as np
 
             # Filter valid geometries
             map_data = enum_data[~enum_data.geometry.is_empty].copy()
@@ -439,7 +429,7 @@ def capture_map_as_image(enum_data, enumerator_name):
 
             # Create figure with high DPI for quality
             fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
-            fig.patch.set_facecolor('white')
+            fig.patch.set_facecolor("white")
 
             # Extract coordinates for valid and invalid subplots
             valid_data = map_data[map_data["geom_valid"]]
@@ -447,97 +437,151 @@ def capture_map_as_image(enum_data, enumerator_name):
 
             # Plot subplot polygons or points
             for idx, row in valid_data.iterrows():
-                geom = row['geometry']
-                if geom.geom_type == 'Polygon':
+                geom = row["geometry"]
+                if geom.geom_type == "Polygon":
                     # Plot polygon outline
                     x, y = geom.exterior.xy
-                    ax.fill(x, y, color='#4CAF50', alpha=0.3, edgecolor='#2E7D32', linewidth=1.5)
+                    ax.fill(x, y, color="#4CAF50", alpha=0.3, edgecolor="#2E7D32", linewidth=1.5)
                     # Add centroid marker
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#2E7D32', markersize=8, markeredgecolor='white', markeredgewidth=1)
-                elif geom.geom_type == 'MultiPolygon':
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#2E7D32",
+                        markersize=8,
+                        markeredgecolor="white",
+                        markeredgewidth=1,
+                    )
+                elif geom.geom_type == "MultiPolygon":
                     # Plot each polygon in the multipolygon
                     for poly in geom.geoms:
                         x, y = poly.exterior.xy
-                        ax.fill(x, y, color='#4CAF50', alpha=0.3, edgecolor='#2E7D32', linewidth=1.5)
+                        ax.fill(x, y, color="#4CAF50", alpha=0.3, edgecolor="#2E7D32", linewidth=1.5)
                     # Add centroid marker
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#2E7D32', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#2E7D32",
+                        markersize=8,
+                        markeredgecolor="white",
+                        markeredgewidth=1,
+                    )
                 else:
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#4CAF50', markersize=10, markeredgecolor='white', markeredgewidth=2)
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#4CAF50",
+                        markersize=10,
+                        markeredgecolor="white",
+                        markeredgewidth=2,
+                    )
 
             for idx, row in invalid_data.iterrows():
-                geom = row['geometry']
-                if geom.geom_type == 'Polygon':
+                geom = row["geometry"]
+                if geom.geom_type == "Polygon":
                     # Plot polygon outline
                     x, y = geom.exterior.xy
-                    ax.fill(x, y, color='#F44336', alpha=0.3, edgecolor='#C62828', linewidth=1.5)
+                    ax.fill(x, y, color="#F44336", alpha=0.3, edgecolor="#C62828", linewidth=1.5)
                     # Add centroid marker
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#C62828', markersize=8, markeredgecolor='white', markeredgewidth=1)
-                elif geom.geom_type == 'MultiPolygon':
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#C62828",
+                        markersize=8,
+                        markeredgecolor="white",
+                        markeredgewidth=1,
+                    )
+                elif geom.geom_type == "MultiPolygon":
                     # Plot each polygon in the multipolygon
                     for poly in geom.geoms:
                         x, y = poly.exterior.xy
-                        ax.fill(x, y, color='#F44336', alpha=0.3, edgecolor='#C62828', linewidth=1.5)
+                        ax.fill(x, y, color="#F44336", alpha=0.3, edgecolor="#C62828", linewidth=1.5)
                     # Add centroid marker
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#C62828', markersize=8, markeredgecolor='white', markeredgewidth=1)
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#C62828",
+                        markersize=8,
+                        markeredgecolor="white",
+                        markeredgewidth=1,
+                    )
                 else:
                     centroid = geom.centroid
-                    ax.plot(centroid.x, centroid.y, 'o', color='#F44336', markersize=10, markeredgecolor='white', markeredgewidth=2)
+                    ax.plot(
+                        centroid.x,
+                        centroid.y,
+                        "o",
+                        color="#F44336",
+                        markersize=10,
+                        markeredgecolor="white",
+                        markeredgewidth=2,
+                    )
 
             # Set title
-            ax.set_title(f'Geographic Distribution - {enumerator_name}',
-                        fontsize=18, fontweight='bold', color='#1565C0', pad=20)
+            ax.set_title(
+                f"Geographic Distribution - {enumerator_name}", fontsize=18, fontweight="bold", color="#1565C0", pad=20
+            )
 
             # Set labels
-            ax.set_xlabel('Longitude', fontsize=12, fontweight='bold')
-            ax.set_ylabel('Latitude', fontsize=12, fontweight='bold')
+            ax.set_xlabel("Longitude", fontsize=12, fontweight="bold")
+            ax.set_ylabel("Latitude", fontsize=12, fontweight="bold")
 
             # Add grid
-            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+            ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
             ax.set_axisbelow(True)
 
             # Equal aspect ratio for proper geographic display
-            ax.set_aspect('equal', adjustable='box')
+            ax.set_aspect("equal", adjustable="box")
 
             # Add legend
             from matplotlib.patches import Patch
+
             legend_elements = [
-                Patch(facecolor='#4CAF50', edgecolor='#2E7D32', label=f'Valid Subplots ({valid_count})'),
-                Patch(facecolor='#F44336', edgecolor='#C62828', label=f'Invalid Subplots ({invalid_count})')
+                Patch(facecolor="#4CAF50", edgecolor="#2E7D32", label=f"Valid Subplots ({valid_count})"),
+                Patch(facecolor="#F44336", edgecolor="#C62828", label=f"Invalid Subplots ({invalid_count})"),
             ]
-            ax.legend(handles=legend_elements, loc='upper right', fontsize=11, framealpha=0.95)
+            ax.legend(handles=legend_elements, loc="upper right", fontsize=11, framealpha=0.95)
 
             # Add statistics text box
             success_rate = (valid_count / total_count * 100) if total_count > 0 else 0
 
             stats_text = f"Total Subplots: {total_count}\n"
             stats_text += f"Valid: {valid_count} ({success_rate:.1f}%)\n"
-            stats_text += f"Invalid: {invalid_count} ({100-success_rate:.1f}%)"
+            stats_text += f"Invalid: {invalid_count} ({100 - success_rate:.1f}%)"
 
             # Position text box in lower left
-            ax.text(0.02, 0.02, stats_text,
-                   transform=ax.transAxes,
-                   fontsize=10,
-                   verticalalignment='bottom',
-                   bbox=dict(boxstyle='round', facecolor='white', edgecolor='#1565C0', linewidth=2, alpha=0.95))
+            ax.text(
+                0.02,
+                0.02,
+                stats_text,
+                transform=ax.transAxes,
+                fontsize=10,
+                verticalalignment="bottom",
+                bbox=dict(boxstyle="round", facecolor="white", edgecolor="#1565C0", linewidth=2, alpha=0.95),
+            )
 
             # Tight layout
             plt.tight_layout()
 
             # Convert to PIL Image
             buf = BytesIO()
-            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+            plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
             buf.seek(0)
             img = Image.open(buf)
             plt.close(fig)
 
             return img
 
-        except Exception as e:
+        except Exception:
             # Fallback to PIL-only version if matplotlib fails
             try:
                 from PIL import Image, ImageDraw, ImageFont
@@ -554,7 +598,7 @@ def capture_map_as_image(enum_data, enumerator_name):
 
                 # Create simple statistics graphic
                 width, height = 800, 600
-                img = Image.new('RGB', (width, height), color='#F5F5F5')
+                img = Image.new("RGB", (width, height), color="#F5F5F5")
                 draw = ImageDraw.Draw(img)
 
                 # Load fonts
@@ -569,38 +613,38 @@ def capture_map_as_image(enum_data, enumerator_name):
                 title = f"Subplot Distribution - {enumerator_name}"
                 title_bbox = draw.textbbox((0, 0), title, font=title_font)
                 title_width = title_bbox[2] - title_bbox[0]
-                draw.text(((width - title_width) // 2, 40), title, fill='#1565C0', font=title_font)
+                draw.text(((width - title_width) // 2, 40), title, fill="#1565C0", font=title_font)
 
                 # Draw statistics box
                 box_y = 120
                 box_height = 350
-                draw.rectangle([100, box_y, width-100, box_y+box_height], fill='white', outline='#1565C0', width=3)
+                draw.rectangle([100, box_y, width - 100, box_y + box_height], fill="white", outline="#1565C0", width=3)
 
                 # Draw statistics
                 y_pos = box_y + 60
 
                 # Total subplots
-                draw.text((width//2 - 150, y_pos), f"Total Subplots:", fill='#333333', font=text_font)
-                draw.text((width//2 + 50, y_pos), f"{total_count}", fill='#1565C0', font=text_font)
+                draw.text((width // 2 - 150, y_pos), "Total Subplots:", fill="#333333", font=text_font)
+                draw.text((width // 2 + 50, y_pos), f"{total_count}", fill="#1565C0", font=text_font)
                 y_pos += 80
 
                 # Valid subplots (green)
-                draw.rectangle([width//2 - 180, y_pos-5, width//2 - 160, y_pos+20], fill='#4CAF50')
-                draw.text((width//2 - 150, y_pos), f"Valid Subplots:", fill='#333333', font=text_font)
-                draw.text((width//2 + 50, y_pos), f"{valid_count}", fill='#4CAF50', font=text_font)
+                draw.rectangle([width // 2 - 180, y_pos - 5, width // 2 - 160, y_pos + 20], fill="#4CAF50")
+                draw.text((width // 2 - 150, y_pos), "Valid Subplots:", fill="#333333", font=text_font)
+                draw.text((width // 2 + 50, y_pos), f"{valid_count}", fill="#4CAF50", font=text_font)
                 y_pos += 80
 
                 # Invalid subplots (red)
-                draw.rectangle([width//2 - 180, y_pos-5, width//2 - 160, y_pos+20], fill='#F44336')
-                draw.text((width//2 - 150, y_pos), f"Invalid Subplots:", fill='#333333', font=text_font)
-                draw.text((width//2 + 50, y_pos), f"{invalid_count}", fill='#F44336', font=text_font)
+                draw.rectangle([width // 2 - 180, y_pos - 5, width // 2 - 160, y_pos + 20], fill="#F44336")
+                draw.text((width // 2 - 150, y_pos), "Invalid Subplots:", fill="#333333", font=text_font)
+                draw.text((width // 2 + 50, y_pos), f"{invalid_count}", fill="#F44336", font=text_font)
                 y_pos += 80
 
                 # Success rate
                 success_rate = (valid_count / total_count * 100) if total_count > 0 else 0
-                draw.text((width//2 - 150, y_pos), f"Success Rate:", fill='#333333', font=text_font)
-                color = '#4CAF50' if success_rate >= 85 else '#F44336'
-                draw.text((width//2 + 50, y_pos), f"{success_rate:.1f}%", fill=color, font=text_font)
+                draw.text((width // 2 - 150, y_pos), "Success Rate:", fill="#333333", font=text_font)
+                color = "#4CAF50" if success_rate >= 85 else "#F44336"
+                draw.text((width // 2 + 50, y_pos), f"{success_rate:.1f}%", fill=color, font=text_font)
 
                 return img
 
@@ -617,14 +661,16 @@ def create_subplot_polygon_image(subplot_row):
     Returns PIL Image or None
     """
     import sys
+
     try:
         import matplotlib
-        matplotlib.use('Agg')  # Use non-interactive backend
+
+        matplotlib.use("Agg")  # Use non-interactive backend
         import matplotlib.pyplot as plt
         from PIL import Image
         from io import BytesIO
 
-        subplot_id = subplot_row.get('subplot_id', 'Unknown')
+        subplot_id = subplot_row.get("subplot_id", "Unknown")
         print(f"DEBUG POLYGON: Starting for subplot {subplot_id}", file=sys.stderr)
         print(f"DEBUG POLYGON: Has geometry column: {'geometry' in subplot_row}", file=sys.stderr)
 
@@ -644,63 +690,65 @@ def create_subplot_polygon_image(subplot_row):
 
         is_valid = subplot_row.get("geom_valid", False)
 
-        print(f"DEBUG POLYGON: Creating polygon image for subplot {subplot_id}, geom_type: {geom.geom_type}, valid: {is_valid}", file=sys.stderr)
+        print(
+            f"DEBUG POLYGON: Creating polygon image for subplot {subplot_id}, geom_type: {geom.geom_type}, valid: {is_valid}",
+            file=sys.stderr,
+        )
 
         # Create figure
         fig, ax = plt.subplots(figsize=(4, 3), dpi=100)
 
         # Plot the polygon
-        if geom.geom_type == 'Polygon':
+        if geom.geom_type == "Polygon":
             x, y = geom.exterior.xy
-            color = '#F44336' if not is_valid else '#4CAF50'
+            color = "#F44336" if not is_valid else "#4CAF50"
             ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-            ax.plot(x, y, 'o', color=color, markersize=4)
+            ax.plot(x, y, "o", color=color, markersize=4)
 
             # Add centroid
             centroid = geom.centroid
-            ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=8, markeredgewidth=2)
-        elif geom.geom_type == 'MultiPolygon':
-            color = '#F44336' if not is_valid else '#4CAF50'
+            ax.plot(centroid.x, centroid.y, "x", color="black", markersize=8, markeredgewidth=2)
+        elif geom.geom_type == "MultiPolygon":
+            color = "#F44336" if not is_valid else "#4CAF50"
             # Plot each polygon in the multipolygon
             for poly in geom.geoms:
                 x, y = poly.exterior.xy
                 ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                ax.plot(x, y, 'o', color=color, markersize=4)
+                ax.plot(x, y, "o", color=color, markersize=4)
 
             # Add centroid
             centroid = geom.centroid
-            ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=8, markeredgewidth=2)
+            ax.plot(centroid.x, centroid.y, "x", color="black", markersize=8, markeredgewidth=2)
 
         # Formatting
-        ax.set_aspect('equal')
-        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-        ax.set_xlabel('Longitude', fontsize=8)
-        ax.set_ylabel('Latitude', fontsize=8)
+        ax.set_aspect("equal")
+        ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+        ax.set_xlabel("Longitude", fontsize=8)
+        ax.set_ylabel("Latitude", fontsize=8)
         ax.tick_params(labelsize=7)
 
         # Title
-        subplot_id = str(subplot_row.get('subplot_id', 'Unknown'))
+        subplot_id = str(subplot_row.get("subplot_id", "Unknown"))
         if len(subplot_id) > 35:
-            subplot_id = subplot_id[:32] + '...'
+            subplot_id = subplot_id[:32] + "..."
         status = "INVALID" if not is_valid else "VALID"
-        ax.set_title(f"{subplot_id}\n{status}", fontsize=9, fontweight='bold')
+        ax.set_title(f"{subplot_id}\n{status}", fontsize=9, fontweight="bold")
 
         # Add area and vertices info
         info_text = []
-        if 'area_m2' in subplot_row and pd.notna(subplot_row['area_m2']):
+        if "area_m2" in subplot_row and pd.notna(subplot_row["area_m2"]):
             info_text.append(f"Area: {subplot_row['area_m2']:.1f} m²")
-        if 'nr_vertices' in subplot_row and pd.notna(subplot_row['nr_vertices']):
+        if "nr_vertices" in subplot_row and pd.notna(subplot_row["nr_vertices"]):
             info_text.append(f"Vertices: {int(subplot_row['nr_vertices'])}")
 
         if info_text:
-            ax.text(0.5, -0.15, ' | '.join(info_text),
-                   transform=ax.transAxes, ha='center', fontsize=7, style='italic')
+            ax.text(0.5, -0.15, " | ".join(info_text), transform=ax.transAxes, ha="center", fontsize=7, style="italic")
 
         plt.tight_layout()
 
         # Convert to PIL Image
         buf = BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+        plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
         plt.close(fig)
         buf.seek(0)
 
@@ -709,12 +757,13 @@ def create_subplot_polygon_image(subplot_row):
         img_copy = img.copy()
         img.close()
 
-        print(f"DEBUG: Successfully created polygon image", file=sys.stderr)
+        print("DEBUG: Successfully created polygon image", file=sys.stderr)
         return img_copy
 
     except Exception as e:
         print(f"DEBUG: Error creating polygon image: {str(e)}", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
         return None
 
@@ -760,7 +809,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
         # CRITICAL: Add SubmissionDate to enum_data if missing (needed for date-wise analysis)
         if "SubmissionDate" not in enum_data.columns and raw_data and "plots_subplots" in raw_data:
-            print(f"DEBUG PDF: Adding SubmissionDate from raw_data", file=sys.stderr)
+            print("DEBUG PDF: Adding SubmissionDate from raw_data", file=sys.stderr)
             plots_df = raw_data["plots_subplots"]
             print(f"DEBUG PDF: plots_df columns: {plots_df.columns.tolist()}", file=sys.stderr)
             print(f"DEBUG PDF: enum_data columns: {enum_data.columns.tolist()}", file=sys.stderr)
@@ -786,7 +835,10 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     subplot_key_col = col
                     break
 
-            print(f"DEBUG PDF: Found submission_date_col: {submission_date_col}, subplot_key_col: {subplot_key_col}", file=sys.stderr)
+            print(
+                f"DEBUG PDF: Found submission_date_col: {submission_date_col}, subplot_key_col: {subplot_key_col}",
+                file=sys.stderr,
+            )
 
             if submission_date_col and subplot_key_col:
                 # Create mapping from subplot_id to SubmissionDate
@@ -799,11 +851,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                 # Merge into enum_data
                 enum_data = enum_data.merge(
-                    date_mapping,
-                    left_on="subplot_id",
-                    right_on=subplot_key_col,
-                    how="left",
-                    suffixes=('', '_drop')
+                    date_mapping, left_on="subplot_id", right_on=subplot_key_col, how="left", suffixes=("", "_drop")
                 )
 
                 # Drop duplicate subplot key column if it was added
@@ -811,18 +859,21 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     enum_data = enum_data.drop(columns=[subplot_key_col])
 
                 # Drop any columns with '_drop' suffix that may have been created
-                drop_cols = [col for col in enum_data.columns if col.endswith('_drop')]
+                drop_cols = [col for col in enum_data.columns if col.endswith("_drop")]
                 if drop_cols:
                     enum_data = enum_data.drop(columns=drop_cols)
 
-                print(f"DEBUG PDF: Added SubmissionDate, now has {enum_data['SubmissionDate'].notna().sum()} dates", file=sys.stderr)
+                print(
+                    f"DEBUG PDF: Added SubmissionDate, now has {enum_data['SubmissionDate'].notna().sum()} dates",
+                    file=sys.stderr,
+                )
             else:
-                print(f"DEBUG PDF: Could not find required columns in plots_df", file=sys.stderr)
+                print("DEBUG PDF: Could not find required columns in plots_df", file=sys.stderr)
         else:
             if "SubmissionDate" in enum_data.columns:
-                print(f"DEBUG PDF: SubmissionDate already in enum_data", file=sys.stderr)
+                print("DEBUG PDF: SubmissionDate already in enum_data", file=sys.stderr)
             else:
-                print(f"DEBUG PDF: No raw_data or plots_subplots available to add SubmissionDate", file=sys.stderr)
+                print("DEBUG PDF: No raw_data or plots_subplots available to add SubmissionDate", file=sys.stderr)
 
         # Custom styles
         title_style = ParagraphStyle(
@@ -875,6 +926,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
         # Get vegetation and measurement data for vegetation errors (MOVED HERE for summary)
         import sys
+
         veg_errors_data = {}
         total_veg_errors = 0
         species_col = None  # Initialize species_col for later use
@@ -908,16 +960,19 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             # Merge with subplot comments BEFORE other merges
                             if "plots_subplots_vegetation" in raw_data:
                                 veg_data_for_comments = raw_data["plots_subplots_vegetation"]
-                                if len(veg_data_for_comments) > 0 and "SUBPLOT_KEY" in veg_data_for_comments.columns and "SUBPLOT_KEY" in meas_enum.columns:
+                                if (
+                                    len(veg_data_for_comments) > 0
+                                    and "SUBPLOT_KEY" in veg_data_for_comments.columns
+                                    and "SUBPLOT_KEY" in meas_enum.columns
+                                ):
                                     if "subplot_comments" in veg_data_for_comments.columns:
-                                        veg_comments = veg_data_for_comments[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
+                                        veg_comments = veg_data_for_comments[
+                                            ["SUBPLOT_KEY", "subplot_comments"]
+                                        ].drop_duplicates()
                                         meas_enum = meas_enum.merge(
-                                            veg_comments,
-                                            on="SUBPLOT_KEY",
-                                            how="left",
-                                            suffixes=("", "_veg")
+                                            veg_comments, on="SUBPLOT_KEY", how="left", suffixes=("", "_veg")
                                         )
-                                        print(f"DEBUG: Merged subplot_comments for PDF", file=sys.stderr)
+                                        print("DEBUG: Merged subplot_comments for PDF", file=sys.stderr)
 
                             # Merge with enumerator info
                             meas_enum = merge_with_enumerator(meas_enum, enum_data)
@@ -936,7 +991,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                             # Height outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                             if "tree_height_m" in meas_enum.columns and "VEGETATION_KEY" in meas_enum.columns:
-                                print(f"DEBUG: Checking height outliers...", file=sys.stderr)
+                                print("DEBUG: Checking height outliers...", file=sys.stderr)
                                 # Filter to records with valid height and VEGETATION_KEY
                                 height_check = meas_enum[
                                     meas_enum["tree_height_m"].notna() & meas_enum["VEGETATION_KEY"].notna()
@@ -958,62 +1013,89 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
                                     height_total["Upper_outliers"] = height_total.apply(
                                         lambda row: (
-                                            "outlier"
-                                            if row["tree_height_m"] > (row["median_height"] * 4)
-                                            else "ok"
+                                            "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"
                                         ),
                                         axis=1,
                                     )
                                     height_total["Lower_outliers"] = height_total.apply(
                                         lambda row: (
-                                            "outlier"
-                                            if row["tree_height_m"] < (row["median_height"] / 4)
-                                            else "ok"
+                                            "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"
                                         ),
                                         axis=1,
                                     )
 
                                     # Filter to outliers only
                                     outliers = height_total[
-                                        (height_total["Upper_outliers"] == "outlier") |
-                                        (height_total["Lower_outliers"] == "outlier")
+                                        (height_total["Upper_outliers"] == "outlier")
+                                        | (height_total["Lower_outliers"] == "outlier")
                                     ].copy()
 
                                     print(f"DEBUG: Found {len(outliers)} height outliers", file=sys.stderr)
-                                    print(f"DEBUG: Height outliers columns: {outliers.columns.tolist()}", file=sys.stderr)
+                                    print(
+                                        f"DEBUG: Height outliers columns: {outliers.columns.tolist()}", file=sys.stderr
+                                    )
                                     print(f"DEBUG: meas_enum columns: {meas_enum.columns.tolist()}", file=sys.stderr)
-                                    print(f"DEBUG: Has SubmissionDate in outliers: {'SubmissionDate' in outliers.columns}", file=sys.stderr)
-                                    print(f"DEBUG: Has SubmissionDate_subplot in outliers: {'SubmissionDate_subplot' in outliers.columns}", file=sys.stderr)
+                                    print(
+                                        f"DEBUG: Has SubmissionDate in outliers: {'SubmissionDate' in outliers.columns}",
+                                        file=sys.stderr,
+                                    )
+                                    print(
+                                        f"DEBUG: Has SubmissionDate_subplot in outliers: {'SubmissionDate_subplot' in outliers.columns}",
+                                        file=sys.stderr,
+                                    )
 
                                     # Rename SubmissionDate_subplot to SubmissionDate for consistency
-                                    if "SubmissionDate_subplot" in outliers.columns and "SubmissionDate" not in outliers.columns:
+                                    if (
+                                        "SubmissionDate_subplot" in outliers.columns
+                                        and "SubmissionDate" not in outliers.columns
+                                    ):
                                         outliers = outliers.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
-                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate", file=sys.stderr)
+                                        print(
+                                            "DEBUG: Renamed SubmissionDate_subplot to SubmissionDate", file=sys.stderr
+                                        )
 
                                     # Check if SubmissionDate is missing and add it if needed
                                     if "SubmissionDate" not in outliers.columns:
-                                        print(f"DEBUG: Adding SubmissionDate to height outliers", file=sys.stderr)
+                                        print("DEBUG: Adding SubmissionDate to height outliers", file=sys.stderr)
                                         # Add SubmissionDate from meas_enum based on a measurement key
                                         # Use MEASUREMENT_KEY or VEGETATION_KEY as the join key
-                                        if "MEASUREMENT_KEY" in outliers.columns and "MEASUREMENT_KEY" in meas_enum.columns:
-                                            date_map = meas_enum[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                        if (
+                                            "MEASUREMENT_KEY" in outliers.columns
+                                            and "MEASUREMENT_KEY" in meas_enum.columns
+                                        ):
+                                            date_map = meas_enum[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(
+                                                subset=["MEASUREMENT_KEY"]
+                                            )
                                             outliers = outliers.merge(date_map, on="MEASUREMENT_KEY", how="left")
-                                            print(f"DEBUG: Merged SubmissionDate using MEASUREMENT_KEY", file=sys.stderr)
-                                        elif "VEGETATION_KEY" in outliers.columns and "VEGETATION_KEY" in meas_enum.columns:
+                                            print("DEBUG: Merged SubmissionDate using MEASUREMENT_KEY", file=sys.stderr)
+                                        elif (
+                                            "VEGETATION_KEY" in outliers.columns
+                                            and "VEGETATION_KEY" in meas_enum.columns
+                                        ):
                                             # Group by VEGETATION_KEY and take first SubmissionDate
-                                            date_map = meas_enum[["VEGETATION_KEY", "SubmissionDate"]].drop_duplicates(subset=["VEGETATION_KEY"])
+                                            date_map = meas_enum[["VEGETATION_KEY", "SubmissionDate"]].drop_duplicates(
+                                                subset=["VEGETATION_KEY"]
+                                            )
                                             outliers = outliers.merge(date_map, on="VEGETATION_KEY", how="left")
-                                            print(f"DEBUG: Merged SubmissionDate using VEGETATION_KEY", file=sys.stderr)
+                                            print("DEBUG: Merged SubmissionDate using VEGETATION_KEY", file=sys.stderr)
 
-                                    print(f"DEBUG: After merge, has SubmissionDate: {'SubmissionDate' in outliers.columns}", file=sys.stderr)
+                                    print(
+                                        f"DEBUG: After merge, has SubmissionDate: {'SubmissionDate' in outliers.columns}",
+                                        file=sys.stderr,
+                                    )
                                     if "SubmissionDate" in outliers.columns:
-                                        print(f"DEBUG: SubmissionDate sample: {outliers['SubmissionDate'].head(2).tolist()}", file=sys.stderr)
+                                        print(
+                                            f"DEBUG: SubmissionDate sample: {outliers['SubmissionDate'].head(2).tolist()}",
+                                            file=sys.stderr,
+                                        )
 
                                     veg_errors["height_outliers"] = outliers
                                     total_veg_errors += len(outliers)
 
                             # Circumference outliers (using VEGETATION_KEY grouping - Rabobank methodology)
-                            circ_cols = [c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns]
+                            circ_cols = [
+                                c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns
+                            ]
                             print(f"DEBUG: Circumference columns: {circ_cols}", file=sys.stderr)
                             if circ_cols and "VEGETATION_KEY" in meas_enum.columns:
                                 for circ_col in circ_cols:
@@ -1039,73 +1121,116 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
                                         circ_total["Upper_outliers"] = circ_total.apply(
                                             lambda row: (
-                                                "outlier"
-                                                if row[circ_col] > (row["median_circ"] * 4)
-                                                else "ok"
+                                                "outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok"
                                             ),
                                             axis=1,
                                         )
                                         circ_total["Lower_outliers"] = circ_total.apply(
                                             lambda row: (
-                                                "outlier"
-                                                if row[circ_col] < (row["median_circ"] / 4)
-                                                else "ok"
+                                                "outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok"
                                             ),
                                             axis=1,
                                         )
 
                                         # Filter to outliers only
                                         outliers = circ_total[
-                                            (circ_total["Upper_outliers"] == "outlier") |
-                                            (circ_total["Lower_outliers"] == "outlier")
+                                            (circ_total["Upper_outliers"] == "outlier")
+                                            | (circ_total["Lower_outliers"] == "outlier")
                                         ].copy()
 
-                                        print(f"DEBUG: Found {len(outliers)} circumference outliers for {circ_col}", file=sys.stderr)
+                                        print(
+                                            f"DEBUG: Found {len(outliers)} circumference outliers for {circ_col}",
+                                            file=sys.stderr,
+                                        )
                                         if len(outliers) > 0:
                                             # Rename SubmissionDate_subplot to SubmissionDate for consistency
-                                            if "SubmissionDate_subplot" in outliers.columns and "SubmissionDate" not in outliers.columns:
-                                                outliers = outliers.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
-                                                print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for circ outliers", file=sys.stderr)
+                                            if (
+                                                "SubmissionDate_subplot" in outliers.columns
+                                                and "SubmissionDate" not in outliers.columns
+                                            ):
+                                                outliers = outliers.rename(
+                                                    columns={"SubmissionDate_subplot": "SubmissionDate"}
+                                                )
+                                                print(
+                                                    "DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for circ outliers",
+                                                    file=sys.stderr,
+                                                )
 
                                             # Check if SubmissionDate is missing and add it if needed
-                                            if "SubmissionDate" not in outliers.columns and "SubmissionDate" in meas_enum.columns:
-                                                print(f"DEBUG: Adding SubmissionDate to circ outliers", file=sys.stderr)
-                                                if "MEASUREMENT_KEY" in outliers.columns and "MEASUREMENT_KEY" in meas_enum.columns:
-                                                    date_map = meas_enum[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
-                                                    outliers = outliers.merge(date_map, on="MEASUREMENT_KEY", how="left")
-                                                elif "VEGETATION_KEY" in outliers.columns and "VEGETATION_KEY" in meas_enum.columns:
-                                                    date_map = meas_enum[["VEGETATION_KEY", "SubmissionDate"]].drop_duplicates(subset=["VEGETATION_KEY"])
+                                            if (
+                                                "SubmissionDate" not in outliers.columns
+                                                and "SubmissionDate" in meas_enum.columns
+                                            ):
+                                                print("DEBUG: Adding SubmissionDate to circ outliers", file=sys.stderr)
+                                                if (
+                                                    "MEASUREMENT_KEY" in outliers.columns
+                                                    and "MEASUREMENT_KEY" in meas_enum.columns
+                                                ):
+                                                    date_map = meas_enum[
+                                                        ["MEASUREMENT_KEY", "SubmissionDate"]
+                                                    ].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                                    outliers = outliers.merge(
+                                                        date_map, on="MEASUREMENT_KEY", how="left"
+                                                    )
+                                                elif (
+                                                    "VEGETATION_KEY" in outliers.columns
+                                                    and "VEGETATION_KEY" in meas_enum.columns
+                                                ):
+                                                    date_map = meas_enum[
+                                                        ["VEGETATION_KEY", "SubmissionDate"]
+                                                    ].drop_duplicates(subset=["VEGETATION_KEY"])
                                                     outliers = outliers.merge(date_map, on="VEGETATION_KEY", how="left")
 
-                                            veg_errors["circ_outliers"] = pd.concat([
-                                                veg_errors["circ_outliers"],
-                                                outliers
-                                            ]).drop_duplicates()
+                                            veg_errors["circ_outliers"] = pd.concat(
+                                                [veg_errors["circ_outliers"], outliers]
+                                            ).drop_duplicates()
 
                                 total_veg_errors += len(veg_errors["circ_outliers"])
-                                print(f"DEBUG: Total circumference outliers: {len(veg_errors['circ_outliers'])}", file=sys.stderr)
+                                print(
+                                    f"DEBUG: Total circumference outliers: {len(veg_errors['circ_outliers'])}",
+                                    file=sys.stderr,
+                                )
 
                             # Suspicious circumference by age
                             if "tree_year_planted" in meas_enum.columns and circ_cols:
-                                print(f"DEBUG: Checking suspicious circumference by age...", file=sys.stderr)
+                                print("DEBUG: Checking suspicious circumference by age...", file=sys.stderr)
                                 from utils.data_merge_utils import calculate_tree_age
+
                                 meas_with_age = calculate_tree_age(meas_enum)
                                 if "tree_age" in meas_with_age.columns:
                                     susp_circ = detect_suspicious_circumference_by_age(meas_with_age)
                                     if "flag" in susp_circ.columns:
                                         flagged = susp_circ[susp_circ["flag"] == True]
-                                        print(f"DEBUG: Found {len(flagged)} suspicious circ/age records", file=sys.stderr)
+                                        print(
+                                            f"DEBUG: Found {len(flagged)} suspicious circ/age records", file=sys.stderr
+                                        )
 
                                         # Rename SubmissionDate_subplot to SubmissionDate for consistency
-                                        if "SubmissionDate_subplot" in flagged.columns and "SubmissionDate" not in flagged.columns:
-                                            flagged = flagged.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
-                                            print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for suspicious circ", file=sys.stderr)
+                                        if (
+                                            "SubmissionDate_subplot" in flagged.columns
+                                            and "SubmissionDate" not in flagged.columns
+                                        ):
+                                            flagged = flagged.rename(
+                                                columns={"SubmissionDate_subplot": "SubmissionDate"}
+                                            )
+                                            print(
+                                                "DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for suspicious circ",
+                                                file=sys.stderr,
+                                            )
 
                                         # Check if SubmissionDate is missing and add it if needed
-                                        if "SubmissionDate" not in flagged.columns and "SubmissionDate" in meas_with_age.columns:
-                                            print(f"DEBUG: Adding SubmissionDate to suspicious circ", file=sys.stderr)
-                                            if "MEASUREMENT_KEY" in flagged.columns and "MEASUREMENT_KEY" in meas_with_age.columns:
-                                                date_map = meas_with_age[["MEASUREMENT_KEY", "SubmissionDate"]].drop_duplicates(subset=["MEASUREMENT_KEY"])
+                                        if (
+                                            "SubmissionDate" not in flagged.columns
+                                            and "SubmissionDate" in meas_with_age.columns
+                                        ):
+                                            print("DEBUG: Adding SubmissionDate to suspicious circ", file=sys.stderr)
+                                            if (
+                                                "MEASUREMENT_KEY" in flagged.columns
+                                                and "MEASUREMENT_KEY" in meas_with_age.columns
+                                            ):
+                                                date_map = meas_with_age[
+                                                    ["MEASUREMENT_KEY", "SubmissionDate"]
+                                                ].drop_duplicates(subset=["MEASUREMENT_KEY"])
                                                 flagged = flagged.merge(date_map, on="MEASUREMENT_KEY", how="left")
 
                                         veg_errors["suspicious_circ"] = flagged
@@ -1113,30 +1238,46 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                             # Super Tall Trees (>25m)
                             if "tree_height_m" in meas_enum.columns:
-                                print(f"DEBUG: Checking super tall trees...", file=sys.stderr)
+                                print("DEBUG: Checking super tall trees...", file=sys.stderr)
                                 super_tall = meas_enum[meas_enum["tree_height_m"] > 25].copy()
                                 if len(super_tall) > 0:
                                     print(f"DEBUG: Found {len(super_tall)} super tall trees", file=sys.stderr)
 
                                     # Rename SubmissionDate_subplot to SubmissionDate for consistency
-                                    if "SubmissionDate_subplot" in super_tall.columns and "SubmissionDate" not in super_tall.columns:
-                                        super_tall = super_tall.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
-                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for super tall trees", file=sys.stderr)
+                                    if (
+                                        "SubmissionDate_subplot" in super_tall.columns
+                                        and "SubmissionDate" not in super_tall.columns
+                                    ):
+                                        super_tall = super_tall.rename(
+                                            columns={"SubmissionDate_subplot": "SubmissionDate"}
+                                        )
+                                        print(
+                                            "DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for super tall trees",
+                                            file=sys.stderr,
+                                        )
 
                                     veg_errors["super_tall_trees"] = super_tall
                                     total_veg_errors += len(super_tall)
 
                             # High Stem Counts (>20)
                             if "nr_stems_bh" in meas_enum.columns:
-                                print(f"DEBUG: Checking high stem counts...", file=sys.stderr)
+                                print("DEBUG: Checking high stem counts...", file=sys.stderr)
                                 high_stems = meas_enum[meas_enum["nr_stems_bh"] > 20].copy()
                                 if len(high_stems) > 0:
                                     print(f"DEBUG: Found {len(high_stems)} high stem counts", file=sys.stderr)
 
                                     # Rename SubmissionDate_subplot to SubmissionDate for consistency
-                                    if "SubmissionDate_subplot" in high_stems.columns and "SubmissionDate" not in high_stems.columns:
-                                        high_stems = high_stems.rename(columns={"SubmissionDate_subplot": "SubmissionDate"})
-                                        print(f"DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for high stems", file=sys.stderr)
+                                    if (
+                                        "SubmissionDate_subplot" in high_stems.columns
+                                        and "SubmissionDate" not in high_stems.columns
+                                    ):
+                                        high_stems = high_stems.rename(
+                                            columns={"SubmissionDate_subplot": "SubmissionDate"}
+                                        )
+                                        print(
+                                            "DEBUG: Renamed SubmissionDate_subplot to SubmissionDate for high stems",
+                                            file=sys.stderr,
+                                        )
 
                                     veg_errors["high_stems"] = high_stems
                                     total_veg_errors += len(high_stems)
@@ -1144,21 +1285,32 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             # Unknown/Unidentified Species
                             if "plots_subplots_vegetation" in raw_data:
                                 from utils.vegetation_validation import check_unidentified_species
+
                                 veg_df = raw_data["plots_subplots_vegetation"]
                                 enum_subplot_keys = enum_data["subplot_id"].unique()
-                                veg_enum = veg_df[veg_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy() if "SUBPLOT_KEY" in veg_df.columns else pd.DataFrame()
+                                veg_enum = (
+                                    veg_df[veg_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
+                                    if "SUBPLOT_KEY" in veg_df.columns
+                                    else pd.DataFrame()
+                                )
 
                                 if len(veg_enum) > 0:
-                                    print(f"DEBUG: Checking unknown species...", file=sys.stderr)
+                                    print("DEBUG: Checking unknown species...", file=sys.stderr)
                                     unknown_species = check_unidentified_species(veg_enum)
                                     if len(unknown_species) > 0:
                                         print(f"DEBUG: Found {len(unknown_species)} unknown species", file=sys.stderr)
                                         # Add SubmissionDate from enum_data by merging on SUBPLOT_KEY
-                                        if "SubmissionDate" in enum_data.columns and "SUBPLOT_KEY" in unknown_species.columns and "subplot_id" in enum_data.columns:
+                                        if (
+                                            "SubmissionDate" in enum_data.columns
+                                            and "SUBPLOT_KEY" in unknown_species.columns
+                                            and "subplot_id" in enum_data.columns
+                                        ):
                                             # Create a mapping of subplot_id (from enum_data) to SubmissionDate
                                             date_map = enum_data[["subplot_id", "SubmissionDate"]].drop_duplicates()
                                             date_map = date_map.rename(columns={"subplot_id": "SUBPLOT_KEY"})
-                                            unknown_species = unknown_species.merge(date_map, on="SUBPLOT_KEY", how="left")
+                                            unknown_species = unknown_species.merge(
+                                                date_map, on="SUBPLOT_KEY", how="left"
+                                            )
 
                                         # Merge with enumerator after adding date
                                         unknown_species = merge_with_enumerator(unknown_species, enum_data)
@@ -1171,6 +1323,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     # If vegetation error detection fails, continue without it
                     print(f"DEBUG: Error in vegetation error detection: {str(e)}", file=sys.stderr)
                     import traceback
+
                     traceback.print_exc(file=sys.stderr)
 
         # Statistics
@@ -1190,11 +1343,17 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
         print(f"DEBUG PDF: Total missing veg for enumerator: {total_missing_veg}", file=sys.stderr)
 
-        print(f"DEBUG PDF: Skipping Executive Summary and Performance Visualization, going straight to date-wise analysis", file=sys.stderr)
+        print(
+            "DEBUG PDF: Skipping Executive Summary and Performance Visualization, going straight to date-wise analysis",
+            file=sys.stderr,
+        )
 
         # Date-wise error analysis (GEOMETRY + VEGETATION)
         # Note: veg_errors_data was already calculated earlier for the summary
-        print(f"DEBUG PDF: Checking for date-wise analysis, SubmissionDate column exists: {'SubmissionDate' in enum_data.columns}", file=sys.stderr)
+        print(
+            f"DEBUG PDF: Checking for date-wise analysis, SubmissionDate column exists: {'SubmissionDate' in enum_data.columns}",
+            file=sys.stderr,
+        )
         if "SubmissionDate" in enum_data.columns:
             # Convert to date only (remove time)
             enum_data["date_only"] = pd.to_datetime(enum_data["SubmissionDate"]).dt.date
@@ -1220,41 +1379,68 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             date_data_with_veg = date_data[date_data["subplot_id"].isin(veg_subplot_ids)].copy()
 
                             if len(date_data_with_veg) > 0:
-                                print(f"DEBUG PDF: Date {date} - Filtered to {len(date_data_with_veg)} subplots with vegetation data", file=sys.stderr)
+                                print(
+                                    f"DEBUG PDF: Date {date} - Filtered to {len(date_data_with_veg)} subplots with vegetation data",
+                                    file=sys.stderr,
+                                )
                                 date_data = date_data_with_veg
                             else:
-                                print(f"DEBUG PDF: Date {date} - No subplots with vegetation data, using all {len(date_data)}", file=sys.stderr)
+                                print(
+                                    f"DEBUG PDF: Date {date} - No subplots with vegetation data, using all {len(date_data)}",
+                                    file=sys.stderr,
+                                )
                         else:
-                            print(f"DEBUG PDF: Date {date} - Vegetation data structure issue, using measured_subplots field", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Date {date} - Vegetation data structure issue, using measured_subplots field",
+                                file=sys.stderr,
+                            )
                             # Fallback: use measured_subplots field
                             if "subplot_id" in date_data.columns and "measured_subplots" in date_data.columns:
                                 date_data["subplot_number"] = date_data["subplot_id"].apply(
-                                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                                    lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                    if re.search(r"\[(\d+)\]", str(x))
+                                    else 999
                                 )
                                 date_data["measured_subplots_int"] = date_data["measured_subplots"].apply(
                                     lambda x: int(x) if pd.notna(x) else 999
                                 )
-                                date_data = date_data[date_data["subplot_number"] <= date_data["measured_subplots_int"]].copy()
-                                date_data = date_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
+                                date_data = date_data[
+                                    date_data["subplot_number"] <= date_data["measured_subplots_int"]
+                                ].copy()
+                                date_data = date_data.drop(
+                                    columns=["subplot_number", "measured_subplots_int"], errors="ignore"
+                                )
                     else:
-                        print(f"DEBUG PDF: Date {date} - No vegetation data available, using measured_subplots field", file=sys.stderr)
+                        print(
+                            f"DEBUG PDF: Date {date} - No vegetation data available, using measured_subplots field",
+                            file=sys.stderr,
+                        )
                         # Fallback: use measured_subplots field
                         if "subplot_id" in date_data.columns and "measured_subplots" in date_data.columns:
                             date_data["subplot_number"] = date_data["subplot_id"].apply(
-                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                if re.search(r"\[(\d+)\]", str(x))
+                                else 999
                             )
                             date_data["measured_subplots_int"] = date_data["measured_subplots"].apply(
                                 lambda x: int(x) if pd.notna(x) else 999
                             )
-                            date_data = date_data[date_data["subplot_number"] <= date_data["measured_subplots_int"]].copy()
-                            date_data = date_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
+                            date_data = date_data[
+                                date_data["subplot_number"] <= date_data["measured_subplots_int"]
+                            ].copy()
+                            date_data = date_data.drop(
+                                columns=["subplot_number", "measured_subplots_int"], errors="ignore"
+                            )
 
                     date_total = get_total_measured_subplots(date_data)
                     date_invalid = (~date_data["geom_valid"]).sum()
                     date_valid = date_data["geom_valid"].sum()
                     date_error_rate = (date_invalid / date_total * 100) if date_total > 0 else 0
 
-                    print(f"DEBUG PDF: Date {date} - date_data has {len(date_data)} records after filtering, date_total={date_total}", file=sys.stderr)
+                    print(
+                        f"DEBUG PDF: Date {date} - date_data has {len(date_data)} records after filtering, date_total={date_total}",
+                        file=sys.stderr,
+                    )
 
                     # Date header
                     date_header_style = ParagraphStyle(
@@ -1267,26 +1453,30 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                         fontName="Helvetica-Bold",
                     )
 
-                    story.append(Paragraph(
-                        f"📅 {date.strftime('%B %d, %Y')} - {date_total} subplots ({date_invalid} errors)",
-                        date_header_style
-                    ))
+                    story.append(
+                        Paragraph(
+                            f"📅 {date.strftime('%B %d, %Y')} - {date_total} subplots ({date_invalid} errors)",
+                            date_header_style,
+                        )
+                    )
 
                     # Date summary
                     date_summary_data = [
                         ["Total Subplots", str(date_total)],
-                        ["Valid", f"{date_valid} ({date_valid/date_total*100:.1f}%)"],
+                        ["Valid", f"{date_valid} ({date_valid / date_total * 100:.1f}%)"],
                         ["Invalid", f"{date_invalid} ({date_error_rate:.1f}%)"],
                     ]
 
                     date_summary_table = Table(date_summary_data, colWidths=[2 * inch, 2 * inch])
                     date_summary_table.setStyle(
-                        TableStyle([
-                            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E3F2FD")),
-                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                            ("PADDING", (0, 0), (-1, -1), 8),
-                            ("FONTSIZE", (0, 0), (-1, -1), 10),
-                        ])
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E3F2FD")),
+                                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                                ("PADDING", (0, 0), (-1, -1), 8),
+                                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                            ]
+                        )
                     )
                     story.append(date_summary_table)
                     story.append(Spacer(1, 0.2 * inch))
@@ -1300,18 +1490,26 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                         veg_data_full = raw_data["plots_subplots_vegetation"]
                         # Get subplot keys for this date
                         date_subplot_keys = date_data["subplot_id"].unique()
-                        veg_subplot_keys = veg_data_full["SUBPLOT_KEY"].unique() if "SUBPLOT_KEY" in veg_data_full.columns else []
+                        veg_subplot_keys = (
+                            veg_data_full["SUBPLOT_KEY"].unique() if "SUBPLOT_KEY" in veg_data_full.columns else []
+                        )
                         # Find subplots without vegetation
                         date_missing_veg = [k for k in date_subplot_keys if k not in veg_subplot_keys]
 
-                    print(f"DEBUG PDF: Date {date} - Invalid: {len(date_invalid_data)}, Missing Veg: {len(date_missing_veg)}", file=sys.stderr)
+                    print(
+                        f"DEBUG PDF: Date {date} - Invalid: {len(date_invalid_data)}, Missing Veg: {len(date_missing_veg)}",
+                        file=sys.stderr,
+                    )
 
                     # Create map overviews grouped by GT Plot for this date
                     if len(date_data) > 0 and MATPLOTLIB_AVAILABLE:
                         print(f"DEBUG PDF: date_data columns: {date_data.columns.tolist()}", file=sys.stderr)
                         print(f"DEBUG PDF: PLOT_KEY in columns: {'PLOT_KEY' in date_data.columns}", file=sys.stderr)
                         if "PLOT_KEY" in date_data.columns:
-                            print(f"DEBUG PDF: Number of unique GT Plots: {date_data['PLOT_KEY'].nunique()}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Number of unique GT Plots: {date_data['PLOT_KEY'].nunique()}",
+                                file=sys.stderr,
+                            )
                             print(f"DEBUG PDF: GT Plot keys: {date_data['PLOT_KEY'].unique()}", file=sys.stderr)
 
                         # Group by GT Plot (PLOT_KEY)
@@ -1320,7 +1518,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 plot_data = date_data[date_data["PLOT_KEY"] == plot_key]
 
                                 # Extract plot number from PLOT_KEY
-                                plot_display = str(plot_key).split('/')[-1] if '/' in str(plot_key) else str(plot_key)
+                                plot_display = str(plot_key).split("/")[-1] if "/" in str(plot_key) else str(plot_key)
 
                                 # Count stats for this plot
                                 plot_total = len(plot_data)
@@ -1328,7 +1526,10 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 plot_invalid = plot_total - plot_valid
 
                                 try:
-                                    print(f"DEBUG PDF: Creating map for GT Plot {plot_display} with {len(plot_data)} subplots", file=sys.stderr)
+                                    print(
+                                        f"DEBUG PDF: Creating map for GT Plot {plot_display} with {len(plot_data)} subplots",
+                                        file=sys.stderr,
+                                    )
 
                                     fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
 
@@ -1337,64 +1538,80 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
                                             geom = row["geometry"]
                                             is_valid = row.get("geom_valid", False)
-                                            color = '#4CAF50' if is_valid else '#F44336'
+                                            color = "#4CAF50" if is_valid else "#F44336"
                                             alpha = 0.3 if is_valid else 0.6
 
-                                            if geom.geom_type == 'Polygon':
+                                            if geom.geom_type == "Polygon":
                                                 x, y = geom.exterior.xy
                                                 ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                                            elif geom.geom_type == 'MultiPolygon':
+                                            elif geom.geom_type == "MultiPolygon":
                                                 for poly in geom.geoms:
                                                     x, y = poly.exterior.xy
-                                                    ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                                    ax.fill(
+                                                        x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5
+                                                    )
 
                                             # Add label for invalid ones
                                             if not is_valid:
                                                 centroid = geom.centroid
-                                                ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
+                                                ax.plot(centroid.x, centroid.y, "rx", markersize=8, markeredgewidth=2)
 
-                                    ax.set_aspect('equal')
-                                    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                                    ax.set_xlabel('Longitude', fontsize=8)
-                                    ax.set_ylabel('Latitude', fontsize=8)
+                                    ax.set_aspect("equal")
+                                    ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+                                    ax.set_xlabel("Longitude", fontsize=8)
+                                    ax.set_ylabel("Latitude", fontsize=8)
                                     ax.tick_params(labelsize=8)
                                     ax.set_title(
                                         f"GT Plot: {plot_display} ({date.strftime('%B %d, %Y')})\nSubplots: {plot_total} | Valid: {plot_valid}, Invalid: {plot_invalid}",
-                                        fontsize=9, fontweight='bold'
+                                        fontsize=9,
+                                        fontweight="bold",
                                     )
 
                                     # Add legend
                                     from matplotlib.patches import Patch
+
                                     legend_elements = [
-                                        Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({plot_valid})'),
-                                        Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({plot_invalid})'),
+                                        Patch(facecolor="#4CAF50", alpha=0.5, label=f"Valid ({plot_valid})"),
+                                        Patch(facecolor="#F44336", alpha=0.6, label=f"Invalid ({plot_invalid})"),
                                     ]
-                                    ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
+                                    ax.legend(handles=legend_elements, loc="upper right", fontsize=7)
 
                                     plt.tight_layout()
 
                                     # Convert to image for PDF
                                     map_buffer = BytesIO()
-                                    plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                    plt.savefig(
+                                        map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white"
+                                    )
                                     plt.close(fig)
                                     map_buffer.seek(0)
 
                                     # Add to PDF
-                                    map_img = RLImage(map_buffer, width=4.5*inch, height=3.2*inch)
+                                    map_img = RLImage(map_buffer, width=4.5 * inch, height=3.2 * inch)
                                     story.append(map_img)
-                                    story.append(Spacer(1, 0.15*inch))
-                                    print(f"DEBUG PDF: Successfully added map for GT Plot {plot_display} to PDF", file=sys.stderr)
+                                    story.append(Spacer(1, 0.15 * inch))
+                                    print(
+                                        f"DEBUG PDF: Successfully added map for GT Plot {plot_display} to PDF",
+                                        file=sys.stderr,
+                                    )
 
                                 except Exception as e:
-                                    print(f"DEBUG PDF: Error creating map for GT Plot {plot_display}: {str(e)}", file=sys.stderr)
+                                    print(
+                                        f"DEBUG PDF: Error creating map for GT Plot {plot_display}: {str(e)}",
+                                        file=sys.stderr,
+                                    )
                                     import traceback
+
                                     traceback.print_exc(file=sys.stderr)
 
-                            story.append(Spacer(1, 0.2*inch))
+                            story.append(Spacer(1, 0.2 * inch))
                         else:
                             # Fallback to single overview map if PLOT_KEY not available
                             try:
-                                print(f"DEBUG PDF: Creating map overview for date {date} (no PLOT_KEY column)", file=sys.stderr)
+                                print(
+                                    f"DEBUG PDF: Creating map overview for date {date} (no PLOT_KEY column)",
+                                    file=sys.stderr,
+                                )
 
                                 fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
 
@@ -1403,13 +1620,13 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
                                         geom = row["geometry"]
                                         is_valid = row.get("geom_valid", False)
-                                        color = '#4CAF50' if is_valid else '#F44336'
+                                        color = "#4CAF50" if is_valid else "#F44336"
                                         alpha = 0.3 if is_valid else 0.6
 
-                                        if geom.geom_type == 'Polygon':
+                                        if geom.geom_type == "Polygon":
                                             x, y = geom.exterior.xy
                                             ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
-                                        elif geom.geom_type == 'MultiPolygon':
+                                        elif geom.geom_type == "MultiPolygon":
                                             for poly in geom.geoms:
                                                 x, y = poly.exterior.xy
                                                 ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
@@ -1417,37 +1634,44 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         # Add label for invalid ones
                                         if not is_valid:
                                             centroid = geom.centroid
-                                            ax.plot(centroid.x, centroid.y, 'rx', markersize=8, markeredgewidth=2)
+                                            ax.plot(centroid.x, centroid.y, "rx", markersize=8, markeredgewidth=2)
 
-                                ax.set_aspect('equal')
+                                ax.set_aspect("equal")
                                 ax.grid(True, alpha=0.3)
-                                ax.set_xlabel('Longitude', fontsize=9)
-                                ax.set_ylabel('Latitude', fontsize=9)
+                                ax.set_xlabel("Longitude", fontsize=9)
+                                ax.set_ylabel("Latitude", fontsize=9)
                                 ax.tick_params(labelsize=8)
-                                ax.set_title(f"Subplot Overview - {date.strftime('%B %d, %Y')}\nGreen=Valid, Red=Invalid",
-                                            fontsize=10, fontweight='bold')
+                                ax.set_title(
+                                    f"Subplot Overview - {date.strftime('%B %d, %Y')}\nGreen=Valid, Red=Invalid",
+                                    fontsize=10,
+                                    fontweight="bold",
+                                )
 
                                 plt.tight_layout()
 
                                 # Convert to image for PDF
                                 map_buffer = BytesIO()
-                                plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                plt.savefig(map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
                                 plt.close(fig)
                                 map_buffer.seek(0)
 
                                 # Add to PDF
-                                map_img = RLImage(map_buffer, width=5*inch, height=3.33*inch)
+                                map_img = RLImage(map_buffer, width=5 * inch, height=3.33 * inch)
                                 story.append(map_img)
                                 story.append(Spacer(1, 0.2 * inch))
-                                print(f"DEBUG PDF: Successfully added map overview to PDF", file=sys.stderr)
+                                print("DEBUG PDF: Successfully added map overview to PDF", file=sys.stderr)
 
                             except Exception as e:
                                 print(f"DEBUG PDF: Error creating map overview: {str(e)}", file=sys.stderr)
                                 import traceback
+
                                 traceback.print_exc(file=sys.stderr)
 
                     if len(date_invalid_data) > 0 or len(date_missing_veg) > 0:
-                        print(f"DEBUG PDF: Entered date error section, processing {len(date_invalid_data)} invalid subplots", file=sys.stderr)
+                        print(
+                            f"DEBUG PDF: Entered date error section, processing {len(date_invalid_data)} invalid subplots",
+                            file=sys.stderr,
+                        )
                         # Error type breakdown for this date
                         error_types = {}
                         for reasons in date_invalid_data["reasons"].dropna():
@@ -1465,9 +1689,15 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                         subplot_count = 0
                         max_subplots_per_date = 15  # Limit to avoid huge PDFs
 
-                        print(f"DEBUG PDF: Starting loop through {len(date_invalid_data)} invalid subplots", file=sys.stderr)
+                        print(
+                            f"DEBUG PDF: Starting loop through {len(date_invalid_data)} invalid subplots",
+                            file=sys.stderr,
+                        )
                         for idx, row in date_invalid_data.iterrows():
-                            print(f"DEBUG PDF: Processing subplot {subplot_count + 1}/{len(date_invalid_data)}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Processing subplot {subplot_count + 1}/{len(date_invalid_data)}",
+                                file=sys.stderr,
+                            )
                             subplot_count += 1
                             if subplot_count > max_subplots_per_date:
                                 # Show remaining count
@@ -1479,20 +1709,21 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     spaceBefore=10,
                                     spaceAfter=10,
                                     alignment=TA_CENTER,
-                                    fontStyle='italic',
+                                    fontStyle="italic",
                                 )
                                 remaining = len(date_invalid_data) - max_subplots_per_date
-                                story.append(Paragraph(
-                                    f"... and {remaining} more invalid subplot(s) for this date",
-                                    remaining_style
-                                ))
+                                story.append(
+                                    Paragraph(
+                                        f"... and {remaining} more invalid subplot(s) for this date", remaining_style
+                                    )
+                                )
                                 break
 
                             # Subplot header - extract subplot number from UUID
                             subplot_id_full = str(row.get("subplot_id", "N/A"))
 
                             # Extract subplot number from format: uuid:.../sub_plot[7]
-                            match = re.search(r'\[(\d+)\]', subplot_id_full)
+                            match = re.search(r"\[(\d+)\]", subplot_id_full)
                             if match:
                                 subplot_display = f"Subplot {match.group(1)}"
                             else:
@@ -1510,7 +1741,10 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             story.append(Paragraph(subplot_display, subplot_header_style))
 
                             # Create a table with polygon image on left, details on right
-                            print(f"DEBUG PDF: Attempting to create polygon for subplot {subplot_id_full}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Attempting to create polygon for subplot {subplot_id_full}",
+                                file=sys.stderr,
+                            )
 
                             # Create polygon image directly inline
                             polygon_img_rl = None
@@ -1522,52 +1756,57 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                                         fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
 
-                                        color = '#4CAF50' if is_valid else '#F44336'
+                                        color = "#4CAF50" if is_valid else "#F44336"
 
-                                        if geom.geom_type == 'Polygon':
+                                        if geom.geom_type == "Polygon":
                                             x, y = geom.exterior.xy
                                             ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                                            ax.plot(x, y, 'o', color=color, markersize=3)
-                                        elif geom.geom_type == 'MultiPolygon':
+                                            ax.plot(x, y, "o", color=color, markersize=3)
+                                        elif geom.geom_type == "MultiPolygon":
                                             for poly in geom.geoms:
                                                 x, y = poly.exterior.xy
                                                 ax.fill(x, y, color=color, alpha=0.4, edgecolor=color, linewidth=2)
-                                                ax.plot(x, y, 'o', color=color, markersize=3)
+                                                ax.plot(x, y, "o", color=color, markersize=3)
 
                                         # Add centroid
                                         centroid = geom.centroid
-                                        ax.plot(centroid.x, centroid.y, 'x', color='black', markersize=6, markeredgewidth=2)
+                                        ax.plot(
+                                            centroid.x, centroid.y, "x", color="black", markersize=6, markeredgewidth=2
+                                        )
 
-                                        ax.set_aspect('equal')
-                                        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                                        ax.set_xlabel('Longitude', fontsize=7)
-                                        ax.set_ylabel('Latitude', fontsize=7)
+                                        ax.set_aspect("equal")
+                                        ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+                                        ax.set_xlabel("Longitude", fontsize=7)
+                                        ax.set_ylabel("Latitude", fontsize=7)
                                         ax.tick_params(labelsize=6)
 
                                         # Add area info as title
                                         area_text = f"{row.get('area_m2', 0):.1f} m²"
                                         status = "INVALID" if not is_valid else "VALID"
-                                        ax.set_title(f"{area_text} - {status}", fontsize=8, fontweight='bold')
+                                        ax.set_title(f"{area_text} - {status}", fontsize=8, fontweight="bold")
 
                                         plt.tight_layout()
 
                                         # Convert to image
                                         poly_buffer = BytesIO()
-                                        plt.savefig(poly_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                                        plt.savefig(
+                                            poly_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white"
+                                        )
                                         plt.close(fig)
                                         poly_buffer.seek(0)
 
-                                        polygon_img_rl = RLImage(poly_buffer, width=2.5*inch, height=2.08*inch)
-                                        print(f"DEBUG PDF: Successfully created polygon image inline", file=sys.stderr)
+                                        polygon_img_rl = RLImage(poly_buffer, width=2.5 * inch, height=2.08 * inch)
+                                        print("DEBUG PDF: Successfully created polygon image inline", file=sys.stderr)
                                     else:
-                                        print(f"DEBUG PDF: Geometry is None or empty", file=sys.stderr)
+                                        print("DEBUG PDF: Geometry is None or empty", file=sys.stderr)
 
                                 except Exception as e:
                                     print(f"DEBUG PDF: Error creating polygon inline: {str(e)}", file=sys.stderr)
                                     import traceback
+
                                     traceback.print_exc(file=sys.stderr)
                             else:
-                                print(f"DEBUG PDF: Matplotlib not available, skipping polygon creation", file=sys.stderr)
+                                print("DEBUG PDF: Matplotlib not available, skipping polygon creation", file=sys.stderr)
 
                             # Right side: Details
                             detail_items = []
@@ -1595,7 +1834,9 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         veg_rec = subplot_veg.iloc[0]
 
                                         # Coverage vegetation
-                                        if "coverage_vegetation" in veg_rec and pd.notna(veg_rec["coverage_vegetation"]):
+                                        if "coverage_vegetation" in veg_rec and pd.notna(
+                                            veg_rec["coverage_vegetation"]
+                                        ):
                                             cov = veg_rec["coverage_vegetation"]
                                             detail_items.append(f"<b>Coverage:</b> {cov}%")
 
@@ -1622,43 +1863,46 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                             detail_items.append(f"<b>Crop:</b> {crop}")
 
                                         # Tree count if available
-                                        tree_count = len(subplot_veg[subplot_veg.get("vegetation_type_number", pd.Series()).notna()])
+                                        tree_count = len(
+                                            subplot_veg[subplot_veg.get("vegetation_type_number", pd.Series()).notna()]
+                                        )
                                         if tree_count > 0:
                                             detail_items.append(f"<b>Trees:</b> {tree_count} recorded")
 
                             # Create detail text
                             detail_text = "<br/>".join(detail_items)
-                            detail_para = Paragraph(detail_text, ParagraphStyle(
-                                "Details",
-                                parent=styles["Normal"],
-                                fontSize=9,
-                                leading=11,
-                            ))
+                            detail_para = Paragraph(
+                                detail_text,
+                                ParagraphStyle(
+                                    "Details",
+                                    parent=styles["Normal"],
+                                    fontSize=9,
+                                    leading=11,
+                                ),
+                            )
 
                             # Create 2-column table with polygon on left, details on right
                             if polygon_img_rl:
                                 detail_table = Table(
-                                    [[polygon_img_rl, detail_para]],
-                                    colWidths=[2.8*inch, 3.5*inch]
+                                    [[polygon_img_rl, detail_para]], colWidths=[2.8 * inch, 3.5 * inch]
                                 )
-                                print(f"DEBUG PDF: Added 2-column table with polygon", file=sys.stderr)
+                                print("DEBUG PDF: Added 2-column table with polygon", file=sys.stderr)
                             else:
-                                detail_table = Table(
-                                    [[detail_para]],
-                                    colWidths=[6.3*inch]
-                                )
-                                print(f"DEBUG PDF: Added 1-column table without polygon", file=sys.stderr)
+                                detail_table = Table([[detail_para]], colWidths=[6.3 * inch])
+                                print("DEBUG PDF: Added 1-column table without polygon", file=sys.stderr)
 
                             detail_table.setStyle(
-                                TableStyle([
-                                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                                    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-                                    ("TOPPADDING", (0, 0), (-1, -1), 8),
-                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                                    ("BOX", (0, 0), (-1, -1), 1, colors.grey),
-                                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
-                                ])
+                                TableStyle(
+                                    [
+                                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                                        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                                        ("BOX", (0, 0), (-1, -1), 1, colors.grey),
+                                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
+                                    ]
+                                )
                             )
 
                             story.append(detail_table)
@@ -1713,41 +1957,51 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                             missing_veg_table_data = [["Subplot ID", "Comments"]]
                             for subplot_key, comments in missing_veg_details:
                                 # Wrap long subplot IDs
-                                subplot_para = Paragraph(subplot_key, ParagraphStyle(
-                                    "SubplotID",
-                                    parent=styles["Normal"],
-                                    fontSize=8,
-                                    leading=10,
-                                    wordWrap='CJK',
-                                ))
-                                comments_para = Paragraph(comments, ParagraphStyle(
-                                    "Comments",
-                                    parent=styles["Normal"],
-                                    fontSize=9,
-                                    leading=11,
-                                ))
+                                subplot_para = Paragraph(
+                                    subplot_key,
+                                    ParagraphStyle(
+                                        "SubplotID",
+                                        parent=styles["Normal"],
+                                        fontSize=8,
+                                        leading=10,
+                                        wordWrap="CJK",
+                                    ),
+                                )
+                                comments_para = Paragraph(
+                                    comments,
+                                    ParagraphStyle(
+                                        "Comments",
+                                        parent=styles["Normal"],
+                                        fontSize=9,
+                                        leading=11,
+                                    ),
+                                )
                                 missing_veg_table_data.append([subplot_para, comments_para])
 
                             missing_veg_table = Table(missing_veg_table_data, colWidths=[2.5 * inch, 3.8 * inch])
                             missing_veg_table.setStyle(
-                                TableStyle([
-                                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
-                                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                                    ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                                    ("FONTSIZE", (0, 0), (-1, 0), 10),
-                                    ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-                                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
-                                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                                    ("FONTSIZE", (0, 1), (-1, -1), 9),
-                                    ("PADDING", (0, 1), (-1, -1), 6),
-                                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                ])
+                                TableStyle(
+                                    [
+                                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
+                                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                                        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
+                                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                                        ("FONTSIZE", (0, 1), (-1, -1), 9),
+                                        ("PADDING", (0, 1), (-1, -1), 6),
+                                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                    ]
+                                )
                             )
                             story.append(missing_veg_table)
 
                             if len(date_missing_veg) > 10:
-                                remaining_text = f"... and {len(date_missing_veg) - 10} more subplots without vegetation"
+                                remaining_text = (
+                                    f"... and {len(date_missing_veg) - 10} more subplots without vegetation"
+                                )
                                 remaining_style = ParagraphStyle(
                                     "Remaining",
                                     parent=styles["Normal"],
@@ -1759,7 +2013,10 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                     # Add measurement-based vegetation errors for this date
                     if veg_errors_data:
-                        print(f"DEBUG: Checking veg errors for date {date}, veg_errors_data keys: {veg_errors_data.keys()}", file=sys.stderr)
+                        print(
+                            f"DEBUG: Checking veg errors for date {date}, veg_errors_data keys: {veg_errors_data.keys()}",
+                            file=sys.stderr,
+                        )
                         story.append(Spacer(1, 0.3 * inch))
 
                         # Header for vegetation errors
@@ -1778,12 +2035,17 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                         # Height outliers
                         if "height_outliers" in veg_errors_data and len(veg_errors_data["height_outliers"]) > 0:
-                            print(f"DEBUG: Processing {len(veg_errors_data['height_outliers'])} height outliers for date filtering", file=sys.stderr)
+                            print(
+                                f"DEBUG: Processing {len(veg_errors_data['height_outliers'])} height outliers for date filtering",
+                                file=sys.stderr,
+                            )
                             height_df = veg_errors_data["height_outliers"]
                             if "SubmissionDate" in height_df.columns:
                                 height_df["date_only"] = pd.to_datetime(height_df["SubmissionDate"]).dt.date
                                 date_height = height_df[height_df["date_only"] == date]
-                                print(f"DEBUG: Found {len(date_height)} height outliers for date {date}", file=sys.stderr)
+                                print(
+                                    f"DEBUG: Found {len(date_height)} height outliers for date {date}", file=sys.stderr
+                                )
                                 for _, row in date_height.head(5).iterrows():
                                     error_type = "Height Outlier"
                                     details = []
@@ -1792,10 +2054,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if species_col and species_col in row:
                                         details.append(str(row[species_col]))
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # Circumference outliers
                         if "circ_outliers" in veg_errors_data and len(veg_errors_data["circ_outliers"]) > 0:
@@ -1813,10 +2081,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if species_col and species_col in row:
                                         details.append(str(row[species_col]))
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # Suspicious circumference by age
                         if "suspicious_circ" in veg_errors_data and len(veg_errors_data["suspicious_circ"]) > 0:
@@ -1834,10 +2108,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                             details.append(f"Circ: {row[col]:.1f}cm")
                                             break
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # Super Tall Trees (>25m)
                         if "super_tall_trees" in veg_errors_data and len(veg_errors_data["super_tall_trees"]) > 0:
@@ -1853,10 +2133,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if species_col and species_col in row:
                                         details.append(str(row[species_col]))
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # High Stem Counts (>20)
                         if "high_stems" in veg_errors_data and len(veg_errors_data["high_stems"]) > 0:
@@ -1872,10 +2158,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     if species_col and species_col in row:
                                         details.append(str(row[species_col]))
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # Unknown/Unidentified Species
                         if "unknown_species" in veg_errors_data and len(veg_errors_data["unknown_species"]) > 0:
@@ -1890,10 +2182,16 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         if col in row and pd.notna(row[col]):
                                             details.append(f"{col}: {row[col]}")
                                     # Add subplot comments
-                                    comments = str(row.get("subplot_comments", "")) if pd.notna(row.get("subplot_comments")) else "—"
+                                    comments = (
+                                        str(row.get("subplot_comments", ""))
+                                        if pd.notna(row.get("subplot_comments"))
+                                        else "—"
+                                    )
                                     if len(comments) > 60:
                                         comments = comments[:57] + "..."
-                                    date_veg_errors.append([error_type, " | ".join(details) if details else "—", comments])
+                                    date_veg_errors.append(
+                                        [error_type, " | ".join(details) if details else "—", comments]
+                                    )
 
                         # Display vegetation errors if any found for this date
                         print(f"DEBUG: Total date_veg_errors collected: {len(date_veg_errors)}", file=sys.stderr)
@@ -1906,7 +2204,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 parent=styles["Normal"],
                                 fontSize=8,
                                 leading=10,
-                                wordWrap='CJK',
+                                wordWrap="CJK",
                             )
 
                             # Wrap table content in Paragraph objects for text wrapping
@@ -1919,36 +2217,47 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                 ]
                                 veg_error_table_data.append(wrapped_row)
 
-                            veg_error_table = Table(veg_error_table_data, colWidths=[1.5 * inch, 2.5 * inch, 2.3 * inch])
+                            veg_error_table = Table(
+                                veg_error_table_data, colWidths=[1.5 * inch, 2.5 * inch, 2.3 * inch]
+                            )
                             veg_error_table.setStyle(
-                                TableStyle([
-                                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
-                                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                                    ("FONTSIZE", (0, 0), (-1, 0), 9),
-                                    ("PADDING", (0, 0), (-1, -1), 6),
-                                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
-                                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                                    ("FONTSIZE", (0, 1), (-1, -1), 8),
-                                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#FFF3E0"), colors.white]),
-                                ])
+                                TableStyle(
+                                    [
+                                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
+                                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                                        ("FONTSIZE", (0, 0), (-1, 0), 9),
+                                        ("PADDING", (0, 0), (-1, -1), 6),
+                                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
+                                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                                        ("FONTSIZE", (0, 1), (-1, -1), 8),
+                                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                        (
+                                            "ROWBACKGROUNDS",
+                                            (0, 1),
+                                            (-1, -1),
+                                            [colors.HexColor("#FFF3E0"), colors.white],
+                                        ),
+                                    ]
+                                )
                             )
                             story.append(veg_error_table)
 
                             if len(date_veg_errors) > 10:
                                 remaining = len(date_veg_errors) - 10
-                                story.append(Paragraph(
-                                    f"<i>... and {remaining} more vegetation error(s)</i>",
-                                    ParagraphStyle(
-                                        "VegRemaining",
-                                        parent=styles["Normal"],
-                                        fontSize=8,
-                                        textColor=colors.grey,
-                                        spaceBefore=4,
-                                        fontStyle='italic',
+                                story.append(
+                                    Paragraph(
+                                        f"<i>... and {remaining} more vegetation error(s)</i>",
+                                        ParagraphStyle(
+                                            "VegRemaining",
+                                            parent=styles["Normal"],
+                                            fontSize=8,
+                                            textColor=colors.grey,
+                                            spaceBefore=4,
+                                            fontStyle="italic",
+                                        ),
                                     )
-                                ))
+                                )
 
                     # Add spacing between dates, page break after every 2-3 dates
                     if date_idx < len(dates) - 1:
@@ -1985,17 +2294,19 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                 subplot_table = Table(subplot_details, colWidths=[1.8 * inch, 2.2 * inch, 2 * inch])
                 subplot_table.setStyle(
-                    TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D32F2F")),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("FONTSIZE", (0, 0), (-1, 0), 9),
-                        ("PADDING", (0, 0), (-1, -1), 6),
-                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFEBEE")),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ("FONTSIZE", (0, 1), (-1, -1), 8),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ])
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D32F2F")),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, 0), 9),
+                            ("PADDING", (0, 0), (-1, -1), 6),
+                            ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFEBEE")),
+                            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                            ("FONTSIZE", (0, 1), (-1, -1), 8),
+                            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ]
+                    )
                 )
 
                 story.append(subplot_table)
@@ -2003,7 +2314,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
         print(f"DEBUG PDF: Building final PDF with {len(story)} elements", file=sys.stderr)
         doc.build(story)
         buffer.seek(0)
-        print(f"DEBUG PDF: PDF generation complete, returning buffer", file=sys.stderr)
+        print("DEBUG PDF: PDF generation complete, returning buffer", file=sys.stderr)
         return buffer
 
     except ImportError:
@@ -2048,11 +2359,7 @@ def export_to_geojson(enum_data, enumerator_name):
 # ENUMERATOR SELECTION
 # ============================================
 
-enumerators = (
-    sorted(gdf_subplots["enumerator"].unique().tolist())
-    if "enumerator" in gdf_subplots.columns
-    else []
-)
+enumerators = sorted(gdf_subplots["enumerator"].unique().tolist()) if "enumerator" in gdf_subplots.columns else []
 
 if not enumerators:
     st.error("No enumerator data found in the dataset")
@@ -2169,11 +2476,7 @@ with tabs[TAB_GEOMETRY]:
 
     if len(invalid_subplots) > 0:
         # Count errors by enumerator
-        error_counts = (
-            invalid_subplots.groupby("enumerator")
-            .size()
-            .reset_index(name="Error Count")
-        )
+        error_counts = invalid_subplots.groupby("enumerator").size().reset_index(name="Error Count")
         error_counts = error_counts.sort_values("Error Count", ascending=False)
 
         col1, col2 = st.columns(2)
@@ -2212,11 +2515,7 @@ with tabs[TAB_GEOMETRY]:
 
         if error_type_data:
             error_types_df = pd.DataFrame(error_type_data)
-            error_summary = (
-                error_types_df.groupby(["Enumerator", "Error Type"])
-                .size()
-                .reset_index(name="Count")
-            )
+            error_summary = error_types_df.groupby(["Enumerator", "Error Type"]).size().reset_index(name="Count")
 
             fig = px.bar(
                 error_summary,
@@ -2254,7 +2553,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
             # Extract subplot number from subplot_id
             enum_data["subplot_number"] = enum_data["subplot_id"].apply(
-                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
             )
 
             # Convert measured_subplots to int
@@ -2263,9 +2562,7 @@ with tabs[TAB_ERROR_DETAILS]:
             )
 
             # Only include measured subplots
-            enum_data = enum_data[
-                enum_data["subplot_number"] <= enum_data["measured_subplots_int"]
-            ].copy()
+            enum_data = enum_data[enum_data["subplot_number"] <= enum_data["measured_subplots_int"]].copy()
 
             # Drop temporary columns
             enum_data = enum_data.drop(columns=["subplot_number", "measured_subplots_int"], errors="ignore")
@@ -2278,7 +2575,6 @@ with tabs[TAB_ERROR_DETAILS]:
         if has_vegetation and has_measurements and "plots_subplots_vegetation_measurements" in raw_data:
             try:
                 from utils.vegetation_validation import (
-                    detect_height_outliers,
                     detect_circumference_outliers,
                     detect_suspicious_circumference_by_age,
                 )
@@ -2299,14 +2595,14 @@ with tabs[TAB_ERROR_DETAILS]:
                     # Create temp df with subplot info
                     temp_enum = pd.DataFrame({"subplot_id": enum_subplot_keys})
                     temp_enum = temp_enum.merge(
-                        enum_data[["subplot_id", "measured_subplots"]].drop_duplicates(),
-                        on="subplot_id",
-                        how="left"
+                        enum_data[["subplot_id", "measured_subplots"]].drop_duplicates(), on="subplot_id", how="left"
                     )
 
                     # Extract subplot number from subplot_id
                     temp_enum["subplot_number"] = temp_enum["subplot_id"].apply(
-                        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                        lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                        if re.search(r"\[(\d+)\]", str(x))
+                        else 999
                     )
 
                     # Convert measured_subplots to int
@@ -2315,9 +2611,9 @@ with tabs[TAB_ERROR_DETAILS]:
                     )
 
                     # Only include measured subplots
-                    enum_subplot_keys = temp_enum[
-                        temp_enum["subplot_number"] <= temp_enum["measured_subplots"]
-                    ]["subplot_id"].unique()
+                    enum_subplot_keys = temp_enum[temp_enum["subplot_number"] <= temp_enum["measured_subplots"]][
+                        "subplot_id"
+                    ].unique()
 
                 meas_enum = meas_df[meas_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
 
@@ -2358,8 +2654,8 @@ with tabs[TAB_ERROR_DETAILS]:
 
                             # Count outliers
                             outliers = height_total[
-                                (height_total["Upper_outliers"] == "outlier") |
-                                (height_total["Lower_outliers"] == "outlier")
+                                (height_total["Upper_outliers"] == "outlier")
+                                | (height_total["Lower_outliers"] == "outlier")
                             ]
                             veg_error_count += len(outliers)
 
@@ -2375,8 +2671,8 @@ with tabs[TAB_ERROR_DETAILS]:
                             )
                             if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                 outliers = circ_check[
-                                    (circ_check.get("Upper_outliers") == "outlier") |
-                                    (circ_check.get("Lower_outliers") == "outlier")
+                                    (circ_check.get("Upper_outliers") == "outlier")
+                                    | (circ_check.get("Lower_outliers") == "outlier")
                                 ]
                                 if len(outliers) > 0:
                                     all_circ = pd.concat([all_circ, outliers]).drop_duplicates()
@@ -2415,9 +2711,7 @@ with tabs[TAB_ERROR_DETAILS]:
         # ============================================
 
         st.markdown("#### 🗺️ Subplot Locations Map")
-        st.caption(
-            "Interactive map with detailed popup information • Click subplots for details"
-        )
+        st.caption("Interactive map with detailed popup information • Click subplots for details")
 
         map_obj = create_enumerator_map(enum_data, selected_enum)
 
@@ -2473,9 +2767,7 @@ with tabs[TAB_ERROR_DETAILS]:
                 if col in invalid_data.columns:
                     display_cols.append(col)
 
-            st.dataframe(
-                invalid_data[display_cols], use_container_width=True, height=400
-            )
+            st.dataframe(invalid_data[display_cols], use_container_width=True, height=400)
         else:
             st.success(f"✅ No geometry errors for {selected_enum}")
 
@@ -2489,7 +2781,6 @@ with tabs[TAB_ERROR_DETAILS]:
         if has_vegetation and has_measurements:
             try:
                 from utils.vegetation_validation import (
-                    detect_height_outliers,
                     detect_circumference_outliers,
                     detect_suspicious_circumference_by_age,
                 )
@@ -2516,12 +2807,14 @@ with tabs[TAB_ERROR_DETAILS]:
                         temp_enum = temp_enum.merge(
                             enum_data[["subplot_id", "measured_subplots"]].drop_duplicates(),
                             on="subplot_id",
-                            how="left"
+                            how="left",
                         )
 
                         # Extract subplot number from subplot_id
                         temp_enum["subplot_number"] = temp_enum["subplot_id"].apply(
-                            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                            lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                            if re.search(r"\[(\d+)\]", str(x))
+                            else 999
                         )
 
                         # Convert measured_subplots to int
@@ -2530,9 +2823,9 @@ with tabs[TAB_ERROR_DETAILS]:
                         )
 
                         # Only include measured subplots
-                        enum_subplot_keys = temp_enum[
-                            temp_enum["subplot_number"] <= temp_enum["measured_subplots"]
-                        ]["subplot_id"].unique()
+                        enum_subplot_keys = temp_enum[temp_enum["subplot_number"] <= temp_enum["measured_subplots"]][
+                            "subplot_id"
+                        ].unique()
 
                     meas_enum = meas_df[meas_df["SUBPLOT_KEY"].isin(enum_subplot_keys)].copy()
 
@@ -2559,10 +2852,7 @@ with tabs[TAB_ERROR_DETAILS]:
                             if "subplot_comments" in veg_df.columns:
                                 veg_comments = veg_df[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
                                 meas_enum = meas_enum.merge(
-                                    veg_comments,
-                                    on="SUBPLOT_KEY",
-                                    how="left",
-                                    suffixes=("", "_veg")
+                                    veg_comments, on="SUBPLOT_KEY", how="left", suffixes=("", "_veg")
                                 )
 
                         # Merge with enumerator info
@@ -2587,28 +2877,44 @@ with tabs[TAB_ERROR_DETAILS]:
                                 # Merge and apply 4x/0.25x thresholds
                                 height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
                                 height_total["Upper_outliers"] = height_total.apply(
-                                    lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                    lambda row: "outlier"
+                                    if row["tree_height_m"] > (row["median_height"] * 4)
+                                    else "ok",
                                     axis=1,
                                 )
                                 height_total["Lower_outliers"] = height_total.apply(
-                                    lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                    lambda row: "outlier"
+                                    if row["tree_height_m"] < (row["median_height"] / 4)
+                                    else "ok",
                                     axis=1,
                                 )
 
                                 # Get outliers
                                 height_outliers_df = height_total[
-                                    (height_total["Upper_outliers"] == "outlier") |
-                                    (height_total["Lower_outliers"] == "outlier")
+                                    (height_total["Upper_outliers"] == "outlier")
+                                    | (height_total["Lower_outliers"] == "outlier")
                                 ].copy()
 
                                 # Preserve subplot_comments
-                                if "subplot_comments" in meas_enum.columns and "subplot_comments" not in height_outliers_df.columns:
-                                    if "SUBPLOT_KEY" in height_outliers_df.columns and "SUBPLOT_KEY" in meas_enum.columns:
+                                if (
+                                    "subplot_comments" in meas_enum.columns
+                                    and "subplot_comments" not in height_outliers_df.columns
+                                ):
+                                    if (
+                                        "SUBPLOT_KEY" in height_outliers_df.columns
+                                        and "SUBPLOT_KEY" in meas_enum.columns
+                                    ):
                                         comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
-                                        height_outliers_df = height_outliers_df.merge(comments_map, on="SUBPLOT_KEY", how="left")
-                                    elif "subplot_id" in height_outliers_df.columns and "subplot_id" in meas_enum.columns:
+                                        height_outliers_df = height_outliers_df.merge(
+                                            comments_map, on="SUBPLOT_KEY", how="left"
+                                        )
+                                    elif (
+                                        "subplot_id" in height_outliers_df.columns and "subplot_id" in meas_enum.columns
+                                    ):
                                         comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
-                                        height_outliers_df = height_outliers_df.merge(comments_map, on="subplot_id", how="left")
+                                        height_outliers_df = height_outliers_df.merge(
+                                            comments_map, on="subplot_id", how="left"
+                                        )
 
                         # Circumference outliers
                         circ_cols = [c for c in ["circumference_bh", "circumference_10cm"] if c in meas_enum.columns]
@@ -2622,17 +2928,24 @@ with tabs[TAB_ERROR_DETAILS]:
                                 )
                                 if "Upper_outliers" in circ_check.columns or "Lower_outliers" in circ_check.columns:
                                     outliers = circ_check[
-                                        (circ_check.get("Upper_outliers") == "outlier") |
-                                        (circ_check.get("Lower_outliers") == "outlier")
+                                        (circ_check.get("Upper_outliers") == "outlier")
+                                        | (circ_check.get("Lower_outliers") == "outlier")
                                     ]
                                     if len(outliers) > 0:
                                         # Preserve subplot_comments
-                                        if "subplot_comments" in meas_enum.columns and "subplot_comments" not in outliers.columns:
+                                        if (
+                                            "subplot_comments" in meas_enum.columns
+                                            and "subplot_comments" not in outliers.columns
+                                        ):
                                             if "SUBPLOT_KEY" in outliers.columns and "SUBPLOT_KEY" in meas_enum.columns:
-                                                comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
+                                                comments_map = meas_enum[
+                                                    ["SUBPLOT_KEY", "subplot_comments"]
+                                                ].drop_duplicates()
                                                 outliers = outliers.merge(comments_map, on="SUBPLOT_KEY", how="left")
                                             elif "subplot_id" in outliers.columns and "subplot_id" in meas_enum.columns:
-                                                comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
+                                                comments_map = meas_enum[
+                                                    ["subplot_id", "subplot_comments"]
+                                                ].drop_duplicates()
                                                 outliers = outliers.merge(comments_map, on="subplot_id", how="left")
                                         all_circ_outliers = pd.concat([all_circ_outliers, outliers]).drop_duplicates()
                             circ_outliers_df = all_circ_outliers
@@ -2645,13 +2958,30 @@ with tabs[TAB_ERROR_DETAILS]:
                                 if "flag" in susp_circ.columns:
                                     suspicious_circ_df = susp_circ[susp_circ["flag"] == True]
                                     # Preserve subplot_comments
-                                    if "subplot_comments" in meas_enum.columns and "subplot_comments" not in suspicious_circ_df.columns:
-                                        if "SUBPLOT_KEY" in suspicious_circ_df.columns and "SUBPLOT_KEY" in meas_enum.columns:
-                                            comments_map = meas_enum[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
-                                            suspicious_circ_df = suspicious_circ_df.merge(comments_map, on="SUBPLOT_KEY", how="left")
-                                        elif "subplot_id" in suspicious_circ_df.columns and "subplot_id" in meas_enum.columns:
-                                            comments_map = meas_enum[["subplot_id", "subplot_comments"]].drop_duplicates()
-                                            suspicious_circ_df = suspicious_circ_df.merge(comments_map, on="subplot_id", how="left")
+                                    if (
+                                        "subplot_comments" in meas_enum.columns
+                                        and "subplot_comments" not in suspicious_circ_df.columns
+                                    ):
+                                        if (
+                                            "SUBPLOT_KEY" in suspicious_circ_df.columns
+                                            and "SUBPLOT_KEY" in meas_enum.columns
+                                        ):
+                                            comments_map = meas_enum[
+                                                ["SUBPLOT_KEY", "subplot_comments"]
+                                            ].drop_duplicates()
+                                            suspicious_circ_df = suspicious_circ_df.merge(
+                                                comments_map, on="SUBPLOT_KEY", how="left"
+                                            )
+                                        elif (
+                                            "subplot_id" in suspicious_circ_df.columns
+                                            and "subplot_id" in meas_enum.columns
+                                        ):
+                                            comments_map = meas_enum[
+                                                ["subplot_id", "subplot_comments"]
+                                            ].drop_duplicates()
+                                            suspicious_circ_df = suspicious_circ_df.merge(
+                                                comments_map, on="subplot_id", how="left"
+                                            )
 
                     with col2:
                         st.metric("Height Outliers", len(height_outliers_df))
@@ -2664,14 +2994,15 @@ with tabs[TAB_ERROR_DETAILS]:
 
                     # Show detailed errors in expandable sections
                     if len(subplots_without_veg) > 0:
-                        with st.expander(f"❌ Missing Vegetation Records ({len(subplots_without_veg)})", expanded=False):
+                        with st.expander(
+                            f"❌ Missing Vegetation Records ({len(subplots_without_veg)})", expanded=False
+                        ):
                             st.caption("Subplots with geometry data but no vegetation records")
 
                             # Get subplot comments from plots_subplots (raw data)
-                            missing_veg_df = pd.DataFrame({
-                                "Subplot ID": subplots_without_veg,
-                                "Issue": "No vegetation data recorded"
-                            })
+                            missing_veg_df = pd.DataFrame(
+                                {"Subplot ID": subplots_without_veg, "Issue": "No vegetation data recorded"}
+                            )
 
                             # Get comments from plots_subplots raw data (this is where subplot_comments are stored)
                             if "plots_subplots" in raw_data:
@@ -2679,18 +3010,19 @@ with tabs[TAB_ERROR_DETAILS]:
                                 if "SUBPLOT_KEY" in plots_df.columns and "subplot_comments" in plots_df.columns:
                                     plots_comments = plots_df[["SUBPLOT_KEY", "subplot_comments"]].drop_duplicates()
                                     missing_veg_df = missing_veg_df.merge(
-                                        plots_comments,
-                                        left_on="Subplot ID",
-                                        right_on="SUBPLOT_KEY",
-                                        how="left"
+                                        plots_comments, left_on="Subplot ID", right_on="SUBPLOT_KEY", how="left"
                                     )
                                     # Drop the duplicate SUBPLOT_KEY column
                                     if "SUBPLOT_KEY" in missing_veg_df.columns:
                                         missing_veg_df = missing_veg_df.drop(columns=["SUBPLOT_KEY"])
                                     # Rename for display
                                     if "subplot_comments" in missing_veg_df.columns:
-                                        missing_veg_df["subplot_comments"] = missing_veg_df["subplot_comments"].fillna("—")
-                                        missing_veg_df = missing_veg_df.rename(columns={"subplot_comments": "Subplot Comments"})
+                                        missing_veg_df["subplot_comments"] = missing_veg_df["subplot_comments"].fillna(
+                                            "—"
+                                        )
+                                        missing_veg_df = missing_veg_df.rename(
+                                            columns={"subplot_comments": "Subplot Comments"}
+                                        )
 
                             # If subplot_comments column doesn't exist, add it as empty
                             if "Subplot Comments" not in missing_veg_df.columns:
@@ -2716,6 +3048,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
                             # Add outlier type
                             height_outliers_display = height_outliers_df.copy()
+
                             def get_outlier_type(row):
                                 if row.get("Upper_outliers") == "outlier":
                                     return "Too Tall"
@@ -2724,7 +3057,9 @@ with tabs[TAB_ERROR_DETAILS]:
                                 else:
                                     return "Unknown"
 
-                            height_outliers_display["Outlier_Type"] = height_outliers_display.apply(get_outlier_type, axis=1)
+                            height_outliers_display["Outlier_Type"] = height_outliers_display.apply(
+                                get_outlier_type, axis=1
+                            )
                             display_cols.append("Outlier_Type")
 
                             # Add species if available
@@ -2740,11 +3075,7 @@ with tabs[TAB_ERROR_DETAILS]:
                                 display_cols.append("SubmissionDate")
 
                             available_cols = [c for c in display_cols if c in height_outliers_display.columns]
-                            st.dataframe(
-                                height_outliers_display[available_cols],
-                                use_container_width=True,
-                                height=300
-                            )
+                            st.dataframe(height_outliers_display[available_cols], use_container_width=True, height=300)
 
                             # Export option
                             csv_height = height_outliers_display[available_cols].to_csv(index=False)
@@ -2778,7 +3109,9 @@ with tabs[TAB_ERROR_DETAILS]:
                                 else:
                                     return "Unknown"
 
-                            circ_outliers_display["Outlier_Type"] = circ_outliers_display.apply(get_circ_outlier_type, axis=1)
+                            circ_outliers_display["Outlier_Type"] = circ_outliers_display.apply(
+                                get_circ_outlier_type, axis=1
+                            )
                             display_cols.append("Outlier_Type")
 
                             # Add species if available
@@ -2794,11 +3127,7 @@ with tabs[TAB_ERROR_DETAILS]:
                                 display_cols.append("SubmissionDate")
 
                             available_cols = [c for c in display_cols if c in circ_outliers_display.columns]
-                            st.dataframe(
-                                circ_outliers_display[available_cols],
-                                use_container_width=True,
-                                height=300
-                            )
+                            st.dataframe(circ_outliers_display[available_cols], use_container_width=True, height=300)
 
                             # Export option
                             csv_circ = circ_outliers_display[available_cols].to_csv(index=False)
@@ -2810,7 +3139,9 @@ with tabs[TAB_ERROR_DETAILS]:
                             )
 
                     if len(suspicious_circ_df) > 0:
-                        with st.expander(f"⚠️ Suspicious Circumference by Age ({len(suspicious_circ_df)})", expanded=False):
+                        with st.expander(
+                            f"⚠️ Suspicious Circumference by Age ({len(suspicious_circ_df)})", expanded=False
+                        ):
                             st.caption("Trees with circumference values inconsistent with their age")
 
                             # Prepare display dataframe
@@ -2840,11 +3171,7 @@ with tabs[TAB_ERROR_DETAILS]:
                                 display_cols.append("SubmissionDate")
 
                             available_cols = [c for c in display_cols if c in suspicious_display.columns]
-                            st.dataframe(
-                                suspicious_display[available_cols],
-                                use_container_width=True,
-                                height=300
-                            )
+                            st.dataframe(suspicious_display[available_cols], use_container_width=True, height=300)
 
                             # Export option
                             csv_susp = suspicious_display[available_cols].to_csv(index=False)
@@ -2857,10 +3184,10 @@ with tabs[TAB_ERROR_DETAILS]:
 
                     # Overall summary
                     total_veg_issues = (
-                        len(subplots_without_veg) +
-                        len(height_outliers_df) +
-                        len(circ_outliers_df) +
-                        len(suspicious_circ_df)
+                        len(subplots_without_veg)
+                        + len(height_outliers_df)
+                        + len(circ_outliers_df)
+                        + len(suspicious_circ_df)
                     )
 
                     if total_veg_issues == 0:
@@ -2871,6 +3198,7 @@ with tabs[TAB_ERROR_DETAILS]:
             except Exception as e:
                 st.error(f"Error loading vegetation error details: {str(e)}")
                 import traceback
+
                 st.code(traceback.format_exc())
         else:
             st.info("Vegetation data not available in this dataset")
@@ -2890,9 +3218,7 @@ with tabs[TAB_ERROR_DETAILS]:
             st.caption("All subplot data")
 
             if len(enum_data) > 0:
-                csv_data = enum_data.drop(columns=["geometry"], errors="ignore").to_csv(
-                    index=False
-                )
+                csv_data = enum_data.drop(columns=["geometry"], errors="ignore").to_csv(index=False)
                 st.download_button(
                     "📊 Download CSV",
                     data=csv_data,
@@ -2909,9 +3235,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
             if len(enum_data) > 0:
                 try:
-                    pdf_buffer = generate_enhanced_pdf_report(
-                        enum_data, selected_enum, config.PARTNER, raw_data
-                    )
+                    pdf_buffer = generate_enhanced_pdf_report(enum_data, selected_enum, config.PARTNER, raw_data)
 
                     if pdf_buffer:
                         st.download_button(
@@ -2956,9 +3280,7 @@ with tabs[TAB_ERROR_DETAILS]:
             col1, col2 = st.columns(2)
 
             with col1:
-                csv_errors = invalid_data.drop(
-                    columns=["geometry"], errors="ignore"
-                ).to_csv(index=False)
+                csv_errors = invalid_data.drop(columns=["geometry"], errors="ignore").to_csv(index=False)
                 st.download_button(
                     "📊 Download Errors CSV",
                     data=csv_errors,

@@ -25,6 +25,7 @@ try:
         PageBreak,
         Image as RLImage,
     )
+
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -32,7 +33,8 @@ except ImportError:
 try:
     import matplotlib.pyplot as plt
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
@@ -63,10 +65,10 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.75*inch,
-        leftMargin=0.75*inch,
-        topMargin=0.75*inch,
-        bottomMargin=0.75*inch,
+        rightMargin=0.75 * inch,
+        leftMargin=0.75 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
     )
 
     # Container for PDF elements
@@ -75,53 +77,58 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
     # Custom styles
     title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
+        "CustomTitle",
+        parent=styles["Heading1"],
         fontSize=24,
-        textColor=colors.HexColor('#2E7D32'),
+        textColor=colors.HexColor("#2E7D32"),
         spaceAfter=30,
         alignment=TA_CENTER,
-        fontName='Helvetica-Bold',
+        fontName="Helvetica-Bold",
     )
 
     heading_style = ParagraphStyle(
-        'CustomHeading',
-        parent=styles['Heading2'],
+        "CustomHeading",
+        parent=styles["Heading2"],
         fontSize=16,
-        textColor=colors.HexColor('#1976D2'),
+        textColor=colors.HexColor("#1976D2"),
         spaceAfter=12,
         spaceBefore=20,
-        fontName='Helvetica-Bold',
+        fontName="Helvetica-Bold",
     )
 
     subheading_style = ParagraphStyle(
-        'CustomSubheading',
-        parent=styles['Heading3'],
+        "CustomSubheading",
+        parent=styles["Heading3"],
         fontSize=12,
-        textColor=colors.HexColor('#FF6F00'),
+        textColor=colors.HexColor("#FF6F00"),
         spaceAfter=10,
         spaceBefore=15,
-        fontName='Helvetica-Bold',
+        fontName="Helvetica-Bold",
     )
 
     normal_style = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
+        "CustomNormal",
+        parent=styles["Normal"],
         fontSize=10,
         leading=14,
     )
 
     # ============= COVER PAGE =============
-    story.append(Spacer(1, 1*inch))
-    story.append(Paragraph(f"Ground Truth Data Quality Report", title_style))
-    story.append(Paragraph(f"{partner_name}", ParagraphStyle(
-        'Partner',
-        parent=styles['Normal'],
-        fontSize=14,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor('#388E3C'),
-    )))
-    story.append(Spacer(1, 0.5*inch))
+    story.append(Spacer(1, 1 * inch))
+    story.append(Paragraph("Ground Truth Data Quality Report", title_style))
+    story.append(
+        Paragraph(
+            f"{partner_name}",
+            ParagraphStyle(
+                "Partner",
+                parent=styles["Normal"],
+                fontSize=14,
+                alignment=TA_CENTER,
+                textColor=colors.HexColor("#388E3C"),
+            ),
+        )
+    )
+    story.append(Spacer(1, 0.5 * inch))
 
     # Report date - show data submission date range
     # Get date range from session state (sidebar filter)
@@ -144,7 +151,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                     break
 
             if date_col_found:
-                submission_dates = pd.to_datetime(plots_filtered[date_col_found], errors='coerce').dropna()
+                submission_dates = pd.to_datetime(plots_filtered[date_col_found], errors="coerce").dropna()
                 if len(submission_dates) > 0:
                     min_date = submission_dates.min().strftime("%B %d, %Y")
                     max_date = submission_dates.max().strftime("%B %d, %Y")
@@ -158,26 +165,31 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         report_generated = datetime.now().strftime("%B %d, %Y")
         date_info = f"Report Generated: {report_generated}"
 
-    story.append(Paragraph(
-        date_info,
-        ParagraphStyle('Date', parent=styles['Normal'], fontSize=11, alignment=TA_CENTER, leading=14, textColor=colors.HexColor('#555555'))
-    ))
+    story.append(
+        Paragraph(
+            date_info,
+            ParagraphStyle(
+                "Date",
+                parent=styles["Normal"],
+                fontSize=11,
+                alignment=TA_CENTER,
+                leading=14,
+                textColor=colors.HexColor("#555555"),
+            ),
+        )
+    )
 
-    story.append(Spacer(1, 1*inch))
+    story.append(Spacer(1, 1 * inch))
 
     # Overall Statistics - Filter to only measured subplots
     # Filter to only measured subplots (same as app.py and Plot Issues page)
     if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
         temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
         temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
         )
-        temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
-            lambda x: int(x) if pd.notna(x) else 999
-        )
-        measured_subplot_ids = temp_df[
-            temp_df["subplot_number"] <= temp_df["measured_subplots"]
-        ]["subplot_id"].unique()
+        temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
+        measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]]["subplot_id"].unique()
         measured_gdf = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
     else:
         measured_gdf = filtered_gdf.copy()
@@ -206,27 +218,31 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     summary_data = [
         ["Metric", "Value"],
         ["Total Subplots Measured", f"{total_subplots:,}"],
-        ["Valid Subplots", f"{total_valid:,} ({total_valid/len(measured_gdf)*100:.1f}%)"],
+        ["Valid Subplots", f"{total_valid:,} ({total_valid / len(measured_gdf) * 100:.1f}%)"],
         ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)"],
         ["GT Plots", f"{unique_plots:,}"],
         ["Data Collectors", f"{unique_enumerators}"],
     ]
 
     story.append(Paragraph("📊 Executive Summary", heading_style))
-    summary_table = Table(summary_data, colWidths=[3*inch, 2.5*inch])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 11),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#E8F5E9')),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('PADDING', (0, 1), (-1, -1), 8),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#E8F5E9'), colors.white]),
-    ]))
+    summary_table = Table(summary_data, colWidths=[3 * inch, 2.5 * inch])
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E7D32")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, 0), 11),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8F5E9")),
+                ("GRID", (0, 0), (-1, -1), 1, colors.grey),
+                ("FONTSIZE", (0, 1), (-1, -1), 10),
+                ("PADDING", (0, 1), (-1, -1), 8),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#E8F5E9"), colors.white]),
+            ]
+        )
+    )
     story.append(summary_table)
 
     story.append(PageBreak())
@@ -249,11 +265,13 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
             error_counts = Counter(error_reasons)
             most_common = error_counts.most_common(1)[0]
 
-            story.append(Paragraph(
-                f"The most common issue noticed was: <b>{most_common[0]}</b> ({most_common[1]} occurrences)",
-                normal_style
-            ))
-            story.append(Spacer(1, 0.3*inch))
+            story.append(
+                Paragraph(
+                    f"The most common issue noticed was: <b>{most_common[0]}</b> ({most_common[1]} occurrences)",
+                    normal_style,
+                )
+            )
+            story.append(Spacer(1, 0.3 * inch))
 
     # Geometry errors by enumerator with GT plot count (from measured subplots only)
     if "enumerator" in measured_gdf.columns and total_invalid > 0:
@@ -266,14 +284,14 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
             if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
                 temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
                 temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                    lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                    lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
                 )
                 temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                     lambda x: int(x) if pd.notna(x) else 999
                 )
-                measured_subplot_ids = temp_df[
-                    temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
-                ]["subplot_id"].unique()
+                measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots_int"]][
+                    "subplot_id"
+                ].unique()
                 enum_data_filtered = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
             else:
                 enum_data_filtered = enum_data.copy()
@@ -292,14 +310,16 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
             invalid_recs = total_recs - valid_recs
             error_rate = (invalid_recs / total_recs * 100) if total_recs > 0 else 0
 
-            enum_stats_list.append({
-                "Enumerator": enum_name,
-                "GT Plots": enum_plot_count,
-                "Total Subplots": total_recs,
-                "Valid Subplots": valid_recs,
-                "Invalid Subplots": invalid_recs,
-                "Error Rate %": error_rate,
-            })
+            enum_stats_list.append(
+                {
+                    "Enumerator": enum_name,
+                    "GT Plots": enum_plot_count,
+                    "Total Subplots": total_recs,
+                    "Valid Subplots": valid_recs,
+                    "Invalid Subplots": invalid_recs,
+                    "Error Rate %": error_rate,
+                }
+            )
 
         enum_errors = pd.DataFrame(enum_stats_list)
         enum_errors = enum_errors.sort_values("Error Rate %", ascending=False)
@@ -307,40 +327,50 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         # Create table with GT plot count
         geom_table_data = [["Data Collector", "GT Plots", "Sub Plots", "Valid", "Invalid", "Error %"]]
         for _, row in enum_errors.head(15).iterrows():
-            geom_table_data.append([
-                str(row["Enumerator"]),
-                str(int(row["GT Plots"])),
-                str(int(row["Total Subplots"])),
-                str(int(row["Valid Subplots"])),
-                str(int(row["Invalid Subplots"])),
-                f"{row['Error Rate %']:.1f}%",
-            ])
+            geom_table_data.append(
+                [
+                    str(row["Enumerator"]),
+                    str(int(row["GT Plots"])),
+                    str(int(row["Total Subplots"])),
+                    str(int(row["Valid Subplots"])),
+                    str(int(row["Invalid Subplots"])),
+                    f"{row['Error Rate %']:.1f}%",
+                ]
+            )
 
-        geom_table = Table(geom_table_data, colWidths=[2.0*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch])
-        geom_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('PADDING', (0, 1), (-1, -1), 6),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-        ]))
+        geom_table = Table(
+            geom_table_data, colWidths=[2.0 * inch, 0.7 * inch, 0.7 * inch, 0.7 * inch, 0.7 * inch, 0.8 * inch]
+        )
+        geom_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1976D2")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 10),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTSIZE", (0, 1), (-1, -1), 9),
+                    ("PADDING", (0, 1), (-1, -1), 6),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
+                ]
+            )
+        )
         story.append(geom_table)
 
         if len(enum_errors) > 15:
-            story.append(Spacer(1, 0.1*inch))
-            story.append(Paragraph(
-                f"<i>... and {len(enum_errors) - 15} more data collectors</i>",
-                ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-            ))
+            story.append(Spacer(1, 0.1 * inch))
+            story.append(
+                Paragraph(
+                    f"<i>... and {len(enum_errors) - 15} more data collectors</i>",
+                    ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                )
+            )
 
-    story.append(Spacer(1, 0.3*inch))
+    story.append(Spacer(1, 0.3 * inch))
 
     # Detailed error breakdown
     if "reasons" in filtered_gdf.columns and total_invalid > 0 and error_reasons:
@@ -349,32 +379,38 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         error_breakdown_data = [["Error Type", "Count", "Percentage"]]
 
         for error_type, count in error_counts.most_common(10):
-            pct = (count / total_invalid * 100)
-            error_breakdown_data.append([
-                error_type,
-                str(count),
-                f"{pct:.1f}%",
-            ])
+            pct = count / total_invalid * 100
+            error_breakdown_data.append(
+                [
+                    error_type,
+                    str(count),
+                    f"{pct:.1f}%",
+                ]
+            )
 
-        error_table = Table(error_breakdown_data, colWidths=[3.5*inch, 1*inch, 1.2*inch])
-        error_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF6F00')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#FFF3E0')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('PADDING', (0, 1), (-1, -1), 6),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FFF8F0')]),
-        ]))
+        error_table = Table(error_breakdown_data, colWidths=[3.5 * inch, 1 * inch, 1.2 * inch])
+        error_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                    ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 10),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("FONTSIZE", (0, 1), (-1, -1), 9),
+                    ("PADDING", (0, 1), (-1, -1), 6),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FFF8F0")]),
+                ]
+            )
+        )
         story.append(error_table)
 
         # Add explanations for common error types
-        story.append(Spacer(1, 0.2*inch))
+        story.append(Spacer(1, 0.2 * inch))
         story.append(Paragraph("Common Error Explanations", subheading_style))
 
         explanations = {
@@ -395,16 +431,21 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
         if explanation_items:
             explanation_text = "<br/><br/>".join(explanation_items)
-            story.append(Paragraph(explanation_text, ParagraphStyle(
-                "Explanations",
-                parent=styles["Normal"],
-                fontSize=9,
-                leading=12,
-                leftIndent=10,
-            )))
+            story.append(
+                Paragraph(
+                    explanation_text,
+                    ParagraphStyle(
+                        "Explanations",
+                        parent=styles["Normal"],
+                        fontSize=9,
+                        leading=12,
+                        leftIndent=10,
+                    ),
+                )
+            )
 
     # ============= LIVING FENCES TABLE =============
-    story.append(Spacer(1, 0.3*inch))
+    story.append(Spacer(1, 0.3 * inch))
     story.append(Paragraph("🌿 Plots with Living Fences", subheading_style))
 
     # Get living fences data from raw_data
@@ -412,9 +453,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
     if veg_df is not None and len(veg_df) > 0 and "vegetation_species_type" in veg_df.columns:
         # Filter to records where vegetation_species_type is "living_fences"
-        living_fences_df = veg_df[
-            veg_df["vegetation_species_type"].astype(str).str.lower() == "living_fences"
-        ].copy()
+        living_fences_df = veg_df[veg_df["vegetation_species_type"].astype(str).str.lower() == "living_fences"].copy()
 
         if len(living_fences_df) > 0:
             # Extract PLOT_KEY from SUBPLOT_KEY (format: uuid:xxx/sub_plot[n])
@@ -424,20 +463,13 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 )
 
             # Count occurrences per plot
-            living_fences_summary = (
-                living_fences_df.groupby("PLOT_KEY")
-                .size()
-                .reset_index(name="count")
-            )
+            living_fences_summary = living_fences_df.groupby("PLOT_KEY").size().reset_index(name="count")
 
             # Sort by count descending
             living_fences_summary = living_fences_summary.sort_values("count", ascending=False)
 
-            story.append(Paragraph(
-                f"{len(living_fences_summary)} plots have living fences recorded.",
-                normal_style
-            ))
-            story.append(Spacer(1, 0.1*inch))
+            story.append(Paragraph(f"{len(living_fences_summary)} plots have living fences recorded.", normal_style))
+            story.append(Spacer(1, 0.1 * inch))
 
             # Create table data
             living_fences_table_data = [["Plot ID", "Has Living Fences", "Count"]]
@@ -447,50 +479,46 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 if len(plot_id) > 40:
                     plot_id = plot_id[:37] + "..."
 
-                living_fences_table_data.append([
-                    plot_id,
-                    "Yes",
-                    str(int(row["count"]))
-                ])
+                living_fences_table_data.append([plot_id, "Yes", str(int(row["count"]))])
 
-            living_fences_table = Table(living_fences_table_data, colWidths=[3.5*inch, 1.5*inch, 1.5*inch])
-            living_fences_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E7D32')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-                ('ALIGN', (2, 0), (2, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#E8F5E9')),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('PADDING', (0, 1), (-1, -1), 6),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F1F8E9')]),
-            ]))
+            living_fences_table = Table(living_fences_table_data, colWidths=[3.5 * inch, 1.5 * inch, 1.5 * inch])
+            living_fences_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E7D32")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                        ("ALIGN", (1, 0), (1, -1), "CENTER"),
+                        ("ALIGN", (2, 0), (2, -1), "LEFT"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8F5E9")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 8),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1F8E9")]),
+                    ]
+                )
+            )
             story.append(living_fences_table)
 
             if len(living_fences_summary) > 20:
-                story.append(Spacer(1, 0.1*inch))
-                story.append(Paragraph(
-                    f"<i>... and {len(living_fences_summary) - 20} more plots with living fences</i>",
-                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-                ))
+                story.append(Spacer(1, 0.1 * inch))
+                story.append(
+                    Paragraph(
+                        f"<i>... and {len(living_fences_summary) - 20} more plots with living fences</i>",
+                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                    )
+                )
         else:
-            story.append(Paragraph(
-                "No plots with living fences recorded in this dataset.",
-                normal_style
-            ))
+            story.append(Paragraph("No plots with living fences recorded in this dataset.", normal_style))
     else:
-        story.append(Paragraph(
-            "Living fences data not available in this dataset.",
-            normal_style
-        ))
+        story.append(Paragraph("Living fences data not available in this dataset.", normal_style))
 
     # Show individual maps grouped by GT Plot, then subplots (from measured subplots only)
     if "enumerator" in measured_gdf.columns and MATPLOTLIB_AVAILABLE:
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
         story.append(Paragraph("Maps by Data Collector and GT Plot", subheading_style))
 
         for enum_name in sorted(measured_gdf["enumerator"].unique()):
@@ -509,15 +537,23 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                     enum_data_with_veg = enum_data[enum_data["subplot_id"].isin(veg_subplot_ids)].copy()
 
                     if len(enum_data_with_veg) > 0:
-                        print(f"DEBUG PDF SUMMARY: {enum_name} - Filtered to {len(enum_data_with_veg)} subplots with vegetation data", file=sys.stderr)
+                        print(
+                            f"DEBUG PDF SUMMARY: {enum_name} - Filtered to {len(enum_data_with_veg)} subplots with vegetation data",
+                            file=sys.stderr,
+                        )
                         enum_data = enum_data_with_veg
                     else:
                         # Fallback: use measured_subplots field
-                        print(f"DEBUG PDF SUMMARY: {enum_name} - No vegetation data found, using measured_subplots field", file=sys.stderr)
+                        print(
+                            f"DEBUG PDF SUMMARY: {enum_name} - No vegetation data found, using measured_subplots field",
+                            file=sys.stderr,
+                        )
                         if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
                             temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
                             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                if re.search(r"\[(\d+)\]", str(x))
+                                else 999
                             )
                             temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                                 lambda x: int(x) if pd.notna(x) else 999
@@ -533,30 +569,46 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                 if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
                     temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
                     temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                        lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                        lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                        if re.search(r"\[(\d+)\]", str(x))
+                        else 999
                     )
                     temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                         lambda x: int(x) if pd.notna(x) else 999
                     )
-                    measured_subplot_ids = temp_df[
-                        temp_df["subplot_number"] <= temp_df["measured_subplots_int"]
-                    ]["subplot_id"].unique()
+                    measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots_int"]][
+                        "subplot_id"
+                    ].unique()
                     enum_data = enum_data[enum_data["subplot_id"].isin(measured_subplot_ids)].copy()
 
             print(f"DEBUG PDF SUMMARY: {enum_name} - AFTER filtering: {len(enum_data)} subplots", file=sys.stderr)
 
             if len(enum_data) > 0:
                 # Add enumerator header
-                story.append(Paragraph(
-                    f"<b>{enum_name}</b>",
-                    ParagraphStyle('EnumHeader', parent=styles['Heading3'], fontSize=12, textColor=colors.HexColor('#1976D2'), spaceAfter=10)
-                ))
+                story.append(
+                    Paragraph(
+                        f"<b>{enum_name}</b>",
+                        ParagraphStyle(
+                            "EnumHeader",
+                            parent=styles["Heading3"],
+                            fontSize=12,
+                            textColor=colors.HexColor("#1976D2"),
+                            spaceAfter=10,
+                        ),
+                    )
+                )
 
                 print(f"DEBUG PDF SUMMARY: {enum_name} - columns: {enum_data.columns.tolist()}", file=sys.stderr)
                 print(f"DEBUG PDF SUMMARY: PLOT_KEY in columns: {'PLOT_KEY' in enum_data.columns}", file=sys.stderr)
                 if "PLOT_KEY" in enum_data.columns:
-                    print(f"DEBUG PDF SUMMARY: {enum_name} - Number of unique GT Plots: {enum_data['PLOT_KEY'].nunique()}", file=sys.stderr)
-                    print(f"DEBUG PDF SUMMARY: {enum_name} - GT Plot keys: {enum_data['PLOT_KEY'].unique()}", file=sys.stderr)
+                    print(
+                        f"DEBUG PDF SUMMARY: {enum_name} - Number of unique GT Plots: {enum_data['PLOT_KEY'].nunique()}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        f"DEBUG PDF SUMMARY: {enum_name} - GT Plot keys: {enum_data['PLOT_KEY'].unique()}",
+                        file=sys.stderr,
+                    )
 
                 # Group by GT Plot (PLOT_KEY)
                 if "PLOT_KEY" in enum_data.columns:
@@ -564,12 +616,15 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                         plot_data = enum_data[enum_data["PLOT_KEY"] == plot_key]
 
                         # Extract plot number from PLOT_KEY
-                        plot_display = str(plot_key).split('/')[-1] if '/' in str(plot_key) else str(plot_key)
+                        plot_display = str(plot_key).split("/")[-1] if "/" in str(plot_key) else str(plot_key)
 
                         # Debug: Check measured_subplots for this plot
                         if "measured_subplots" in plot_data.columns:
                             measured_val = plot_data["measured_subplots"].iloc[0] if len(plot_data) > 0 else "N/A"
-                            print(f"DEBUG PDF SUMMARY: Plot {plot_display} - has {len(plot_data)} subplots BEFORE spatial filtering, measured_subplots={measured_val}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF SUMMARY: Plot {plot_display} - has {len(plot_data)} subplots BEFORE spatial filtering, measured_subplots={measured_val}",
+                                file=sys.stderr,
+                            )
 
                         # SPATIAL FILTER: Remove subplots that are far outside the GT plot
                         # Get the GT plot polygon if available
@@ -584,7 +639,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                                         gt_plot_geom = plot_record.iloc[0]["geometry"]
 
                             # If we have the GT plot geometry, filter subplots spatially
-                            if gt_plot_geom and hasattr(gt_plot_geom, 'is_valid') and not gt_plot_geom.is_empty:
+                            if gt_plot_geom and hasattr(gt_plot_geom, "is_valid") and not gt_plot_geom.is_empty:
                                 # Create a buffer around the GT plot (200m tolerance for GPS errors)
                                 # Convert to meters for buffering
                                 try:
@@ -598,8 +653,12 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                                     utm_crs = pyproj.CRS(f"+proj=utm +zone={utm_zone} +datum=WGS84")
                                     wgs84 = pyproj.CRS("EPSG:4326")
 
-                                    project_to_utm = pyproj.Transformer.from_crs(wgs84, utm_crs, always_xy=True).transform
-                                    project_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84, always_xy=True).transform
+                                    project_to_utm = pyproj.Transformer.from_crs(
+                                        wgs84, utm_crs, always_xy=True
+                                    ).transform
+                                    project_to_wgs84 = pyproj.Transformer.from_crs(
+                                        utm_crs, wgs84, always_xy=True
+                                    ).transform
 
                                     # Transform to UTM, buffer, transform back
                                     gt_plot_utm = transform(project_to_utm, gt_plot_geom)
@@ -610,24 +669,43 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                                     plot_data_filtered = []
                                     for idx, row in plot_data.iterrows():
                                         subplot_geom = row.get("geometry")
-                                        if subplot_geom and hasattr(subplot_geom, 'is_valid') and not subplot_geom.is_empty:
+                                        if (
+                                            subplot_geom
+                                            and hasattr(subplot_geom, "is_valid")
+                                            and not subplot_geom.is_empty
+                                        ):
                                             # Check if subplot intersects with buffered GT plot
                                             if buffered_wgs84.intersects(subplot_geom):
                                                 plot_data_filtered.append(row)
                                             else:
                                                 subplot_id = row.get("subplot_id", "unknown")
-                                                print(f"DEBUG PDF SUMMARY: Excluding subplot {subplot_id} - outside GT plot boundary", file=sys.stderr)
+                                                print(
+                                                    f"DEBUG PDF SUMMARY: Excluding subplot {subplot_id} - outside GT plot boundary",
+                                                    file=sys.stderr,
+                                                )
 
                                     if len(plot_data_filtered) > 0:
                                         plot_data = pd.DataFrame(plot_data_filtered)
-                                        print(f"DEBUG PDF SUMMARY: Plot {plot_display} - {len(plot_data)} subplots AFTER spatial filtering", file=sys.stderr)
+                                        print(
+                                            f"DEBUG PDF SUMMARY: Plot {plot_display} - {len(plot_data)} subplots AFTER spatial filtering",
+                                            file=sys.stderr,
+                                        )
                                     else:
-                                        print(f"DEBUG PDF SUMMARY: Plot {plot_display} - WARNING: All subplots filtered out by spatial check", file=sys.stderr)
+                                        print(
+                                            f"DEBUG PDF SUMMARY: Plot {plot_display} - WARNING: All subplots filtered out by spatial check",
+                                            file=sys.stderr,
+                                        )
 
                                 except Exception as e:
-                                    print(f"DEBUG PDF SUMMARY: Spatial filtering failed: {str(e)}, using all subplots", file=sys.stderr)
+                                    print(
+                                        f"DEBUG PDF SUMMARY: Spatial filtering failed: {str(e)}, using all subplots",
+                                        file=sys.stderr,
+                                    )
                             else:
-                                print(f"DEBUG PDF SUMMARY: Plot {plot_display} - No GT plot geometry available, skipping spatial filter", file=sys.stderr)
+                                print(
+                                    f"DEBUG PDF SUMMARY: Plot {plot_display} - No GT plot geometry available, skipping spatial filter",
+                                    file=sys.stderr,
+                                )
 
                         # Count stats for this plot (after spatial filtering)
                         plot_total = len(plot_data)
@@ -635,7 +713,10 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                         plot_invalid = plot_total - plot_valid
 
                         try:
-                            print(f"DEBUG PDF: Creating map for {enum_name} - Plot {plot_display} with {len(plot_data)} subplots", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Creating map for {enum_name} - Plot {plot_display} with {len(plot_data)} subplots",
+                                file=sys.stderr,
+                            )
 
                             fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
 
@@ -647,55 +728,72 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                                 if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
                                     geom = row["geometry"]
                                     is_valid = row.get("geom_valid", False)
-                                    color = '#4CAF50' if is_valid else '#F44336'
+                                    color = "#4CAF50" if is_valid else "#F44336"
                                     alpha = 0.3 if is_valid else 0.6
 
-                                    if geom.geom_type == 'Polygon':
+                                    if geom.geom_type == "Polygon":
                                         x, y = geom.exterior.xy
                                         ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
                                         polygons_plotted += 1
-                                    elif geom.geom_type == 'MultiPolygon':
+                                    elif geom.geom_type == "MultiPolygon":
                                         for poly in geom.geoms:
                                             x, y = poly.exterior.xy
                                             ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
                                             polygons_plotted += 1
 
-                            print(f"DEBUG PDF: Plotted {polygons_plotted} polygons for plot {plot_display}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Plotted {polygons_plotted} polygons for plot {plot_display}",
+                                file=sys.stderr,
+                            )
 
-                            ax.set_aspect('equal')
-                            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-                            ax.set_xlabel('Longitude', fontsize=8)
-                            ax.set_ylabel('Latitude', fontsize=8)
+                            ax.set_aspect("equal")
+                            ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+                            ax.set_xlabel("Longitude", fontsize=8)
+                            ax.set_ylabel("Latitude", fontsize=8)
+
+                            # Get submission date for this plot
+                            submission_date_str = ""
+                            if "SubmissionDate" in plot_data.columns and len(plot_data) > 0:
+                                sub_date = plot_data["SubmissionDate"].iloc[0]
+                                if pd.notna(sub_date):
+                                    try:
+                                        if isinstance(sub_date, str):
+                                            sub_date = pd.to_datetime(sub_date)
+                                        submission_date_str = f" | Date: {sub_date.strftime('%Y-%m-%d')}"
+                                    except Exception:
+                                        pass
+
                             ax.set_title(
-                                f'GT Plot: {plot_display} | Subplots: {plot_total} | Valid: {plot_valid}, Invalid: {plot_invalid}',
+                                f"GT Plot: {plot_display}{submission_date_str} | Subplots: {plot_total} | Valid: {plot_valid}, Invalid: {plot_invalid}",
                                 fontsize=9,
-                                fontweight='bold'
+                                fontweight="bold",
                             )
 
                             # Add legend
                             from matplotlib.patches import Patch
+
                             legend_elements = [
-                                Patch(facecolor='#4CAF50', alpha=0.5, label=f'Valid ({plot_valid})'),
-                                Patch(facecolor='#F44336', alpha=0.6, label=f'Invalid ({plot_invalid})'),
+                                Patch(facecolor="#4CAF50", alpha=0.5, label=f"Valid ({plot_valid})"),
+                                Patch(facecolor="#F44336", alpha=0.6, label=f"Invalid ({plot_invalid})"),
                             ]
-                            ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
+                            ax.legend(handles=legend_elements, loc="upper right", fontsize=7)
 
                             plt.tight_layout()
 
                             # Convert to image
                             map_buffer = BytesIO()
-                            plt.savefig(map_buffer, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+                            plt.savefig(map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
                             plt.close(fig)
                             map_buffer.seek(0)
 
-                            plot_img = RLImage(map_buffer, width=4.5*inch, height=3.2*inch)
+                            plot_img = RLImage(map_buffer, width=4.5 * inch, height=3.2 * inch)
                             story.append(plot_img)
-                            story.append(Spacer(1, 0.15*inch))
+                            story.append(Spacer(1, 0.15 * inch))
 
                         except Exception as e:
                             print(f"DEBUG PDF: Error creating map for plot {plot_display}: {str(e)}", file=sys.stderr)
 
-                story.append(Spacer(1, 0.2*inch))
+                story.append(Spacer(1, 0.2 * inch))
 
     story.append(PageBreak())
 
@@ -720,14 +818,19 @@ We detect measurement issues by comparing tree measurements to expected ranges a
 
 <i>Note: Median calculation methodology is based on the Rabobank script.</i>
 """
-    story.append(Paragraph(outlier_explanation, ParagraphStyle(
-        "OutlierExplanation",
-        parent=styles["Normal"],
-        fontSize=9,
-        leading=12,
-        leftIndent=10,
-        spaceAfter=15,
-    )))
+    story.append(
+        Paragraph(
+            outlier_explanation,
+            ParagraphStyle(
+                "OutlierExplanation",
+                parent=styles["Normal"],
+                fontSize=9,
+                leading=12,
+                leftIndent=10,
+                spaceAfter=15,
+            ),
+        )
+    )
 
     # Get measurement data for outlier analysis
     has_measurements = "plots_subplots_vegetation_measurements" in raw_data
@@ -754,9 +857,7 @@ We detect measurement issues by comparing tree measurements to expected ranges a
 
             if len(height_check) > 0:
                 median_check = (
-                    height_check.groupby("VEGETATION_KEY")["tree_height_m"]
-                    .median()
-                    .reset_index(name="median_height")
+                    height_check.groupby("VEGETATION_KEY")["tree_height_m"].median().reset_index(name="median_height")
                 )
                 height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
                 height_total["Upper_outliers"] = height_total.apply(
@@ -768,8 +869,7 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                     axis=1,
                 )
                 height_outliers_df = height_total[
-                    (height_total["Upper_outliers"] == "outlier") |
-                    (height_total["Lower_outliers"] == "outlier")
+                    (height_total["Upper_outliers"] == "outlier") | (height_total["Lower_outliers"] == "outlier")
                 ].copy()
 
         # Circumference Outliers
@@ -783,9 +883,7 @@ We detect measurement issues by comparing tree measurements to expected ranges a
 
                 if len(circ_check) > 0:
                     median_check = (
-                        circ_check.groupby("VEGETATION_KEY")[circ_col]
-                        .median()
-                        .reset_index(name="median_circ")
+                        circ_check.groupby("VEGETATION_KEY")[circ_col].median().reset_index(name="median_circ")
                     )
                     circ_total = pd.merge(circ_check, median_check, how="inner", on="VEGETATION_KEY")
                     circ_total["Upper_outliers"] = circ_total.apply(
@@ -797,8 +895,7 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                         axis=1,
                     )
                     outliers = circ_total[
-                        (circ_total["Upper_outliers"] == "outlier") |
-                        (circ_total["Lower_outliers"] == "outlier")
+                        (circ_total["Upper_outliers"] == "outlier") | (circ_total["Lower_outliers"] == "outlier")
                     ].copy()
                     circ_outliers_df = pd.concat([circ_outliers_df, outliers]).drop_duplicates()
 
@@ -822,30 +919,43 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             ["Total Vegetation Issues", str(total_height_outliers + total_circ_outliers + total_high_stems)],
         ]
 
-        outlier_summary_table = Table(outlier_summary_data, colWidths=[3*inch, 2*inch])
-        outlier_summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#FF6F00')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#FFF3E0')),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('PADDING', (0, 1), (-1, -1), 8),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FFF8F0')]),
-        ]))
+        outlier_summary_table = Table(outlier_summary_data, colWidths=[3 * inch, 2 * inch])
+        outlier_summary_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF6F00")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 11),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.grey),
+                    ("FONTSIZE", (0, 1), (-1, -1), 10),
+                    ("PADDING", (0, 1), (-1, -1), 8),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FFF8F0")]),
+                ]
+            )
+        )
         story.append(outlier_summary_table)
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
 
         # Height outliers details
         if total_height_outliers > 0:
             story.append(Paragraph("Height Outliers - Details", subheading_style))
-            story.append(Paragraph(
-                "<i>Ratio = Measured Height ÷ Group Median Height (e.g., 4.0x means the tree is 4 times taller than the median). Median calculated per Rabobank methodology.</i>",
-                ParagraphStyle('RatioExplanation', parent=styles['Normal'], fontSize=8, textColor=colors.grey, spaceAfter=8, leftIndent=10)
-            ))
+            story.append(
+                Paragraph(
+                    "<i>Ratio = Measured Height ÷ Group Median Height (e.g., 4.0x means the tree is 4 times taller than the median). Median calculated per Rabobank methodology.</i>",
+                    ParagraphStyle(
+                        "RatioExplanation",
+                        parent=styles["Normal"],
+                        fontSize=8,
+                        textColor=colors.grey,
+                        spaceAfter=8,
+                        leftIndent=10,
+                    ),
+                )
+            )
 
             # Debug: Print available columns
             print(f"DEBUG PDF: Height outliers columns: {height_outliers_df.columns.tolist()}", file=sys.stderr)
@@ -854,8 +964,10 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             height_details_df = height_outliers_df.copy()
             if "median_height" in height_details_df.columns and "tree_height_m" in height_details_df.columns:
                 height_details_df["ratio"] = height_details_df.apply(
-                    lambda row: row["tree_height_m"] / row["median_height"] if pd.notna(row["median_height"]) and row["median_height"] > 0 else 0,
-                    axis=1
+                    lambda row: row["tree_height_m"] / row["median_height"]
+                    if pd.notna(row["median_height"]) and row["median_height"] > 0
+                    else 0,
+                    axis=1,
                 )
 
             # Sort by ratio (most extreme outliers first)
@@ -877,57 +989,71 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                 else:
                     issue = "Outlier"
 
-                height_detail_data.append([
-                    f"{height:.1f}",
-                    f"{median:.1f}",
-                    f"{ratio:.1f}x",
-                    issue
-                ])
+                height_detail_data.append([f"{height:.1f}", f"{median:.1f}", f"{ratio:.1f}x", issue])
 
-            height_detail_table = Table(height_detail_data, colWidths=[1.4*inch, 1.4*inch, 1.4*inch, 1.5*inch])
-            height_detail_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('PADDING', (0, 1), (-1, -1), 6),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-            ]))
+            height_detail_table = Table(height_detail_data, colWidths=[1.4 * inch, 1.4 * inch, 1.4 * inch, 1.5 * inch])
+            height_detail_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1976D2")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 9),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 8),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
+                    ]
+                )
+            )
             story.append(height_detail_table)
 
             if len(height_details_df) > 15:
-                story.append(Paragraph(
-                    f"<i>Showing top 15 of {len(height_details_df)} height outliers</i>",
-                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-                ))
+                story.append(
+                    Paragraph(
+                        f"<i>Showing top 15 of {len(height_details_df)} height outliers</i>",
+                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                    )
+                )
 
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
 
         # Circumference outliers details
         if total_circ_outliers > 0:
             story.append(Paragraph("Circumference Outliers - Details", subheading_style))
-            story.append(Paragraph(
-                "<i>Ratio = Measured Circumference ÷ Group Median Circumference (e.g., 4.0x means the tree is 4 times thicker than the median). Median calculated per Rabobank methodology.</i>",
-                ParagraphStyle('RatioExplanation', parent=styles['Normal'], fontSize=8, textColor=colors.grey, spaceAfter=8, leftIndent=10)
-            ))
+            story.append(
+                Paragraph(
+                    "<i>Ratio = Measured Circumference ÷ Group Median Circumference (e.g., 4.0x means the tree is 4 times thicker than the median). Median calculated per Rabobank methodology.</i>",
+                    ParagraphStyle(
+                        "RatioExplanation",
+                        parent=styles["Normal"],
+                        fontSize=8,
+                        textColor=colors.grey,
+                        spaceAfter=8,
+                        leftIndent=10,
+                    ),
+                )
+            )
 
             # Prepare detailed outlier data
             circ_details_df = circ_outliers_df.copy()
 
             # Find circumference column
-            circ_cols = [col for col in circ_details_df.columns if "circumference" in col.lower() and col != "median_circ"]
+            circ_cols = [
+                col for col in circ_details_df.columns if "circumference" in col.lower() and col != "median_circ"
+            ]
             circ_col = circ_cols[0] if circ_cols else None
 
             if circ_col and "median_circ" in circ_details_df.columns:
                 circ_details_df["ratio"] = circ_details_df.apply(
-                    lambda row: row[circ_col] / row["median_circ"] if pd.notna(row.get("median_circ")) and row["median_circ"] > 0 else 0,
-                    axis=1
+                    lambda row: row[circ_col] / row["median_circ"]
+                    if pd.notna(row.get("median_circ")) and row["median_circ"] > 0
+                    else 0,
+                    axis=1,
                 )
 
             # Sort by ratio (most extreme outliers first)
@@ -949,37 +1075,38 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                 else:
                     issue = "Outlier"
 
-                circ_detail_data.append([
-                    f"{circ:.1f}",
-                    f"{median:.1f}",
-                    f"{ratio:.1f}x",
-                    issue
-                ])
+                circ_detail_data.append([f"{circ:.1f}", f"{median:.1f}", f"{ratio:.1f}x", issue])
 
-            circ_detail_table = Table(circ_detail_data, colWidths=[1.4*inch, 1.4*inch, 1.4*inch, 1.5*inch])
-            circ_detail_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-                ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('PADDING', (0, 1), (-1, -1), 6),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-            ]))
+            circ_detail_table = Table(circ_detail_data, colWidths=[1.4 * inch, 1.4 * inch, 1.4 * inch, 1.5 * inch])
+            circ_detail_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1976D2")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 9),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 8),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
+                    ]
+                )
+            )
             story.append(circ_detail_table)
 
             if len(circ_details_df) > 15:
-                story.append(Paragraph(
-                    f"<i>Showing top 15 of {len(circ_details_df)} circumference outliers</i>",
-                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-                ))
+                story.append(
+                    Paragraph(
+                        f"<i>Showing top 15 of {len(circ_details_df)} circumference outliers</i>",
+                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                    )
+                )
 
-        story.append(Spacer(1, 0.3*inch))
+        story.append(Spacer(1, 0.3 * inch))
 
         # High Stem Counts details
         if total_high_stems > 0:
@@ -997,39 +1124,38 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             for _, row in high_stems_details.head(15).iterrows():
                 stems = row.get("nr_stems_bh", 0)
 
-                stem_detail_data.append([
-                    f"{int(stems)}",
-                    ">20",
-                    "High stem count"
-                ])
+                stem_detail_data.append([f"{int(stems)}", ">20", "High stem count"])
 
-            stem_detail_table = Table(stem_detail_data, colWidths=[2*inch, 2*inch, 2.7*inch])
-            stem_detail_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1976D2')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('PADDING', (0, 1), (-1, -1), 6),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
-            ]))
+            stem_detail_table = Table(stem_detail_data, colWidths=[2 * inch, 2 * inch, 2.7 * inch])
+            stem_detail_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1976D2")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 9),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 8),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5F5")]),
+                    ]
+                )
+            )
             story.append(stem_detail_table)
 
             if len(high_stems_details) > 15:
-                story.append(Paragraph(
-                    f"<i>Showing top 15 of {len(high_stems_details)} high stem counts</i>",
-                    ParagraphStyle('Remaining', parent=styles['Normal'], fontSize=9, textColor=colors.grey)
-                ))
+                story.append(
+                    Paragraph(
+                        f"<i>Showing top 15 of {len(high_stems_details)} high stem counts</i>",
+                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                    )
+                )
 
     else:
-        story.append(Paragraph(
-            "Vegetation measurement data not available for outlier analysis.",
-            normal_style
-        ))
+        story.append(Paragraph("Vegetation measurement data not available for outlier analysis.", normal_style))
 
     # Build PDF
     doc.build(story)

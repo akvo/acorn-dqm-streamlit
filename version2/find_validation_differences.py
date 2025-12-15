@@ -39,12 +39,10 @@ try:
 except FileNotFoundError:
     # Try current directory
     try:
-        with open(
-            "Ground Truth Collection COMACO 2025_subplots_checks.geojson", "r"
-        ) as f:
+        with open("Ground Truth Collection COMACO 2025_subplots_checks.geojson", "r") as f:
             geojson_data = json.load(f)
     except FileNotFoundError:
-        print(f"   ❌ GeoJSON file not found!")
+        print("   ❌ GeoJSON file not found!")
         print(f"   Looking for: {geojson_path}")
         print(f"   Current dir: {os.getcwd()}")
         sys.exit(1)
@@ -77,7 +75,7 @@ for path in excel_paths:
         break
 
 if not excel_path:
-    print(f"   ❌ Excel file not found!")
+    print("   ❌ Excel file not found!")
     print(f"   Tried: {excel_paths}")
     sys.exit(1)
 
@@ -90,21 +88,16 @@ merged_data = merge_data(raw_data)
 plots_subplots = merged_data["plots_subplots"]
 
 if "gt_subplot" in plots_subplots.columns:
-    plots_subplots = add_geometry_to_subplots(
-        plots_subplots, accuracy_m=10, apply_fixes=True
-    )
+    plots_subplots = add_geometry_to_subplots(plots_subplots, accuracy_m=10, apply_fixes=True)
     merged_data["plots_subplots"] = plots_subplots
 
 # Filter by date
-plots_subplots["SubmissionDate"] = pd.to_datetime(
-    plots_subplots["SubmissionDate"]
-).dt.date
+plots_subplots["SubmissionDate"] = pd.to_datetime(plots_subplots["SubmissionDate"]).dt.date
 start_date = date(2025, 8, 11)
 end_date = date(2025, 8, 28)
 
 plots_subplots = plots_subplots[
-    (plots_subplots["SubmissionDate"] >= start_date)
-    & (plots_subplots["SubmissionDate"] <= end_date)
+    (plots_subplots["SubmissionDate"] >= start_date) & (plots_subplots["SubmissionDate"] <= end_date)
 ]
 merged_data["plots_subplots"] = plots_subplots
 
@@ -174,7 +167,7 @@ if different_subplots:
             print(f"   Notebook reasons: {diff['notebook_reasons']}")
 
         if diff["streamlit_issues"]:
-            print(f"   Streamlit issues:")
+            print("   Streamlit issues:")
             for issue in diff["streamlit_issues"][:3]:  # Show first 3 issues
                 print(f"      • [{issue.get('severity')}] {issue.get('message')}")
 
@@ -218,14 +211,10 @@ if different_subplots:
             else:
                 issue_type = "Other"
 
-            streamlit_issue_types[issue_type] = (
-                streamlit_issue_types.get(issue_type, 0) + 1
-            )
+            streamlit_issue_types[issue_type] = streamlit_issue_types.get(issue_type, 0) + 1
 
     print("\nStreamlit issue types in different subplots:")
-    for issue_type, count in sorted(
-        streamlit_issue_types.items(), key=lambda x: x[1], reverse=True
-    ):
+    for issue_type, count in sorted(streamlit_issue_types.items(), key=lambda x: x[1], reverse=True):
         print(f"  • {issue_type}: {count}")
 
 # 7. Recommendation
@@ -240,7 +229,7 @@ if len(different_subplots) <= 15:
     print("   • Minor differences in geometry processing order")
     print("   • Slight threshold differences")
     print("\n   Your Streamlit validation is working correctly!")
-    print(f"   Expected: ~1607 valid ± 10")
+    print("   Expected: ~1607 valid ± 10")
     print(f"   Actual:   {streamlit_valid} valid")
 
     if abs(streamlit_valid - 1607) <= 15:

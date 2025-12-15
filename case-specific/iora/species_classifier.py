@@ -22,34 +22,23 @@ from rapidfuzz import fuzz, process
 
 def parse_args():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Classify tree names and match against species registry"
-    )
-    parser.add_argument(
-        "--api-key",
-        required=True,
-        help="Anthropic API key for Claude"
-    )
-    parser.add_argument(
-        "--threshold",
-        type=int,
-        default=90,
-        help="Fuzzy match threshold percentage (default: 90)"
-    )
+    parser = argparse.ArgumentParser(description="Classify tree names and match against species registry")
+    parser.add_argument("--api-key", required=True, help="Anthropic API key for Claude")
+    parser.add_argument("--threshold", type=int, default=90, help="Fuzzy match threshold percentage (default: 90)")
     parser.add_argument(
         "--input-unknown",
         default="Species_list_unknown.xlsx",
-        help="Input file with unknown species (default: Species_list_unknown.xlsx)"
+        help="Input file with unknown species (default: Species_list_unknown.xlsx)",
     )
     parser.add_argument(
         "--input-registry",
         default="Species_registry.xlsx",
-        help="Input file with species registry (default: Species_registry.xlsx)"
+        help="Input file with species registry (default: Species_registry.xlsx)",
     )
     parser.add_argument(
         "--output",
         default="Unknown_Species_Analyzed.xlsx",
-        help="Output file name (default: Unknown_Species_Analyzed.xlsx)"
+        help="Output file name (default: Unknown_Species_Analyzed.xlsx)",
     )
     return parser.parse_args()
 
@@ -84,9 +73,7 @@ def extract_tree_name(issue_description: str) -> Optional[str]:
 
 
 def classify_names_batch(
-    tree_names: List[str],
-    client: Anthropic,
-    batch_size: int = 20
+    tree_names: List[str], client: Anthropic, batch_size: int = 20
 ) -> Dict[str, Tuple[bool, str, str]]:
     """
     Use Claude Haiku to classify tree names in batches.
@@ -98,7 +85,7 @@ def classify_names_batch(
 
     # Process in batches
     for i in range(0, len(tree_names), batch_size):
-        batch = tree_names[i:i + batch_size]
+        batch = tree_names[i : i + batch_size]
         batch_num = i // batch_size + 1
         total_batches = (len(tree_names) + batch_size - 1) // batch_size
 
@@ -122,9 +109,7 @@ identified=true for Species/Genus/Common, false for Unknown."""
         for attempt in range(3):  # Retry up to 3 times
             try:
                 response = client.messages.create(
-                    model="claude-3-5-haiku-20241022",
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt}]
+                    model="claude-3-5-haiku-20241022", max_tokens=4096, messages=[{"role": "user", "content": prompt}]
                 )
 
                 response_text = response.content[0].text
@@ -147,7 +132,7 @@ identified=true for Species/Genus/Common, false for Unknown."""
                 print(f"    -> Classified {len(results)} names", flush=True)
                 break  # Success, exit retry loop
 
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 if attempt < 2:
                     print(f"    -> Retry {attempt + 1}/3 (JSON parse error)", flush=True)
                     time.sleep(1)
@@ -183,12 +168,12 @@ def deduplicate_similar_names(names_df: pd.DataFrame, threshold: int = 90) -> pd
         if name1 in used:
             continue
         group = [name1]
-        for j, name2 in enumerate(names[i+1:], i+1):
+        for j, name2 in enumerate(names[i + 1 :], i + 1):
             if name2 in used:
                 continue
             # Normalize for comparison
-            n1 = name1.lower().strip().rstrip('.')
-            n2 = name2.lower().strip().rstrip('.')
+            n1 = name1.lower().strip().rstrip(".")
+            n2 = name2.lower().strip().rstrip(".")
             if fuzz.ratio(n1, n2) >= threshold:
                 group.append(name2)
                 used.add(name2)
@@ -199,7 +184,7 @@ def deduplicate_similar_names(names_df: pd.DataFrame, threshold: int = 90) -> pd
     result_rows = []
     for group in groups:
         # Sort by: has period at end, then by length (descending)
-        canonical = max(group, key=lambda x: (x.rstrip().endswith('.'), len(x)))
+        canonical = max(group, key=lambda x: (x.rstrip().endswith("."), len(x)))
         variants = [n for n in group if n != canonical]
 
         # Get the row data for canonical name
@@ -213,11 +198,7 @@ def deduplicate_similar_names(names_df: pd.DataFrame, threshold: int = 90) -> pd
     return result_df[cols].sort_values("Tree Name").reset_index(drop=True)
 
 
-def fuzzy_match(
-    tree_name: str,
-    registry_names: List[str],
-    threshold: int
-) -> Tuple[Optional[str], Optional[float]]:
+def fuzzy_match(tree_name: str, registry_names: List[str], threshold: int) -> Tuple[Optional[str], Optional[float]]:
     """
     Find the best fuzzy match for a tree name in the registry.
 
@@ -231,11 +212,7 @@ def fuzzy_match(
     normalized_name = tree_name.strip().lower()
 
     # Use rapidfuzz to find best match
-    result = process.extractOne(
-        normalized_name,
-        [n.lower() for n in registry_names],
-        scorer=fuzz.ratio
-    )
+    result = process.extractOne(normalized_name, [n.lower() for n in registry_names], scorer=fuzz.ratio)
 
     if result and result[1] >= threshold:
         # Find the original (non-lowercased) name
@@ -245,12 +222,7 @@ def fuzzy_match(
     return None, None
 
 
-def process_tree_names(
-    df: pd.DataFrame,
-    registry_names: List[str],
-    client: Anthropic,
-    threshold: int
-) -> pd.DataFrame:
+def process_tree_names(df: pd.DataFrame, registry_names: List[str], client: Anthropic, threshold: int) -> pd.DataFrame:
     """
     Process all tree names: extract, classify, and match.
     """
@@ -349,7 +321,7 @@ def print_summary(df: pd.DataFrame):
     print(f"Valid tree names extracted:  {valid_names}")
     print(f"Identified (Y):              {identified_yes}")
     print(f"Not identified (N):          {identified_no}")
-    print(f"\nBy Identification Type:")
+    print("\nBy Identification Type:")
     for id_type, count in id_types.items():
         print(f"  - {id_type}: {count}")
     print(f"\nMatched in registry (Y):     {matched_yes}")
@@ -367,9 +339,7 @@ def main():
     # Test API connection
     try:
         client.messages.create(
-            model="claude-3-5-haiku-20241022",
-            max_tokens=10,
-            messages=[{"role": "user", "content": "test"}]
+            model="claude-3-5-haiku-20241022", max_tokens=10, messages=[{"role": "user", "content": "test"}]
         )
         print("  API connection successful", flush=True)
     except Exception as e:
@@ -384,19 +354,34 @@ def main():
     df = process_tree_names(df, registry_names, client, args.threshold)
 
     # Reorder columns to put new columns after Issue Description
-    original_cols = ["Submitted Date", "Plot ID", "Subplot ID", "Data Collector Name",
-                     "Issue Type", "Issue Description", "Notes", "Clarification"]
-    new_cols = ["Tree Name", "Identified", "Identification Type", "AI Reasoning",
-                "Matched in Registry", "Registry Match", "Match Score"]
+    original_cols = [
+        "Submitted Date",
+        "Plot ID",
+        "Subplot ID",
+        "Data Collector Name",
+        "Issue Type",
+        "Issue Description",
+        "Notes",
+        "Clarification",
+    ]
+    new_cols = [
+        "Tree Name",
+        "Identified",
+        "Identification Type",
+        "AI Reasoning",
+        "Matched in Registry",
+        "Registry Match",
+        "Match Score",
+    ]
 
     # Keep only columns that exist
     final_cols = [c for c in original_cols if c in df.columns] + new_cols
     df = df[final_cols]
 
     # Create "Additional Unique Species" sheet - Identified=Y and Matched in Registry=N
-    additional_species = df[
-        (df["Identified"] == "Y") & (df["Matched in Registry"] == "N")
-    ][["Tree Name", "Identification Type", "AI Reasoning"]].drop_duplicates(subset=["Tree Name"])
+    additional_species = df[(df["Identified"] == "Y") & (df["Matched in Registry"] == "N")][
+        ["Tree Name", "Identification Type", "AI Reasoning"]
+    ].drop_duplicates(subset=["Tree Name"])
     additional_species = additional_species.sort_values("Tree Name").reset_index(drop=True)
 
     # Save output with multiple sheets

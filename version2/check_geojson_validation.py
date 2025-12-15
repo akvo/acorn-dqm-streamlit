@@ -4,7 +4,6 @@ This will confirm if 852 valid / 1648 total is correct
 """
 
 import json
-import pandas as pd
 
 print("=" * 60)
 print("GEOJSON VALIDATION CHECKER")
@@ -103,13 +102,9 @@ checks.append(
     )
 )
 
-checks.append(
-    ("Your screenshot valid (852)", valid_count == 852, f"{valid_count} == 852")
-)
+checks.append(("Your screenshot valid (852)", valid_count == 852, f"{valid_count} == 852"))
 
-checks.append(
-    ("Your screenshot invalid (796)", invalid_count == 796, f"{invalid_count} == 796")
-)
+checks.append(("Your screenshot invalid (796)", invalid_count == 796, f"{invalid_count} == 796"))
 
 all_correct = True
 for check_name, is_correct, detail in checks:

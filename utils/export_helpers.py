@@ -108,6 +108,6 @@ def adjust_excel_column_widths(worksheet, dataframe, min_width=10, max_width=50)
             # Set the column width
             worksheet.column_dimensions[column_letter].width = adjusted_width
 
-    except Exception as e:
+    except Exception:
         # Fail silently - column width adjustment is a nice-to-have
         pass

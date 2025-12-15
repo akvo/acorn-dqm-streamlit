@@ -5,7 +5,6 @@ Handles complete vegetation data from 5 Excel sheets
 
 import pandas as pd
 import geopandas as gpd
-from datetime import date
 from core import (
     GeometryFixer,
     GeometryValidator,
@@ -26,9 +25,7 @@ def read_excel_all_sheets(uploaded_file):
     """
     try:
         # Sheet 0: Plots
-        plots_df = pd.read_excel(uploaded_file, sheet_name=0).rename(
-            columns={"KEY": "PLOT_KEY"}
-        )
+        plots_df = pd.read_excel(uploaded_file, sheet_name=0).rename(columns={"KEY": "PLOT_KEY"})
 
         # Sheet 1: Subplots
         subplot_df = pd.read_excel(uploaded_file, sheet_name=1).rename(
@@ -136,9 +133,7 @@ def merge_all_data(sheets_dict):
 
     # Convert submission date if exists
     if "SubmissionDate" in m_plots.columns:
-        m_plots["SubmissionDate"] = pd.to_datetime(
-            m_plots["SubmissionDate"], format="mixed", errors="coerce"
-        ).dt.date
+        m_plots["SubmissionDate"] = pd.to_datetime(m_plots["SubmissionDate"], format="mixed", errors="coerce").dt.date
 
     merged = {"plots_subplots": m_plots}
 
@@ -174,9 +169,7 @@ def merge_all_data(sheets_dict):
 
             # Merge with circumference if available
             if circumference_df is not None:
-                m_cir = pd.merge(
-                    m_mea, circumference_df, how="left", on="MEASUREMENT_KEY", suffixes=("", "_cir")
-                )
+                m_cir = pd.merge(m_mea, circumference_df, how="left", on="MEASUREMENT_KEY", suffixes=("", "_cir"))
 
                 # Clean up duplicate KEY/PARENT_KEY columns - keep circumference version
                 if "KEY_cir" in m_cir.columns:
@@ -247,16 +240,14 @@ def process_excel_file(uploaded_file):
         file=sys.stderr,
     )
     if "enumerator" in subplots_for_validation.columns:
-        print(f"✓ enumerator in subplots_for_validation", file=sys.stderr)
+        print("✓ enumerator in subplots_for_validation", file=sys.stderr)
     else:
-        print(f"✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
+        print("✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
 
-    subplots_for_validation = subplots_for_validation.rename(
-        columns={"SUBPLOT_KEY": "subplot_id"}
-    )
+    subplots_for_validation = subplots_for_validation.rename(columns={"SUBPLOT_KEY": "subplot_id"})
 
     # Get accuracy_zero_valid from session state
-    accuracy_zero_valid = st.session_state.get('accuracy_zero_valid', True)
+    accuracy_zero_valid = st.session_state.get("accuracy_zero_valid", True)
 
     # Create geometry and extract metadata
     geom_results = subplots_for_validation.apply(
@@ -273,9 +264,7 @@ def process_excel_file(uploaded_file):
     subplots_for_validation["geometry"] = geom_results.apply(lambda x: x[0])
     subplots_for_validation["empty_geom_detail"] = geom_results.apply(lambda x: x[1].get("reason", ""))
 
-    gdf_subplots = gpd.GeoDataFrame(
-        subplots_for_validation, geometry="geometry", crs=4326
-    )
+    gdf_subplots = gpd.GeoDataFrame(subplots_for_validation, geometry="geometry", crs=4326)
 
     # Fix geometries
     geometry_fixer = GeometryFixer()
@@ -316,16 +305,12 @@ def process_excel_file(uploaded_file):
 
     if preserve_cols:
         # Merge back the preserved columns using subplot_id
-        preserve_data = subplots_for_validation[
-            ["subplot_id"] + preserve_cols
-        ].drop_duplicates()
+        preserve_data = subplots_for_validation[["subplot_id"] + preserve_cols].drop_duplicates()
 
         # Only merge if columns are missing in gdf_final
         cols_to_add = [col for col in preserve_cols if col not in gdf_final.columns]
         if cols_to_add:
-            gdf_final = gdf_final.merge(
-                preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left"
-            )
+            gdf_final = gdf_final.merge(preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left")
 
     # Process plots
     plots_for_validation = sheets["plots"].copy()
@@ -343,9 +328,7 @@ def process_excel_file(uploaded_file):
         # Split geometry and metadata
         plots_for_validation["geometry"] = geom_results_plots.apply(lambda x: x[0])
         plots_for_validation["empty_geom_detail"] = geom_results_plots.apply(lambda x: x[1].get("reason", ""))
-        gdf_plots = gpd.GeoDataFrame(
-            plots_for_validation, geometry="geometry", crs=4326
-        )
+        gdf_plots = gpd.GeoDataFrame(plots_for_validation, geometry="geometry", crs=4326)
     else:
         gdf_plots = None
 
@@ -360,9 +343,7 @@ def process_excel_file(uploaded_file):
     # Add measurement statistics if available
     if "plots_subplots_vegetation_measurements" in merged:
         try:
-            mea_stats = calculate_measurement_stats(
-                merged["plots_subplots_vegetation_measurements"]
-            )
+            mea_stats = calculate_measurement_stats(merged["plots_subplots_vegetation_measurements"])
             gdf_final = gdf_final.merge(mea_stats, on="subplot_id", how="left")
         except Exception as e:
             print(f"Warning: Could not calculate measurement stats: {str(e)}")
@@ -399,11 +380,7 @@ def calculate_vegetation_stats(m_veg):
         for col in species_cols:
             if col in m_veg.columns:
                 try:
-                    species_count = (
-                        m_veg.groupby("SUBPLOT_KEY")[col]
-                        .nunique()
-                        .reset_index(name=f"{col}_count")
-                    )
+                    species_count = m_veg.groupby("SUBPLOT_KEY")[col].nunique().reset_index(name=f"{col}_count")
                     stats = stats.merge(species_count, on="SUBPLOT_KEY", how="left")
                 except:
                     pass  # Skip if column has issues
@@ -433,8 +410,7 @@ def calculate_measurement_stats(m_mea):
 
     # Flatten column names
     stats.columns = ["SUBPLOT_KEY"] + [
-        f"{col[0]}_{col[1]}" if isinstance(col, tuple) else col
-        for col in stats.columns[1:]
+        f"{col[0]}_{col[1]}" if isinstance(col, tuple) else col for col in stats.columns[1:]
     ]
 
     # Rename for clarity
@@ -502,9 +478,7 @@ def filter_by_date(gdf, start_date, end_date):
     gdf = gdf.copy()
     gdf[date_col] = pd.to_datetime(gdf[date_col])
 
-    return gdf[
-        (gdf[date_col].dt.date >= start_date) & (gdf[date_col].dt.date <= end_date)
-    ]
+    return gdf[(gdf[date_col].dt.date >= start_date) & (gdf[date_col].dt.date <= end_date)]
 
 
 def get_missing_subplots_analysis(raw_data):
@@ -582,19 +556,14 @@ def get_species_analysis(raw_data, species_type="primary"):
 
     if species_type == "primary":
         filtered = m_veg[
-            (m_veg["vegetation_type_primary"] == "yes_primary_group")
-            & (m_veg["woody_species"] == "other")
+            (m_veg["vegetation_type_primary"] == "yes_primary_group") & (m_veg["woody_species"] == "other")
         ]
     elif species_type == "young":
         filtered = m_veg[
-            (m_veg["vegetation_type_youngtree"] == "yes_groupbelow1.3")
-            & (m_veg["woody_species"] == "other")
+            (m_veg["vegetation_type_youngtree"] == "yes_groupbelow1.3") & (m_veg["woody_species"] == "other")
         ]
     elif species_type == "non_primary":
-        filtered = m_veg[
-            (m_veg["vegetation_type_primary"] == "no")
-            & (m_veg["woody_species"] == "other")
-        ]
+        filtered = m_veg[(m_veg["vegetation_type_primary"] == "no") & (m_veg["woody_species"] == "other")]
     else:
         filtered = m_veg
 
@@ -611,9 +580,7 @@ def get_species_analysis(raw_data, species_type="primary"):
     return {
         "count": len(species_list),
         "species_df": species_list,
-        "total_trees": (
-            species_list["vegetation_type_number"].sum() if len(species_list) > 0 else 0
-        ),
+        "total_trees": (species_list["vegetation_type_number"].sum() if len(species_list) > 0 else 0),
     }
 
 
@@ -628,33 +595,20 @@ def get_height_outliers(raw_data, threshold_multiplier=4):
     m_mea = raw_data["plots_subplots_vegetation_measurements"]
 
     # Calculate median height per vegetation group
-    median_check = (
-        m_mea.groupby("VEGETATION_KEY")["tree_height_m"]
-        .median()
-        .reset_index(name="median_height")
-    )
+    median_check = m_mea.groupby("VEGETATION_KEY")["tree_height_m"].median().reset_index(name="median_height")
     height_total = pd.merge(m_mea, median_check, how="inner", on="VEGETATION_KEY")
 
     height_total["Upper_outliers"] = height_total.apply(
-        lambda row: (
-            "outlier"
-            if row["tree_height_m"] > (row["median_height"] * threshold_multiplier)
-            else "ok"
-        ),
+        lambda row: ("outlier" if row["tree_height_m"] > (row["median_height"] * threshold_multiplier) else "ok"),
         axis=1,
     )
     height_total["Lower_outliers"] = height_total.apply(
-        lambda row: (
-            "outlier"
-            if row["tree_height_m"] < (row["median_height"] / threshold_multiplier)
-            else "ok"
-        ),
+        lambda row: ("outlier" if row["tree_height_m"] < (row["median_height"] / threshold_multiplier) else "ok"),
         axis=1,
     )
 
     outliers = height_total[
-        (height_total["Upper_outliers"] == "outlier")
-        | (height_total["Lower_outliers"] == "outlier")
+        (height_total["Upper_outliers"] == "outlier") | (height_total["Lower_outliers"] == "outlier")
     ]
 
     return {
@@ -675,11 +629,7 @@ def get_circumference_outliers(raw_data, threshold_multiplier=4):
     m_cir = raw_data["complete"]
 
     # Calculate median circumference per measurement group
-    median_cir = (
-        m_cir.groupby("MEASUREMENT_KEY")["circumference_bh"]
-        .median()
-        .reset_index(name="median_cir")
-    )
+    median_cir = m_cir.groupby("MEASUREMENT_KEY")["circumference_bh"].median().reset_index(name="median_cir")
     cir_total = pd.merge(m_cir, median_cir, how="inner", on="MEASUREMENT_KEY")
 
     cir_total["Upper_outliers"] = cir_total.apply(
@@ -703,10 +653,7 @@ def get_circumference_outliers(raw_data, threshold_multiplier=4):
         axis=1,
     )
 
-    outliers = cir_total[
-        (cir_total["Upper_outliers"] == "outlier")
-        | (cir_total["Lower_outliers"] == "outlier")
-    ]
+    outliers = cir_total[(cir_total["Upper_outliers"] == "outlier") | (cir_total["Lower_outliers"] == "outlier")]
 
     return {
         "count": len(outliers),
@@ -726,8 +673,7 @@ def get_coverage_quality_check(raw_data, max_percentage=5):
     m_veg = raw_data["plots_subplots_vegetation"]
 
     coverage = m_veg[
-        (m_veg["vegetation_type_woody"] == "nonwoody_coverage")
-        | (m_veg["vegetation_type_youngtree"] == "no_coverage")
+        (m_veg["vegetation_type_woody"] == "nonwoody_coverage") | (m_veg["vegetation_type_youngtree"] == "no_coverage")
     ]
 
     enumerator_coverage = coverage[
@@ -740,9 +686,7 @@ def get_coverage_quality_check(raw_data, max_percentage=5):
         ]
     ].dropna(subset=["other_species"])
 
-    percentage_cov = (
-        (len(enumerator_coverage) / len(coverage) * 100) if len(coverage) > 0 else 0
-    )
+    percentage_cov = (len(enumerator_coverage) / len(coverage) * 100) if len(coverage) > 0 else 0
 
     return {
         "percentage": percentage_cov,
@@ -788,9 +732,7 @@ def read_json_to_sheets(json_data):
     # Parse SubmissionDate if it exists and is in string format
     if "SubmissionDate" in plots_df.columns:
         try:
-            plots_df["SubmissionDate"] = pd.to_datetime(
-                plots_df["SubmissionDate"], format="mixed", errors="coerce"
-            )
+            plots_df["SubmissionDate"] = pd.to_datetime(plots_df["SubmissionDate"], format="mixed", errors="coerce")
         except:
             pass  # Keep as is if parsing fails
 
@@ -853,9 +795,7 @@ def read_json_to_sheets(json_data):
                 subplot_num = int(match.group(1))
                 veg_num = int(match.group(2))
 
-                veg_type_num = row.get(
-                    f"vegetation_type_number_{subplot_num}_{veg_num}"
-                )
+                veg_type_num = row.get(f"vegetation_type_number_{subplot_num}_{veg_num}")
                 # Add if vegetation_type_number exists and is not null
                 if pd.notna(veg_type_num):
                     # Only mark as found if we're actually adding the record
@@ -871,63 +811,25 @@ def read_json_to_sheets(json_data):
                         "VEGETATION_KEY": veg_key,
                         "KEY": veg_key,  # Match Excel
                         "vegetation_type_number": veg_type_num,
-                        "vegetation_type_height": row.get(
-                            f"vegetation_type_height_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_woody": row.get(
-                            f"vegetation_type_woody_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_primary": row.get(
-                            f"vegetation_type_primary_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_dbh": row.get(
-                            f"vegetation_type_dbh_{subplot_num}_{veg_num}"
-                        ),
-                        "tree_year_planted": row.get(
-                            f"tree_year_planted_{subplot_num}_{veg_num}"
-                        ),
-                        "woody_species": row.get(
-                            f"woody_species_{subplot_num}_{veg_num}"
-                        ),
-                        "non_woody_species": row.get(
-                            f"non_woody_species_{subplot_num}_{veg_num}"
-                        ),
-                        "bamboo_species": row.get(
-                            f"bamboo_species_{subplot_num}_{veg_num}"
-                        ),
-                        "banana_species": row.get(
-                            f"banana_species_{subplot_num}_{veg_num}"
-                        ),
-                        "palm_species": row.get(
-                            f"palm_species_{subplot_num}_{veg_num}"
-                        ),
-                        "other_species": row.get(
-                            f"other_species_{subplot_num}_{veg_num}"
-                        ),
-                        "language_other_species": row.get(
-                            f"language_other_species_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_vegetation": row.get(
-                            f"coverage_vegetation_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_height": row.get(
-                            f"coverage_height_{subplot_num}_{veg_num}"
-                        ),
-                        "crop_prune": row.get(
-                            f"crop_prune_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_prune_height": row.get(
-                            f"coverage_prune_height_{subplot_num}_{veg_num}"
-                        ),
-                        "crop_comments": row.get(
-                            f"crop_comments_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_youngtree": row.get(
-                            f"vegetation_type_youngtree_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_species_type": row.get(
-                            f"vegetation_species_type_{subplot_num}_{veg_num}"
-                        ),
+                        "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
+                        "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
+                        "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
+                        "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
+                        "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
+                        "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
+                        "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
+                        "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
+                        "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
+                        "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
+                        "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
+                        "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
+                        "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
+                        "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
+                        "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
+                        "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
+                        "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
+                        "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
+                        "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
                     }
                     vegetation_records.append(veg_rec)
 
@@ -963,69 +865,29 @@ def read_json_to_sheets(json_data):
                         "VEGETATION_KEY": veg_key,
                         "KEY": veg_key,  # Match Excel
                         "vegetation_type_number": None,  # Coverage-only has no tree count
-                        "vegetation_type_height": row.get(
-                            f"vegetation_type_height_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_species_type": row.get(
-                            f"vegetation_species_type_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_woody": row.get(
-                            f"vegetation_type_woody_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_primary": row.get(
-                            f"vegetation_type_primary_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_dbh": row.get(
-                            f"vegetation_type_dbh_{subplot_num}_{veg_num}"
-                        ),
-                        "tree_year_planted": row.get(
-                            f"tree_year_planted_{subplot_num}_{veg_num}"
-                        ),
-                        "woody_species": row.get(
-                            f"woody_species_{subplot_num}_{veg_num}"
-                        ),
-                        "non_woody_species": row.get(
-                            f"non_woody_species_{subplot_num}_{veg_num}"
-                        ),
-                        "bamboo_species": row.get(
-                            f"bamboo_species_{subplot_num}_{veg_num}"
-                        ),
-                        "banana_species": row.get(
-                            f"banana_species_{subplot_num}_{veg_num}"
-                        ),
-                        "palm_species": row.get(
-                            f"palm_species_{subplot_num}_{veg_num}"
-                        ),
-                        "other_species": row.get(
-                            f"other_species_{subplot_num}_{veg_num}"
-                        ),
-                        "language_other_species": row.get(
-                            f"language_other_species_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_vegetation": row.get(
-                            f"coverage_vegetation_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_height": row.get(
-                            f"coverage_height_{subplot_num}_{veg_num}"
-                        ),
-                        "crop_prune": row.get(
-                            f"crop_prune_{subplot_num}_{veg_num}"
-                        ),
-                        "coverage_prune_height": row.get(
-                            f"coverage_prune_height_{subplot_num}_{veg_num}"
-                        ),
-                        "crop_comments": row.get(
-                            f"crop_comments_{subplot_num}_{veg_num}"
-                        ),
-                        "vegetation_type_youngtree": row.get(
-                            f"vegetation_type_youngtree_{subplot_num}_{veg_num}"
-                        ),
+                        "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
+                        "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
+                        "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
+                        "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
+                        "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
+                        "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
+                        "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
+                        "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
+                        "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
+                        "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
+                        "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
+                        "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
+                        "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
+                        "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
+                        "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
+                        "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
+                        "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
+                        "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
+                        "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
                     }
                     vegetation_records.append(veg_rec)
 
-    vegetation_df = (
-        pd.DataFrame(vegetation_records) if vegetation_records else pd.DataFrame()
-    )
+    vegetation_df = pd.DataFrame(vegetation_records) if vegetation_records else pd.DataFrame()
 
     # Convert numeric columns to proper types
     if len(vegetation_df) > 0:
@@ -1052,9 +914,7 @@ def read_json_to_sheets(json_data):
                 veg_num = int(match.group(2))
                 mea_num = int(match.group(3))
 
-                tree_height = row.get(
-                    f"tree_height_m_{subplot_num}_{veg_num}_{mea_num}"
-                )
+                tree_height = row.get(f"tree_height_m_{subplot_num}_{veg_num}_{mea_num}")
                 # Only add if tree_height exists and is not null
                 if pd.notna(tree_height):
                     # Match Excel format: uuid:xxx/sub_plot[1]/new_vegetation[1]/vegetation_measurements[1]
@@ -1067,37 +927,23 @@ def read_json_to_sheets(json_data):
                         "MEASUREMENT_KEY": mea_key,
                         "KEY": mea_key,  # Match Excel
                         "tree_height_m": tree_height,
-                        "tree_prune": row.get(
-                            f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
+                        "tree_prune": row.get(f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"),
                         # NOTE: API has typo "prune_heigth" instead of "prune_height"
-                        "prune_height": row.get(
-                            f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
-                        "nr_stems_bh": row.get(
-                            f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
-                        "nr_stems_10cm": row.get(
-                            f"nr_stems_10cm_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
-                        "tree_comments": row.get(
-                            f"tree_comments_{subplot_num}_{veg_num}_{mea_num}"
-                        ),
+                        "prune_height": row.get(f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"),
+                        "nr_stems_bh": row.get(f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"),
+                        "nr_stems_10cm": row.get(f"nr_stems_10cm_{subplot_num}_{veg_num}_{mea_num}"),
+                        "tree_comments": row.get(f"tree_comments_{subplot_num}_{veg_num}_{mea_num}"),
                     }
                     measurement_records.append(mea_rec)
 
-    measurement_df = (
-        pd.DataFrame(measurement_records) if measurement_records else pd.DataFrame()
-    )
+    measurement_df = pd.DataFrame(measurement_records) if measurement_records else pd.DataFrame()
 
     # Convert numeric columns to proper types
     if len(measurement_df) > 0:
         numeric_cols = ["tree_height_m", "nr_stems_bh", "nr_stems_10cm", "prune_height"]
         for col in numeric_cols:
             if col in measurement_df.columns:
-                measurement_df[col] = pd.to_numeric(
-                    measurement_df[col], errors="coerce"
-                )
+                measurement_df[col] = pd.to_numeric(measurement_df[col], errors="coerce")
 
     # Sheet 4: Circumference
     circumference_records = []
@@ -1115,12 +961,8 @@ def read_json_to_sheets(json_data):
                 mea_num = int(match.group(3))
                 cir_num = int(match.group(4))
 
-                circumference_bh = row.get(
-                    f"circumference_bh_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
-                )
-                circumference_10cm = row.get(
-                    f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
-                )
+                circumference_bh = row.get(f"circumference_bh_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
+                circumference_10cm = row.get(f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
 
                 # Only add if at least one circumference exists and is not null
                 if pd.notna(circumference_bh) or pd.notna(circumference_10cm):
@@ -1153,9 +995,7 @@ def read_json_to_sheets(json_data):
                 if (plot_key, subplot_num, veg_num, mea_num, cir_num) in circumference_keys_found:
                     continue
 
-                circumference_10cm = row.get(
-                    f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}"
-                )
+                circumference_10cm = row.get(f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
 
                 # Only add if circumference_10cm exists and is not null
                 if pd.notna(circumference_10cm):
@@ -1175,16 +1015,12 @@ def read_json_to_sheets(json_data):
                     }
                     circumference_records.append(cir_rec)
 
-    circumference_df = (
-        pd.DataFrame(circumference_records) if circumference_records else pd.DataFrame()
-    )
+    circumference_df = pd.DataFrame(circumference_records) if circumference_records else pd.DataFrame()
 
     # Convert numeric columns to proper types
     if len(circumference_df) > 0:
         if "circumference_bh" in circumference_df.columns:
-            circumference_df["circumference_bh"] = pd.to_numeric(
-                circumference_df["circumference_bh"], errors="coerce"
-            )
+            circumference_df["circumference_bh"] = pd.to_numeric(circumference_df["circumference_bh"], errors="coerce")
         if "circumference_10cm" in circumference_df.columns:
             circumference_df["circumference_10cm"] = pd.to_numeric(
                 circumference_df["circumference_10cm"], errors="coerce"
@@ -1251,16 +1087,14 @@ def process_json_data(json_data):
     # Select only existing columns
     subplots_for_validation = m_plots[cols_to_select].copy()
     if "enumerator" in subplots_for_validation.columns:
-        print(f"✓ enumerator in subplots_for_validation", file=sys.stderr)
+        print("✓ enumerator in subplots_for_validation", file=sys.stderr)
     else:
-        print(f"✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
+        print("✗ enumerator NOT in subplots_for_validation", file=sys.stderr)
 
-    subplots_for_validation = subplots_for_validation.rename(
-        columns={"SUBPLOT_KEY": "subplot_id"}
-    )
+    subplots_for_validation = subplots_for_validation.rename(columns={"SUBPLOT_KEY": "subplot_id"})
 
     # Get accuracy_zero_valid from session state
-    accuracy_zero_valid = st.session_state.get('accuracy_zero_valid', True)
+    accuracy_zero_valid = st.session_state.get("accuracy_zero_valid", True)
 
     # Create geometry and extract metadata
     geom_results = subplots_for_validation.apply(
@@ -1277,9 +1111,7 @@ def process_json_data(json_data):
     subplots_for_validation["geometry"] = geom_results.apply(lambda x: x[0])
     subplots_for_validation["empty_geom_detail"] = geom_results.apply(lambda x: x[1].get("reason", ""))
 
-    gdf_subplots = gpd.GeoDataFrame(
-        subplots_for_validation, geometry="geometry", crs=4326
-    )
+    gdf_subplots = gpd.GeoDataFrame(subplots_for_validation, geometry="geometry", crs=4326)
 
     # Fix geometries
     geometry_fixer = GeometryFixer()
@@ -1320,16 +1152,12 @@ def process_json_data(json_data):
 
     if preserve_cols:
         # Merge back the preserved columns using subplot_id
-        preserve_data = subplots_for_validation[
-            ["subplot_id"] + preserve_cols
-        ].drop_duplicates()
+        preserve_data = subplots_for_validation[["subplot_id"] + preserve_cols].drop_duplicates()
 
         # Only merge if columns are missing in gdf_final
         cols_to_add = [col for col in preserve_cols if col not in gdf_final.columns]
         if cols_to_add:
-            gdf_final = gdf_final.merge(
-                preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left"
-            )
+            gdf_final = gdf_final.merge(preserve_data[["subplot_id"] + cols_to_add], on="subplot_id", how="left")
 
     # Process plots
     plots_for_validation = sheets["plots"].copy()
@@ -1347,9 +1175,7 @@ def process_json_data(json_data):
         # Split geometry and metadata
         plots_for_validation["geometry"] = geom_results_plots.apply(lambda x: x[0])
         plots_for_validation["empty_geom_detail"] = geom_results_plots.apply(lambda x: x[1].get("reason", ""))
-        gdf_plots = gpd.GeoDataFrame(
-            plots_for_validation, geometry="geometry", crs=4326
-        )
+        gdf_plots = gpd.GeoDataFrame(plots_for_validation, geometry="geometry", crs=4326)
     else:
         gdf_plots = None
 
@@ -1364,9 +1190,7 @@ def process_json_data(json_data):
     # Add measurement statistics if available
     if "plots_subplots_vegetation_measurements" in merged:
         try:
-            mea_stats = calculate_measurement_stats(
-                merged["plots_subplots_vegetation_measurements"]
-            )
+            mea_stats = calculate_measurement_stats(merged["plots_subplots_vegetation_measurements"])
             gdf_final = gdf_final.merge(mea_stats, on="subplot_id", how="left")
         except Exception as e:
             print(f"Warning: Could not calculate measurement stats: {str(e)}")

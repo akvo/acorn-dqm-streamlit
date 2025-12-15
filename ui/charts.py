@@ -63,9 +63,7 @@ def create_enumerator_performance_chart(gdf):
     if "enumerator" not in gdf.columns or "geom_valid" not in gdf.columns:
         return None
 
-    enum_stats = (
-        gdf.groupby("enumerator").agg({"geom_valid": ["sum", "count"]}).reset_index()
-    )
+    enum_stats = gdf.groupby("enumerator").agg({"geom_valid": ["sum", "count"]}).reset_index()
 
     enum_stats.columns = ["enumerator", "valid", "total"]
     enum_stats["invalid"] = enum_stats["total"] - enum_stats["valid"]

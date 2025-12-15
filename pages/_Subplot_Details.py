@@ -13,30 +13,34 @@ from utils.data_merge_utils import (
     calculate_tree_age,
     get_species_column,
     add_tree_name_column,
+    load_species_lookup,
+    normalize_species_name,
+    detect_species_outliers,
+    detect_multivariate_outliers_dbscan,
+    detect_age_species_outliers,
 )
 from utils.vegetation_validation import (
     get_missing_subplots,
     check_unidentified_species,
-    check_coverage_only_subplots,
     get_young_trees_with_other,
     get_primary_trees_with_other,
     get_non_primary_trees_with_other,
     validate_species_lists,
     detect_stem_outliers,
-    detect_height_outliers,
-    detect_circumference_outliers,
     detect_suspicious_circumference_by_age,
-    check_tall_trees,
 )
 from utils.export_helpers import adjust_excel_column_widths
+import os
 
 # Try to import fuzzy matching library
 try:
     from rapidfuzz import fuzz, process
+
     FUZZY_AVAILABLE = True
 except ImportError:
     try:
         from fuzzywuzzy import fuzz, process
+
         FUZZY_AVAILABLE = True
     except ImportError:
         FUZZY_AVAILABLE = False
@@ -80,9 +84,7 @@ has_measurements = "plots_subplots_vegetation_measurements" in raw_data
 has_complete = "complete" in raw_data
 
 if not has_vegetation:
-    st.error(
-        "❌ Vegetation data not available. Upload complete Excel file with all 5 sheets."
-    )
+    st.error("❌ Vegetation data not available. Upload complete Excel file with all 5 sheets.")
     st.stop()
 
 st.markdown("---")
@@ -95,13 +97,9 @@ st.markdown("---")
 plots_df_all = raw_data.get("plots_subplots", pd.DataFrame())
 veg_df_all = raw_data["plots_subplots_vegetation"].copy()
 meas_df_all = (
-    raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
-    if has_measurements
-    else pd.DataFrame()
+    raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame()) if has_measurements else pd.DataFrame()
 )
-complete_df_all = (
-    raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
-)
+complete_df_all = raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
 
 # Filter data based on date/enumerator filters applied to filtered_gdf
 # Get the subplot_ids that passed the filters
@@ -207,7 +205,7 @@ fuzzy_threshold = st.sidebar.slider(
     max_value=100,
     value=90,
     step=5,
-    help="Higher values = stricter matching. 90% is recommended to catch typos and variations."
+    help="Higher values = stricter matching. 90% is recommended to catch typos and variations.",
 )
 
 
@@ -345,7 +343,7 @@ with tabs[1]:
 
         # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
         temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
-            lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+            lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
         )
 
         # Convert measured_subplots to int
@@ -354,9 +352,7 @@ with tabs[1]:
         )
 
         # Only include subplots where subplot_number <= measured_subplots
-        plots_df_measured = temp_plots[
-            temp_plots["subplot_number"] <= temp_plots["measured_subplots"]
-        ].copy()
+        plots_df_measured = temp_plots[temp_plots["subplot_number"] <= temp_plots["measured_subplots"]].copy()
 
         # Drop temporary columns
         plots_df_measured = plots_df_measured.drop(columns=["subplot_number"], errors="ignore")
@@ -417,9 +413,7 @@ with tabs[1]:
     # Check if all columns exist
     available_cols = [col for col in density_parameters if col in veg_df_actual.columns]
 
-    if (
-        len(available_cols) >= 3
-    ):  # Need at least SUBPLOT_KEY, vegetation_type_number, coverage_vegetation
+    if len(available_cols) >= 3:  # Need at least SUBPLOT_KEY, vegetation_type_number, coverage_vegetation
         # Create base with ONLY MEASURED subplots (exclude unmeasured subplots)
         # Extract subplot number from subplot_id and compare to measured_subplots
         if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
@@ -430,33 +424,25 @@ with tabs[1]:
 
             # Extract subplot number from subplot_id (e.g., "uuid.../sub_plot[12]" -> 12)
             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
             )
 
             # Convert measured_subplots to int
-            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
-                lambda x: int(x) if pd.notna(x) else 999
-            )
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
 
             # Only include subplots where subplot_number <= measured_subplots
-            measured_subplot_ids = temp_df[
-                temp_df["subplot_number"] <= temp_df["measured_subplots"]
-            ]["subplot_id"].unique()
+            measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]][
+                "subplot_id"
+            ].unique()
 
             all_subplots_df = pd.DataFrame({"SUBPLOT_KEY": measured_subplot_ids})
         else:
             # Fallback: use all subplot keys
-            all_subplot_keys = (
-                filtered_gdf["subplot_id"].unique()
-                if "subplot_id" in filtered_gdf.columns
-                else []
-            )
+            all_subplot_keys = filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
             all_subplots_df = pd.DataFrame({"SUBPLOT_KEY": all_subplot_keys})
 
         # Left join with vegetation data (keeps all 176 subplots, fills missing with NaN)
-        density = all_subplots_df.merge(
-            veg_df_actual[available_cols], on="SUBPLOT_KEY", how="left"
-        )
+        density = all_subplots_df.merge(veg_df_actual[available_cols], on="SUBPLOT_KEY", how="left")
 
         # Group by subplot
         agg_dict = {}
@@ -476,8 +462,7 @@ with tabs[1]:
         # Subplots with 0 trees - includes both coverage-only AND empty subplots
         # Must check BOTH == 0 AND isna() because pandas sum can return NaN for all-NaN groups
         subplots_zero_trees = density_df[
-            (density_df["vegetation_type_number"] == 0)
-            | (density_df["vegetation_type_number"].isna())
+            (density_df["vegetation_type_number"] == 0) | (density_df["vegetation_type_number"].isna())
         ].copy()
 
         # Distinguish between:
@@ -486,14 +471,10 @@ with tabs[1]:
         subplots_with_records = set(veg_df_actual["SUBPLOT_KEY"].unique())
 
         # Coverage-only: in veg_df_actual AND have 0/NaN trees
-        subplots_coverage = subplots_zero_trees[
-            subplots_zero_trees["SUBPLOT_KEY"].isin(subplots_with_records)
-        ].copy()
+        subplots_coverage = subplots_zero_trees[subplots_zero_trees["SUBPLOT_KEY"].isin(subplots_with_records)].copy()
 
         # Empty: NOT in veg_df_actual (no records at all)
-        subplots_empty = subplots_zero_trees[
-            ~subplots_zero_trees["SUBPLOT_KEY"].isin(subplots_with_records)
-        ].copy()
+        subplots_empty = subplots_zero_trees[~subplots_zero_trees["SUBPLOT_KEY"].isin(subplots_with_records)].copy()
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -507,9 +488,7 @@ with tabs[1]:
 
         # Show coverage-only subplots
         if len(subplots_coverage) > 0:
-            st.info(
-                f"ℹ️ {len(subplots_coverage)} subplots have coverage data but no trees"
-            )
+            st.info(f"ℹ️ {len(subplots_coverage)} subplots have coverage data but no trees")
 
             with st.expander("View coverage-only subplots"):
                 display_cols = [
@@ -527,32 +506,24 @@ with tabs[1]:
                 display_df = subplots_coverage[display_cols].copy()
                 display_df.insert(0, "#", range(1, len(display_df) + 1))
 
-                st.dataframe(
-                    display_df, use_container_width=True, height=300, hide_index=True
-                )
+                st.dataframe(display_df, use_container_width=True, height=300, hide_index=True)
 
         # Show empty subplots
         if len(subplots_empty) > 0:
-            st.warning(
-                f"⚠️ {len(subplots_empty)} subplots have NO vegetation data collected"
-            )
+            st.warning(f"⚠️ {len(subplots_empty)} subplots have NO vegetation data collected")
 
             with st.expander("View empty subplots"):
                 display_df = subplots_empty[["SUBPLOT_KEY"]].copy()
                 display_df.insert(0, "#", range(1, len(display_df) + 1))
 
-                st.dataframe(
-                    display_df, use_container_width=True, height=300, hide_index=True
-                )
+                st.dataframe(display_df, use_container_width=True, height=300, hide_index=True)
 
         # Show full density table
         with st.expander("View all subplot density data"):
             # Add row numbers
             display_df = density_df.copy()
             display_df.insert(0, "#", range(1, len(display_df) + 1))
-            st.dataframe(
-                display_df, use_container_width=True, height=400, hide_index=True
-            )
+            st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
 
     else:
         st.error("❌ Required columns not found for density analysis")
@@ -572,9 +543,11 @@ with tabs[1]:
 
         if "vegetation_type_number" in veg_df_actual.columns:
             # Coverage-only means: subplot has vegetation records but ALL have NULL vegetation_type_number
-            veg_check = veg_df_actual.groupby("SUBPLOT_KEY")["vegetation_type_number"].agg([
-                ("has_trees", lambda x: x.notna().any())
-            ]).reset_index()
+            veg_check = (
+                veg_df_actual.groupby("SUBPLOT_KEY")["vegetation_type_number"]
+                .agg([("has_trees", lambda x: x.notna().any())])
+                .reset_index()
+            )
 
             # Coverage-only = has_trees is False
             coverage_only_keys = veg_check[~veg_check["has_trees"]]["SUBPLOT_KEY"]
@@ -583,8 +556,9 @@ with tabs[1]:
             if len(coverage_only_keys) > 0:
                 coverage_only = (
                     veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(coverage_only_keys)]
-                    .drop_duplicates(subset=["SUBPLOT_KEY"])
-                    [["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]]
+                    .drop_duplicates(subset=["SUBPLOT_KEY"])[
+                        ["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]
+                    ]
                     .copy()
                 )
 
@@ -604,10 +578,7 @@ with tabs[1]:
                 veg_mea = set()
         else:
             # Fallback: Do INNER JOIN ourselves
-            if (
-                "VEGETATION_KEY" in veg_df_actual.columns
-                and "VEGETATION_KEY" in meas_df.columns
-            ):
+            if "VEGETATION_KEY" in veg_df_actual.columns and "VEGETATION_KEY" in meas_df.columns:
                 m_mea_temp = veg_df_actual.merge(
                     meas_df[["VEGETATION_KEY"]].drop_duplicates(),
                     on="VEGETATION_KEY",
@@ -626,17 +597,16 @@ with tabs[1]:
         # Get one record per missing subplot for display
         missing_veg_df = (
             veg_df_actual[veg_df_actual["SUBPLOT_KEY"].isin(missing_veg_keys)]
-            .drop_duplicates(subset=["SUBPLOT_KEY"])
-            [["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]]
+            .drop_duplicates(subset=["SUBPLOT_KEY"])[
+                ["SUBPLOT_KEY", "enumerator"] if "enumerator" in veg_df_actual.columns else ["SUBPLOT_KEY"]
+            ]
             .copy()
         )
 
         # MAIN CHECK: Coverage-only subplots that DO NOT match missing measurements
         # These are subplots marked as coverage-only but actually have measurements
         if len(coverage_only) > 0 and len(missing_veg_df) > 0:
-            veg_reverted = coverage_only[
-                ~coverage_only["SUBPLOT_KEY"].isin(missing_veg_df["SUBPLOT_KEY"])
-            ].copy()
+            veg_reverted = coverage_only[~coverage_only["SUBPLOT_KEY"].isin(missing_veg_df["SUBPLOT_KEY"])].copy()
         else:
             veg_reverted = pd.DataFrame()
 
@@ -649,10 +619,7 @@ with tabs[1]:
                 "This suggests data was changed after initial collection."
             )
 
-            display_cols = [
-                col for col in ["SUBPLOT_KEY", "enumerator"]
-                if col in veg_reverted.columns
-            ]
+            display_cols = [col for col in ["SUBPLOT_KEY", "enumerator"] if col in veg_reverted.columns]
 
             # Add row numbers
             display_df = veg_reverted[display_cols].copy()
@@ -673,9 +640,7 @@ with tabs[1]:
 
     # CHECK 4: Unknown/Unidentified Species
     st.markdown("#### 4️⃣ Unknown/Unidentified Species")
-    st.caption(
-        "Vegetation records marked as 'other' that need botanical verification and proper identification"
-    )
+    st.caption("Vegetation records marked as 'other' that need botanical verification and proper identification")
 
     # Check for unidentified species
     unknown_species = check_unidentified_species(veg_df_actual)
@@ -736,36 +701,24 @@ with tabs[1]:
 
 with tabs[3]:
     st.markdown("### 🌲 Tree Classification Quality Check")
-    st.caption(
-        "Validate primary vs young tree designation - showing 'other' species only"
-    )
+    st.caption("Validate primary vs young tree designation - showing 'other' species only")
 
     # Use RAW vegetation data like notebook does (m_veg)
     # Get tree lists using utility functions on RAW data
     # These match notebook logic exactly with string values
-    primary_trees = get_primary_trees_with_other(
-        veg_df, primary_value="yes_primary_group"
-    )
+    primary_trees = get_primary_trees_with_other(veg_df, primary_value="yes_primary_group")
     non_primary_trees = get_non_primary_trees_with_other(veg_df, non_primary_value="no")
-    young_trees_other = get_young_trees_with_other(
-        veg_df, young_tree_value="yes_groupbelow1.3"
-    )
+    young_trees_other = get_young_trees_with_other(veg_df, young_tree_value="yes_groupbelow1.3")
 
     # Merge with enumerator for display
     if len(young_trees_other) > 0:
-        young_trees_other = merge_with_enumerator(
-            young_trees_other, filtered_gdf
-        )
+        young_trees_other = merge_with_enumerator(young_trees_other, filtered_gdf)
         young_trees_other = add_tree_name_column(young_trees_other)
     if len(primary_trees) > 0:
-        primary_trees = merge_with_enumerator(
-            primary_trees, filtered_gdf
-        )
+        primary_trees = merge_with_enumerator(primary_trees, filtered_gdf)
         primary_trees = add_tree_name_column(primary_trees)
     if len(non_primary_trees) > 0:
-        non_primary_trees = merge_with_enumerator(
-            non_primary_trees, filtered_gdf
-        )
+        non_primary_trees = merge_with_enumerator(non_primary_trees, filtered_gdf)
         non_primary_trees = add_tree_name_column(non_primary_trees)
 
     # Calculate totals
@@ -805,9 +758,7 @@ with tabs[3]:
                     display_cols.append(col)
 
             if len(display_cols) > 0:
-                st.dataframe(
-                    primary_trees[display_cols], use_container_width=True, height=400
-                )
+                st.dataframe(primary_trees[display_cols], use_container_width=True, height=400)
             else:
                 st.warning("⚠️ No display columns available")
                 st.write(f"Available columns: {list(primary_trees.columns)}")
@@ -1024,7 +975,9 @@ with tabs[4]:
     st.caption(f"Finding 'other' entries that match existing species (threshold: {fuzzy_threshold}%)")
 
     if not FUZZY_AVAILABLE:
-        st.warning("⚠️ Fuzzy matching library not available. Install 'rapidfuzz' or 'fuzzywuzzy' to enable this feature.")
+        st.warning(
+            "⚠️ Fuzzy matching library not available. Install 'rapidfuzz' or 'fuzzywuzzy' to enable this feature."
+        )
         st.code("pip install rapidfuzz")
     else:
         # Load official species lists from TSV files
@@ -1053,7 +1006,9 @@ with tabs[4]:
             bamboo_file = os.path.join(species_dir, "bamboo_species.tsv")
             if os.path.exists(bamboo_file):
                 bamboo_ref = pd.read_csv(bamboo_file, sep="\t")
-                valid_species_by_type["bamboo"] = list(bamboo_ref["label"].dropna()) + list(bamboo_ref["value"].dropna())
+                valid_species_by_type["bamboo"] = list(bamboo_ref["label"].dropna()) + list(
+                    bamboo_ref["value"].dropna()
+                )
             else:
                 valid_species_by_type["bamboo"] = []
         except Exception as e:
@@ -1065,7 +1020,9 @@ with tabs[4]:
             banana_file = os.path.join(species_dir, "banana_species.tsv")
             if os.path.exists(banana_file):
                 banana_ref = pd.read_csv(banana_file, sep="\t")
-                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(banana_ref["value"].dropna())
+                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(
+                    banana_ref["value"].dropna()
+                )
             else:
                 valid_species_by_type["banana"] = []
         except Exception as e:
@@ -1077,7 +1034,9 @@ with tabs[4]:
             banana_file = os.path.join(species_dir, "banana_species.tsv")
             if os.path.exists(banana_file):
                 banana_ref = pd.read_csv(banana_file, sep="\t")
-                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(banana_ref["value"].dropna())
+                valid_species_by_type["banana"] = list(banana_ref["label"].dropna()) + list(
+                    banana_ref["value"].dropna()
+                )
             else:
                 valid_species_by_type["banana"] = []
         except Exception as e:
@@ -1090,17 +1049,27 @@ with tabs[4]:
             all_valid_species.extend(species_list)
 
         # Remove duplicates and "other" entries, filter out NaN
-        all_valid_species = sorted(list(set([
-            s for s in all_valid_species
-            if pd.notna(s) and str(s).lower() not in ['other', 'nan', 'none', '']
-            and 'other' not in str(s).lower()
-        ])))
+        all_valid_species = sorted(
+            list(
+                set(
+                    [
+                        s
+                        for s in all_valid_species
+                        if pd.notna(s)
+                        and str(s).lower() not in ["other", "nan", "none", ""]
+                        and "other" not in str(s).lower()
+                    ]
+                )
+            )
+        )
 
         if len(all_valid_species) == 0:
             st.info("ℹ️ No valid species found to match against")
         else:
             # Show reference species counts
-            st.caption(f"📚 **Reference Species Loaded:** Woody: {len(valid_species_by_type.get('woody', []))} | Bamboo: {len(valid_species_by_type.get('bamboo', []))} | Banana: {len(valid_species_by_type.get('banana', []))} | Palm: {len(valid_species_by_type.get('palm', []))} | **Total: {len(all_valid_species)}**")
+            st.caption(
+                f"📚 **Reference Species Loaded:** Woody: {len(valid_species_by_type.get('woody', []))} | Bamboo: {len(valid_species_by_type.get('bamboo', []))} | Banana: {len(valid_species_by_type.get('banana', []))} | Palm: {len(valid_species_by_type.get('palm', []))} | **Total: {len(all_valid_species)}**"
+            )
             st.markdown("")
 
             # Define species columns mapping
@@ -1108,7 +1077,7 @@ with tabs[4]:
                 "woody_species": woody,
                 "palm_species": palm,
                 "bamboo_species": bamboo,
-                "banana_species": banana
+                "banana_species": banana,
             }
 
             # Find "other" entries with their specified text
@@ -1123,36 +1092,37 @@ with tabs[4]:
 
                 if other_col in species_df.columns:
                     other_rows = species_df[
-                        (species_df[species_type].notna()) &
-                        (species_df[species_type].str.lower().str.contains("other", na=False)) &
-                        (species_df[other_col].notna())
+                        (species_df[species_type].notna())
+                        & (species_df[species_type].str.lower().str.contains("other", na=False))
+                        & (species_df[other_col].notna())
                     ].copy()
 
                     if len(other_rows) > 0:
                         for _, row in other_rows.iterrows():
                             other_text = str(row[other_col]).strip()
-                            if other_text and other_text.lower() not in ['nan', 'none', '']:
+                            if other_text and other_text.lower() not in ["nan", "none", ""]:
                                 # Find best matches using fuzzy matching
-                                matches = process.extract(
-                                    other_text,
-                                    all_valid_species,
-                                    scorer=fuzz.ratio,
-                                    limit=3
-                                )
+                                matches = process.extract(other_text, all_valid_species, scorer=fuzz.ratio, limit=3)
 
                                 # Filter by threshold
                                 good_matches = [m for m in matches if m[1] >= fuzzy_threshold]
 
                                 if good_matches:
-                                    fuzzy_matches_list.append({
-                                        "Type": species_type.replace("_species", "").title(),
-                                        "Other Text Entered": other_text,
-                                        "Best Match": good_matches[0][0],
-                                        "Match Score": f"{good_matches[0][1]}%",
-                                        "Alternative Matches": ", ".join([f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]) if len(good_matches) > 1 else "",
-                                        "Enumerator": row.get("enumerator", "N/A"),
-                                        "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A")
-                                    })
+                                    fuzzy_matches_list.append(
+                                        {
+                                            "Type": species_type.replace("_species", "").title(),
+                                            "Other Text Entered": other_text,
+                                            "Best Match": good_matches[0][0],
+                                            "Match Score": f"{good_matches[0][1]}%",
+                                            "Alternative Matches": ", ".join(
+                                                [f"{m[0]} ({m[1]}%)" for m in good_matches[1:]]
+                                            )
+                                            if len(good_matches) > 1
+                                            else "",
+                                            "Enumerator": row.get("enumerator", "N/A"),
+                                            "VEGETATION_KEY": row.get("VEGETATION_KEY", "N/A"),
+                                        }
+                                    )
 
             if len(fuzzy_matches_list) == 0:
                 st.success(f"✅ No 'other' species entries found matching threshold of {fuzzy_threshold}%")
@@ -1173,10 +1143,12 @@ with tabs[4]:
                         "Alternative Matches": st.column_config.TextColumn("Other Possible Matches", width="large"),
                         "Enumerator": st.column_config.TextColumn("Enumerator", width="small"),
                         "VEGETATION_KEY": st.column_config.TextColumn("Veg Key", width="small"),
-                    }
+                    },
                 )
 
-                st.caption("💡 **Tip:** These entries were marked as 'other' but closely match existing species. Consider updating them to use the standard species names.")
+                st.caption(
+                    "💡 **Tip:** These entries were marked as 'other' but closely match existing species. Consider updating them to use the standard species names."
+                )
 
     st.markdown("---")
 
@@ -1210,9 +1182,7 @@ with tabs[4]:
             "coverage_vegetation",
         ]
 
-        available_cols = [
-            col for col in collector_list_coverage if col in coverage.columns
-        ]
+        available_cols = [col for col in collector_list_coverage if col in coverage.columns]
         enumerator_coverage = coverage[available_cols].copy()
 
         # Drop NaN in other_species
@@ -1220,9 +1190,7 @@ with tabs[4]:
             enumerator_coverage = enumerator_coverage.dropna(subset=["other_species"])
 
         # Calculate percentage
-        percentage_cov = (
-            (len(enumerator_coverage) / len(coverage) * 100) if len(coverage) > 0 else 0
-        )
+        percentage_cov = (len(enumerator_coverage) / len(coverage) * 100) if len(coverage) > 0 else 0
 
         col1, col2, col3 = st.columns(3)
 
@@ -1241,16 +1209,12 @@ with tabs[4]:
                 st.success("✅ Within acceptable range (<5%)")
 
         if len(enumerator_coverage) > 0:
-            with st.expander(
-                f"View {len(enumerator_coverage)} 'other' species in coverage"
-            ):
+            with st.expander(f"View {len(enumerator_coverage)} 'other' species in coverage"):
                 # Add row numbers
                 display_df = enumerator_coverage.copy()
                 display_df.insert(0, "#", range(1, len(display_df) + 1))
 
-                st.dataframe(
-                    display_df, use_container_width=True, height=300, hide_index=True
-                )
+                st.dataframe(display_df, use_container_width=True, height=300, hide_index=True)
     else:
         st.info("No coverage data found")
 
@@ -1265,9 +1229,7 @@ with tabs[2]:
         st.error("❌ Measurement data not available")
         st.stop()
 
-    st.caption(
-        f"Using threshold: Stems > {stem_threshold}, Tall trees > {tall_tree_threshold}m"
-    )
+    st.caption(f"Using threshold: Stems > {stem_threshold}, Tall trees > {tall_tree_threshold}m")
 
     # CHECK 1: Super Tall Trees Check
     st.markdown(f"#### 1️⃣ Super Tall Trees (> {tall_tree_threshold}m)")
@@ -1285,9 +1247,7 @@ with tabs[2]:
 
             if len(height_check) > 0:
                 # Filter super tall trees
-                super_tall = height_check[
-                    height_check["tree_height_m"] > tall_tree_threshold
-                ].copy()
+                super_tall = height_check[height_check["tree_height_m"] > tall_tree_threshold].copy()
 
                 st.metric(f"Trees > {tall_tree_threshold}m", len(super_tall))
 
@@ -1344,9 +1304,7 @@ with tabs[2]:
 
     # CHECK 2: High stem counts
     st.markdown(f"#### 2️⃣ High Stem Counts (> {stem_threshold})")
-    st.caption(
-        "From notebook: nr_stems_bh > 20 is suspicious (should be constrained to >40?)"
-    )
+    st.caption("From notebook: nr_stems_bh > 20 is suspicious (should be constrained to >40?)")
 
     meas_with_enum = detect_stem_outliers(meas_with_enum, threshold=stem_threshold)
     high_stems = meas_with_enum[meas_with_enum["high_stems_bh"] == True]
@@ -1393,9 +1351,7 @@ with tabs[2]:
 
     # CHECK 4: Height Homogeneity within Groups
     st.markdown("#### 4️⃣ Height Homogeneity Check")
-    st.caption(
-        "Check for outliers within tree groups - important to identify pruning or coppicing practices"
-    )
+    st.caption("Check for outliers within tree groups - important to identify pruning or coppicing practices")
 
     st.info(
         """
@@ -1439,9 +1395,7 @@ with tabs[2]:
         ]
 
         # Filter to available columns
-        available_params = [
-            col for col in veg_parameters if col in m_mea_actual.columns
-        ]
+        available_params = [col for col in veg_parameters if col in m_mea_actual.columns]
 
         if "VEGETATION_KEY" in available_params and "tree_height_m" in available_params:
             height_check = m_mea_actual[available_params].copy()
@@ -1452,44 +1406,27 @@ with tabs[2]:
             if len(height_check) > 0:
                 # Calculate median height per VEGETATION_KEY (tree group)
                 median_check = (
-                    height_check.groupby("VEGETATION_KEY")["tree_height_m"]
-                    .median()
-                    .reset_index(name="median_height")
+                    height_check.groupby("VEGETATION_KEY")["tree_height_m"].median().reset_index(name="median_height")
                 )
 
                 # Merge with original data
-                height_total = pd.merge(
-                    height_check, median_check, how="inner", on="VEGETATION_KEY"
-                )
+                height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
 
                 # Apply outlier detection (4x and 1/4x median)
                 height_total["Upper_outliers"] = height_total.apply(
-                    lambda row: (
-                        "outlier"
-                        if row["tree_height_m"] > (row["median_height"] * 4)
-                        else "ok"
-                    ),
+                    lambda row: ("outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"),
                     axis=1,
                 )
                 height_total["Lower_outliers"] = height_total.apply(
-                    lambda row: (
-                        "outlier"
-                        if row["tree_height_m"] < (row["median_height"] / 4)
-                        else "ok"
-                    ),
+                    lambda row: ("outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"),
                     axis=1,
                 )
 
                 # Count outliers
-                upper_outliers = height_total[
-                    height_total["Upper_outliers"] == "outlier"
-                ]
-                lower_outliers = height_total[
-                    height_total["Lower_outliers"] == "outlier"
-                ]
+                upper_outliers = height_total[height_total["Upper_outliers"] == "outlier"]
+                lower_outliers = height_total[height_total["Lower_outliers"] == "outlier"]
                 any_outlier = height_total[
-                    (height_total["Upper_outliers"] == "outlier")
-                    | (height_total["Lower_outliers"] == "outlier")
+                    (height_total["Upper_outliers"] == "outlier") | (height_total["Lower_outliers"] == "outlier")
                 ]
 
                 col1, col2, col3 = st.columns(3)
@@ -1504,9 +1441,7 @@ with tabs[2]:
                     st.metric("Lower Outliers (<1/4x median)", len(lower_outliers))
 
                 if len(any_outlier) > 0:
-                    st.warning(
-                        f"⚠️ {len(any_outlier)} trees have height outliers within their groups"
-                    )
+                    st.warning(f"⚠️ {len(any_outlier)} trees have height outliers within their groups")
 
                     with st.expander(f"View {len(any_outlier)} height outliers"):
                         # Build display columns safely
@@ -1528,9 +1463,7 @@ with tabs[2]:
                                 display_cols.append(col)
 
                         st.dataframe(
-                            any_outlier[display_cols].sort_values(
-                                "tree_height_m", ascending=False
-                            ),
+                            any_outlier[display_cols].sort_values("tree_height_m", ascending=False),
                             use_container_width=True,
                             height=400,
                         )
@@ -1547,9 +1480,7 @@ with tabs[2]:
                         "Upper_outliers",
                         "Lower_outliers",
                     ]
-                    display_cols = [
-                        col for col in display_cols if col in height_total.columns
-                    ]
+                    display_cols = [col for col in display_cols if col in height_total.columns]
 
                     # Add row numbers
                     display_df = height_total[display_cols].copy()
@@ -1620,17 +1551,13 @@ with tabs[2]:
             if has_bh or has_10cm:
                 # Add tree age calculation
                 if "tree_year_planted" in circumference_list.columns:
-                    circumference_list = calculate_tree_age_corrected(
-                        circumference_list
-                    )
+                    circumference_list = calculate_tree_age_corrected(circumference_list)
 
                 # Calculate median circumference per MEASUREMENT_KEY
                 # Use circumference_bh for median calculation (notebook logic)
                 if has_bh and "MEASUREMENT_KEY" in circumference_list.columns:
                     # Filter to non-null BH values for median calculation
-                    bh_data = circumference_list[
-                        circumference_list["circumference_bh"].notna()
-                    ]
+                    bh_data = circumference_list[circumference_list["circumference_bh"].notna()]
                     if len(bh_data) > 0:
                         median_cir_bh = (
                             bh_data.groupby("MEASUREMENT_KEY")["circumference_bh"]
@@ -1700,23 +1627,16 @@ with tabs[2]:
 
                 # Show circumference_bh > threshold
                 if has_bh:
-                    st.markdown(
-                        f"##### 📏 Circumference at Breast Height > {threshold_bh}cm"
-                    )
+                    st.markdown(f"##### 📏 Circumference at Breast Height > {threshold_bh}cm")
 
-                    large_bh = cir_total[
-                        cir_total["circumference_bh"] > threshold_bh
-                    ].copy()
+                    large_bh = cir_total[cir_total["circumference_bh"] > threshold_bh].copy()
 
                     st.metric(f"Measurements > {threshold_bh}cm", len(large_bh))
 
                     if len(large_bh) > 0:
-
                         # Calculate tree age
                         if "tree_year_planted" in large_bh.columns:
-                            large_bh = calculate_tree_age_corrected(
-                                large_bh, "tree_year_planted"
-                            )
+                            large_bh = calculate_tree_age_corrected(large_bh, "tree_year_planted")
 
                         # Display columns
                         display_cols = [
@@ -1737,9 +1657,7 @@ with tabs[2]:
                         if "Lower_outliers" in large_bh.columns:
                             display_cols.append("Lower_outliers")
 
-                        display_cols = [
-                            col for col in display_cols if col in large_bh.columns
-                        ]
+                        display_cols = [col for col in display_cols if col in large_bh.columns]
 
                         # Add row numbers
                         display_df = large_bh[display_cols].copy()
@@ -1766,18 +1684,13 @@ with tabs[2]:
 
                 # Show circumference_10cm > threshold
                 if has_10cm:
-                    st.markdown(
-                        f"##### 📏 Circumference at 10cm Height > {threshold_10cm}cm "
-                    )
+                    st.markdown(f"##### 📏 Circumference at 10cm Height > {threshold_10cm}cm ")
 
-                    large_10cm = cir_total[
-                        cir_total["circumference_10cm"] > threshold_10cm
-                    ].copy()
+                    large_10cm = cir_total[cir_total["circumference_10cm"] > threshold_10cm].copy()
 
                     st.metric(f"Measurements > {threshold_10cm}cm", len(large_10cm))
 
                     if len(large_10cm) > 0:
-
                         # Calculate tree age
                         if "tree_year_planted" in large_10cm.columns:
                             large_10cm = calculate_tree_age_corrected(large_10cm)
@@ -1795,18 +1708,14 @@ with tabs[2]:
                         if "tree_age" in large_10cm.columns:
                             display_cols.append("tree_age")
 
-                        display_cols = [
-                            col for col in display_cols if col in large_10cm.columns
-                        ]
+                        display_cols = [col for col in display_cols if col in large_10cm.columns]
 
                         # Add row numbers
                         display_df = large_10cm[display_cols].copy()
                         display_df.insert(0, "#", range(1, len(display_df) + 1))
 
                         st.dataframe(
-                            display_df.sort_values(
-                                "circumference_10cm", ascending=False
-                            ),
+                            display_df.sort_values("circumference_10cm", ascending=False),
                             use_container_width=True,
                             height=400,
                             hide_index=True,
@@ -1822,15 +1731,614 @@ with tabs[2]:
                     else:
                         st.success(f"✅ No measurements exceed {threshold_10cm}cm")
             else:
-                st.info(
-                    "ℹ️ No circumference columns (circumference_bh or circumference_10cm) found"
-                )
+                st.info("ℹ️ No circumference columns (circumference_bh or circumference_10cm) found")
         else:
             st.info("ℹ️ Required columns not available")
     else:
         st.info(
             "ℹ️ Complete dataset with circumference not available. Make sure your Excel file has a 'circumference' sheet."
         )
+
+    st.markdown("---")
+
+    # CHECK 6: Species Measurement Statistics
+    st.markdown("#### 6️⃣ Species Measurement Statistics")
+    st.caption("Mean and median of measurements grouped by species (woody trees only)")
+
+    # Load species lookup for normalization (returns two dicts)
+    scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+
+    # Use complete_df which has circumference data, fall back to meas_with_enum
+    if has_complete and len(complete_df) > 0:
+        stats_source_df = complete_df.copy()
+    else:
+        stats_source_df = meas_with_enum.copy()
+
+    # Filter for woody vegetation only
+    if "vegetation_type_woody" in stats_source_df.columns:
+        woody_data = stats_source_df[stats_source_df["vegetation_type_woody"] == "woody"].copy()
+    else:
+        woody_data = stats_source_df.copy()
+        st.info("ℹ️ vegetation_type_woody column not found, showing all data")
+
+    if len(woody_data) > 0:
+        # Filter selector for vegetation_type_height
+        if "vegetation_type_height" in woody_data.columns:
+            height_types = ["All"] + sorted(
+                [str(x) for x in woody_data["vegetation_type_height"].dropna().unique().tolist()]
+            )
+            selected_height_type = st.selectbox(
+                "Filter by Height Type",
+                options=height_types,
+                key="species_stats_height_filter",
+            )
+
+            if selected_height_type != "All":
+                woody_data = woody_data[woody_data["vegetation_type_height"] == selected_height_type]
+
+        st.caption(f"Showing {len(woody_data)} woody tree records")
+
+        # Normalize species names (using both scientific and common name lookups)
+        woody_data["normalized_species"] = woody_data.apply(
+            lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+        )
+
+        # Calculate statistics per species
+        metrics = ["tree_height_m", "nr_stems_bh", "circumference_bh"]
+        available_metrics = [m for m in metrics if m in woody_data.columns]
+
+        if len(available_metrics) > 0:
+            # Group by normalized species and calculate stats
+            stats_list = []
+            for species in woody_data["normalized_species"].unique():
+                species_data = woody_data[woody_data["normalized_species"] == species]
+                row_data = {"Species": species, "Count": len(species_data)}
+
+                for metric in available_metrics:
+                    metric_data = species_data[metric].dropna()
+                    if len(metric_data) > 0:
+                        row_data[f"{metric}_mean"] = round(metric_data.mean(), 2)
+                        row_data[f"{metric}_median"] = round(metric_data.median(), 2)
+                    else:
+                        row_data[f"{metric}_mean"] = None
+                        row_data[f"{metric}_median"] = None
+
+                stats_list.append(row_data)
+
+            stats_df = pd.DataFrame(stats_list).sort_values("Count", ascending=False).reset_index(drop=True)
+
+            # Rename columns for better display
+            column_rename = {
+                "tree_height_m_mean": "Height Mean (m)",
+                "tree_height_m_median": "Height Median (m)",
+                "nr_stems_bh_mean": "Stems Mean",
+                "nr_stems_bh_median": "Stems Median",
+                "circumference_bh_mean": "Circ Mean (cm)",
+                "circumference_bh_median": "Circ Median (cm)",
+            }
+            stats_df = stats_df.rename(columns=column_rename)
+
+            st.dataframe(
+                stats_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.caption(f"Total: {len(stats_df)} species")
+
+            # Download option
+            st.download_button(
+                label="📥 Download species statistics",
+                data=stats_df.to_csv(index=False),
+                file_name="species_measurement_statistics.csv",
+                mime="text/csv",
+                key="download_species_stats",
+            )
+
+            # Species-Based Outlier Detection Section
+            st.markdown("---")
+            st.markdown("#### 7️⃣ Species-Based Outlier Detection")
+            st.caption(
+                "Select a species to view measurements that deviate significantly from the species median (>4x or <0.25x)"
+            )
+
+            # Get species counts for dropdown
+            species_counts = woody_data.groupby("normalized_species").size().sort_values(ascending=False)
+
+            # Create dropdown options: "Species Name (count)"
+            species_options = [f"{sp} ({count})" for sp, count in species_counts.items()]
+
+            if len(species_options) > 0:
+                selected_option = st.selectbox(
+                    "Select Species",
+                    options=species_options,
+                    key="species_outlier_selector",
+                )
+
+                # Extract species name from selection
+                selected_species = selected_option.rsplit(" (", 1)[0] if selected_option else None
+
+                if selected_species:
+                    species_data = woody_data[woody_data["normalized_species"] == selected_species].copy()
+
+                    # Detect outliers for each metric in tabs
+                    metric_tabs = st.tabs(["Height Outliers", "Circumference Outliers", "Stem Count Outliers"])
+
+                    for i, (metric, metric_name) in enumerate(
+                        [
+                            ("tree_height_m", "Height"),
+                            ("circumference_bh", "Circumference"),
+                            ("nr_stems_bh", "Stem Count"),
+                        ]
+                    ):
+                        with metric_tabs[i]:
+                            if metric not in species_data.columns:
+                                st.info(f"ℹ️ {metric} column not available in data")
+                                continue
+
+                            outliers = detect_species_outliers(species_data, metric)
+
+                            if len(outliers) == 0:
+                                st.info(f"ℹ️ No valid {metric_name.lower()} data for this species")
+                                continue
+
+                            outliers_only = outliers[outliers["is_outlier"] == True]
+
+                            if len(outliers_only) > 0:
+                                st.error(f"❌ {len(outliers_only)} {metric_name.lower()} outliers found")
+
+                                # Build display dataframe
+                                display_cols = ["normalized_species"]
+
+                                # Add subplot info if available
+                                if "subplot_id" in outliers_only.columns:
+                                    display_cols.append("subplot_id")
+                                elif "SUBPLOT_KEY" in outliers_only.columns:
+                                    display_cols.append("SUBPLOT_KEY")
+
+                                # Add measurement key
+                                if "MEASUREMENT_KEY" in outliers_only.columns:
+                                    display_cols.append("MEASUREMENT_KEY")
+
+                                # Add enumerator and date
+                                if "enumerator" in outliers_only.columns:
+                                    display_cols.append("enumerator")
+                                if "SubmissionDate" in outliers_only.columns:
+                                    display_cols.append("SubmissionDate")
+
+                                # Add metric and median
+                                display_cols.extend([metric, "species_median"])
+
+                                # Filter to only existing columns
+                                display_cols = [c for c in display_cols if c in outliers_only.columns]
+
+                                display_df = outliers_only[display_cols].copy()
+
+                                # Add outlier type column
+                                display_df["Outlier Type"] = outliers_only.apply(
+                                    lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                                    axis=1,
+                                )
+
+                                # Rename columns for display
+                                col_renames = {
+                                    "normalized_species": "Species",
+                                    "subplot_id": "Subplot ID",
+                                    "SUBPLOT_KEY": "Subplot ID",
+                                    "MEASUREMENT_KEY": "Measurement Key",
+                                    "enumerator": "Enumerator",
+                                    "SubmissionDate": "Date",
+                                    "species_median": f"{metric_name} Median",
+                                    metric: f"{metric_name} Value",
+                                }
+                                display_df = display_df.rename(columns=col_renames)
+
+                                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.success(f"✅ No {metric_name.lower()} outliers for {selected_species}")
+            else:
+                st.info("ℹ️ No species data available for outlier detection")
+
+            # DBSCAN-Based Outlier Detection Section (Age + Selectable Attribute)
+            st.markdown("---")
+            st.markdown("#### 8️⃣ Outlier Detection (DBSCAN: Age + Attribute)")
+            st.caption(
+                "Clusters trees by age and a selected physical attribute within each species. "
+                "Outliers are trees that don't cluster with peers."
+            )
+
+            # Ensure tree_age is calculated
+            if "tree_age" not in woody_data.columns and "tree_year_planted" in woody_data.columns:
+                woody_data = calculate_tree_age(woody_data)
+
+            if "tree_age" not in woody_data.columns:
+                st.warning("⚠️ tree_age column not available (requires tree_year_planted)")
+            elif "normalized_species" not in woody_data.columns:
+                st.warning("⚠️ normalized_species column not available")
+            else:
+                # Attribute selector dropdown
+                attribute_options = {
+                    "Height (tree_height_m)": "tree_height_m",
+                    "Circumference (circumference_bh)": "circumference_bh",
+                    "Stem Count (nr_stems_bh)": "nr_stems_bh",
+                }
+
+                # Filter to only available attributes
+                available_attrs = {k: v for k, v in attribute_options.items() if v in woody_data.columns}
+
+                if not available_attrs:
+                    st.warning("⚠️ No physical attribute columns available")
+                else:
+                    selected_attr_label = st.selectbox(
+                        "Select Attribute to Analyze with Age",
+                        options=list(available_attrs.keys()),
+                        key="dbscan_attribute_selector",
+                    )
+                    selected_attr_col = available_attrs[selected_attr_label]
+
+                    # DBSCAN parameters
+                    with st.expander("⚙️ DBSCAN Parameters"):
+                        eps = st.slider(
+                            "Epsilon",
+                            0.1,
+                            2.0,
+                            0.5,
+                            0.1,
+                            key="dbscan_eps",
+                            help="Higher = fewer outliers",
+                        )
+                        min_samples = st.slider(
+                            "Min samples",
+                            2,
+                            10,
+                            3,
+                            1,
+                            key="dbscan_min_samples",
+                            help="Minimum points to form a cluster",
+                        )
+
+                    # Run DBSCAN with age + selected attribute
+                    dbscan_results = detect_multivariate_outliers_dbscan(
+                        woody_data,
+                        metric_col=selected_attr_col,
+                        eps=eps,
+                        min_samples=min_samples,
+                    )
+
+                    if len(dbscan_results) > 0:
+                        outliers = dbscan_results[dbscan_results["is_outlier"] == True]
+
+                        st.metric(
+                            "Outliers",
+                            len(outliers),
+                            delta=f"of {len(dbscan_results)} records",
+                        )
+
+                        if len(outliers) > 0:
+                            # Display columns
+                            display_cols = ["normalized_species", "tree_age", selected_attr_col]
+
+                            if "subplot_id" in outliers.columns:
+                                display_cols.insert(0, "subplot_id")
+                            elif "SUBPLOT_KEY" in outliers.columns:
+                                display_cols.insert(0, "SUBPLOT_KEY")
+
+                            if "MEASUREMENT_KEY" in outliers.columns:
+                                display_cols.append("MEASUREMENT_KEY")
+                            if "enumerator" in outliers.columns:
+                                display_cols.append("enumerator")
+
+                            display_cols = [c for c in display_cols if c in outliers.columns]
+                            display_df = outliers[display_cols].copy()
+
+                            # Rename for display
+                            attr_display_name = selected_attr_label.split(" (")[0]
+                            display_df = display_df.rename(
+                                columns={
+                                    "normalized_species": "Species",
+                                    "tree_age": "Age (years)",
+                                    selected_attr_col: attr_display_name,
+                                    "subplot_id": "Subplot ID",
+                                    "SUBPLOT_KEY": "Subplot ID",
+                                    "MEASUREMENT_KEY": "Measurement Key",
+                                    "enumerator": "Enumerator",
+                                }
+                            )
+
+                            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                            st.download_button(
+                                f"📥 Download {attr_display_name} outliers",
+                                data=display_df.to_csv(index=False),
+                                file_name=f"dbscan_outliers_{selected_attr_col}.csv",
+                                mime="text/csv",
+                                key="download_dbscan_outliers",
+                            )
+                        else:
+                            st.success("✅ No outliers detected with current parameters")
+                    else:
+                        st.info("ℹ️ Not enough valid data for DBSCAN analysis")
+
+            # Age + Species Outlier Detection Section
+            st.markdown("---")
+            st.markdown("#### 9️⃣ Age + Species Outlier Detection")
+            st.caption(
+                "Groups trees by species AND age. "
+                "Height/Circumference: flags values beyond 3 standard deviations. "
+                "Stem count: flags values >4x median (min=1)."
+            )
+
+            # Ensure tree_age is calculated (already done in DBSCAN section, but check again)
+            if "tree_age" not in woody_data.columns and "tree_year_planted" in woody_data.columns:
+                woody_data = calculate_tree_age(woody_data)
+
+            if "tree_age" not in woody_data.columns:
+                st.warning("tree_age column not available (requires tree_year_planted)")
+            elif "normalized_species" not in woody_data.columns:
+                st.warning("normalized_species column not available")
+            else:
+                # Attribute and Species selectors side by side
+                age_species_attr_options = {
+                    "Height (tree_height_m)": "tree_height_m",
+                    "Circumference (circumference_bh)": "circumference_bh",
+                    "Stem Count (nr_stems_bh)": "nr_stems_bh",
+                }
+
+                available_age_species_attrs = {
+                    k: v for k, v in age_species_attr_options.items() if v in woody_data.columns
+                }
+
+                if not available_age_species_attrs:
+                    st.warning("No physical attribute columns available")
+                else:
+                    # Get species list with counts for the selector
+                    all_species_counts = (
+                        woody_data[woody_data["normalized_species"].notna()]
+                        .groupby("normalized_species")
+                        .size()
+                        .sort_values(ascending=False)
+                    )
+                    species_options_list = ["All"] + [
+                        f"{species} ({count})" for species, count in all_species_counts.items()
+                    ]
+                    species_name_map = {
+                        f"{species} ({count})": species for species, count in all_species_counts.items()
+                    }
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        selected_age_species_attr = st.selectbox(
+                            "Select Attribute",
+                            options=list(available_age_species_attrs.keys()),
+                            key="age_species_attribute_selector",
+                        )
+                    with col2:
+                        selected_species_option = st.selectbox(
+                            "Select Species",
+                            options=species_options_list,
+                            key="age_species_species_selector",
+                        )
+
+                    selected_age_species_col = available_age_species_attrs[selected_age_species_attr]
+
+                    # Filter data by species if not "All"
+                    if selected_species_option == "All":
+                        filtered_woody_data = woody_data
+                        selected_species_name = None
+                    else:
+                        selected_species_name = species_name_map[selected_species_option]
+                        filtered_woody_data = woody_data[woody_data["normalized_species"] == selected_species_name]
+
+                    # Run age+species median-based detection
+                    age_species_results = detect_age_species_outliers(
+                        filtered_woody_data,
+                        metric_col=selected_age_species_col,
+                    )
+
+                    if len(age_species_results) > 0:
+                        outliers = age_species_results[age_species_results["is_outlier"] == True]
+
+                        st.metric("Outliers", len(outliers), delta=f"of {len(age_species_results)} records")
+
+                        if len(outliers) > 0:
+                            # Create display dataframe
+                            display_df = outliers.copy()
+
+                            # Create combined valid range column
+                            if "valid_range_lower" in display_df.columns and "valid_range_upper" in display_df.columns:
+                                display_df["valid_range"] = display_df.apply(
+                                    lambda r: f"{r['valid_range_lower']:.2f} - {r['valid_range_upper']:.2f}",
+                                    axis=1,
+                                )
+
+                            # Display columns
+                            display_cols = [
+                                "normalized_species",
+                                "tree_age",
+                                selected_age_species_col,
+                                "group_median",
+                                "valid_range",
+                            ]
+
+                            # For stem count, also show height for context
+                            if selected_age_species_col == "nr_stems_bh" and "tree_height_m" in display_df.columns:
+                                display_cols.insert(3, "tree_height_m")
+
+                            if "subplot_id" in display_df.columns:
+                                display_cols.insert(0, "subplot_id")
+                            elif "SUBPLOT_KEY" in display_df.columns:
+                                display_cols.insert(0, "SUBPLOT_KEY")
+
+                            if "MEASUREMENT_KEY" in display_df.columns:
+                                display_cols.append("MEASUREMENT_KEY")
+                            if "enumerator" in display_df.columns:
+                                display_cols.append("enumerator")
+
+                            display_cols = [c for c in display_cols if c in display_df.columns]
+                            display_df = display_df[display_cols].copy()
+
+                            # Round numeric columns
+                            if "group_median" in display_df.columns:
+                                display_df["group_median"] = display_df["group_median"].round(2)
+                            if "tree_height_m" in display_df.columns:
+                                display_df["tree_height_m"] = display_df["tree_height_m"].round(2)
+
+                            # Rename for display
+                            attr_name = selected_age_species_attr.split(" (")[0]
+                            # Different labels for different methods
+                            if selected_age_species_col == "nr_stems_bh":
+                                valid_range_label = "Valid Range (1 to 4x)"
+                                group_stat_label = "Group Median"
+                            else:
+                                valid_range_label = "Valid Range (mean +/- 3SD)"
+                                group_stat_label = "Group Mean"
+
+                            display_df = display_df.rename(
+                                columns={
+                                    "normalized_species": "Species",
+                                    "tree_age": "Age (years)",
+                                    selected_age_species_col: f"Actual {attr_name}",
+                                    "tree_height_m": "Height (m)",
+                                    "group_median": group_stat_label,
+                                    "valid_range": valid_range_label,
+                                    "subplot_id": "Subplot ID",
+                                    "SUBPLOT_KEY": "Subplot ID",
+                                    "MEASUREMENT_KEY": "Measurement Key",
+                                    "enumerator": "Enumerator",
+                                }
+                            )
+
+                            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                            st.download_button(
+                                f"Download {attr_name} outliers",
+                                data=display_df.to_csv(index=False),
+                                file_name=f"age_species_outliers_{selected_age_species_col}.csv",
+                                mime="text/csv",
+                                key="download_age_species_outliers",
+                            )
+                        else:
+                            st.success("No outliers detected")
+
+                        # Visualization chart (only show if a specific species is selected)
+                        if selected_species_option != "All":
+                            st.markdown("##### Visualization")
+                            species_chart_data = age_species_results.copy()
+
+                            if len(species_chart_data) > 0:
+                                import plotly.graph_objects as go
+
+                                # Sort by age for proper plotting
+                                species_chart_data = species_chart_data.sort_values("tree_age")
+
+                                attr_name = selected_age_species_attr.split(" (")[0]
+
+                                fig = go.Figure()
+
+                                # Get unique ages and their median/valid ranges (only ages with 3+ trees)
+                                age_stats = (
+                                    species_chart_data.groupby("tree_age")
+                                    .agg(
+                                        {
+                                            "group_median": "first",
+                                            "valid_range_lower": "first",
+                                            "valid_range_upper": "first",
+                                            "group_count": "first",
+                                        }
+                                    )
+                                    .reset_index()
+                                )
+                                # Filter to ages with enough samples for meaningful median
+                                age_stats = age_stats[age_stats["group_count"] >= 3].sort_values("tree_age")
+
+                                # Add valid range zone (shaded area) - only if we have ages with enough data
+                                if len(age_stats) > 0:
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=age_stats["tree_age"].tolist() + age_stats["tree_age"].tolist()[::-1],
+                                            y=age_stats["valid_range_upper"].tolist()
+                                            + age_stats["valid_range_lower"].tolist()[::-1],
+                                            fill="toself",
+                                            fillcolor="rgba(0, 176, 246, 0.2)",
+                                            line=dict(color="rgba(255,255,255,0)"),
+                                            name="Valid Range (0.25x-4x median)",
+                                            hoverinfo="skip",
+                                        )
+                                    )
+
+                                    # Add median line
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=age_stats["tree_age"],
+                                            y=age_stats["group_median"],
+                                            mode="lines+markers",
+                                            name="Group Median (3+ trees)",
+                                            line=dict(color="blue", width=2),
+                                            marker=dict(size=6),
+                                        )
+                                    )
+
+                                # Add normal points (non-outliers)
+                                normal_points = species_chart_data[species_chart_data["is_outlier"] == False]
+                                if len(normal_points) > 0:
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=normal_points["tree_age"],
+                                            y=normal_points[selected_age_species_col],
+                                            mode="markers",
+                                            name="Normal",
+                                            marker=dict(color="green", size=8, symbol="circle"),
+                                            hovertemplate=(
+                                                f"Age: %{{x}} years<br>"
+                                                f"Actual {attr_name}: %{{y:.2f}}<br>"
+                                                "<extra></extra>"
+                                            ),
+                                        )
+                                    )
+
+                                # Add outlier points
+                                outlier_points = species_chart_data[species_chart_data["is_outlier"] == True]
+                                if len(outlier_points) > 0:
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=outlier_points["tree_age"],
+                                            y=outlier_points[selected_age_species_col],
+                                            mode="markers",
+                                            name="Outliers",
+                                            marker=dict(color="red", size=10, symbol="x"),
+                                            hovertemplate=(
+                                                f"Age: %{{x}} years<br>"
+                                                f"Actual {attr_name}: %{{y:.2f}}<br>"
+                                                "<extra></extra>"
+                                            ),
+                                        )
+                                    )
+
+                                fig.update_layout(
+                                    title=f"{selected_species_name}: Age vs {attr_name}",
+                                    xaxis_title="Tree Age (years)",
+                                    yaxis_title=attr_name,
+                                    hovermode="closest",
+                                    showlegend=True,
+                                    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+                                )
+
+                                st.plotly_chart(fig, use_container_width=True)
+
+                                # Show species stats
+                                n_total = len(species_chart_data)
+                                n_outliers = len(outlier_points) if len(outlier_points) > 0 else 0
+                                st.caption(
+                                    f"{selected_species_name}: {n_total} trees, {n_outliers} outliers "
+                                    f"({n_outliers / n_total * 100:.1f}%)"
+                                )
+                    else:
+                        st.info("Not enough valid data for analysis")
+
+        else:
+            st.warning("⚠️ No measurement columns (tree_height_m, nr_stems_bh, circumference_bh) found")
+    else:
+        st.info("ℹ️ No woody vegetation data available")
 
 # ============================================
 # TAB 1: OUTLIERS & SUSPICIOUS (MOVED TO FIRST TAB)
@@ -1848,9 +2356,7 @@ with tabs[0]:
     )
 
     # CHECK 1: Height outliers using VEGETATION_KEY grouping
-    st.markdown(
-        "#### 1️⃣ Height Outliers (>4x or <0.25x group median)"
-    )
+    st.markdown("#### 1️⃣ Height Outliers (>4x or <0.25x group median)")
 
     st.info(
         """
@@ -1879,55 +2385,43 @@ with tabs[0]:
     )
 
     # Use filtered measurement data
-    if has_measurements and len(meas_df) > 0 and "VEGETATION_KEY" in meas_df.columns and "tree_height_m" in meas_df.columns:
+    if (
+        has_measurements
+        and len(meas_df) > 0
+        and "VEGETATION_KEY" in meas_df.columns
+        and "tree_height_m" in meas_df.columns
+    ):
         # Filter to records with valid height and VEGETATION_KEY
-        height_check = meas_df[
-            meas_df["tree_height_m"].notna() & meas_df["VEGETATION_KEY"].notna()
-        ].copy()
+        height_check = meas_df[meas_df["tree_height_m"].notna() & meas_df["VEGETATION_KEY"].notna()].copy()
 
         if len(height_check) > 0:
             # Calculate median height per VEGETATION_KEY (tree group)
             median_check = (
-                height_check.groupby("VEGETATION_KEY")["tree_height_m"]
-                .median()
-                .reset_index(name="median_height")
+                height_check.groupby("VEGETATION_KEY")["tree_height_m"].median().reset_index(name="median_height")
             )
 
             # Merge with original data
-            height_total = pd.merge(
-                height_check, median_check, how="inner", on="VEGETATION_KEY"
-            )
+            height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
 
             # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
             height_total["Upper_outliers"] = height_total.apply(
-                lambda row: (
-                    "outlier"
-                    if row["tree_height_m"] > (row["median_height"] * 4)
-                    else "ok"
-                ),
+                lambda row: ("outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"),
                 axis=1,
             )
             height_total["Lower_outliers"] = height_total.apply(
-                lambda row: (
-                    "outlier"
-                    if row["tree_height_m"] < (row["median_height"] / 4)
-                    else "ok"
-                ),
+                lambda row: ("outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"),
                 axis=1,
             )
 
             # Filter to outliers only
             height_outliers = height_total[
-                (height_total["Upper_outliers"] == "outlier")
-                | (height_total["Lower_outliers"] == "outlier")
+                (height_total["Upper_outliers"] == "outlier") | (height_total["Lower_outliers"] == "outlier")
             ].copy()
 
             st.metric("Height Outliers", len(height_outliers))
 
             if len(height_outliers) > 0:
-                st.error(
-                    f"❌ {len(height_outliers)} height measurements are outliers within their vegetation group"
-                )
+                st.error(f"❌ {len(height_outliers)} height measurements are outliers within their vegetation group")
 
                 # Determine which outlier type
                 def get_outlier_type(row):
@@ -1988,9 +2482,7 @@ with tabs[0]:
     st.markdown("---")
 
     # CHECK 2: Circumference outliers using VEGETATION_KEY grouping
-    st.markdown(
-        "#### 2️⃣ Circumference Outliers (>4x or <0.25x group median)"
-    )
+    st.markdown("#### 2️⃣ Circumference Outliers (>4x or <0.25x group median)")
 
     st.info(
         """
@@ -2016,45 +2508,28 @@ with tabs[0]:
 
         if circ_col:
             # Filter to records with valid circumference and VEGETATION_KEY
-            circ_check = complete_df[
-                complete_df[circ_col].notna() & complete_df["VEGETATION_KEY"].notna()
-            ].copy()
+            circ_check = complete_df[complete_df[circ_col].notna() & complete_df["VEGETATION_KEY"].notna()].copy()
 
             if len(circ_check) > 0:
                 # Calculate median circumference per VEGETATION_KEY
-                median_check = (
-                    circ_check.groupby("VEGETATION_KEY")[circ_col]
-                    .median()
-                    .reset_index(name="median_circ")
-                )
+                median_check = circ_check.groupby("VEGETATION_KEY")[circ_col].median().reset_index(name="median_circ")
 
                 # Merge with original data
-                circ_total = pd.merge(
-                    circ_check, median_check, how="inner", on="VEGETATION_KEY"
-                )
+                circ_total = pd.merge(circ_check, median_check, how="inner", on="VEGETATION_KEY")
 
                 # Apply outlier detection (4x and 1/4x median)
                 circ_total["Upper_outliers"] = circ_total.apply(
-                    lambda row: (
-                        "outlier"
-                        if row[circ_col] > (row["median_circ"] * 4)
-                        else "ok"
-                    ),
+                    lambda row: ("outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok"),
                     axis=1,
                 )
                 circ_total["Lower_outliers"] = circ_total.apply(
-                    lambda row: (
-                        "outlier"
-                        if row[circ_col] < (row["median_circ"] / 4)
-                        else "ok"
-                    ),
+                    lambda row: ("outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok"),
                     axis=1,
                 )
 
                 # Filter to outliers only
                 circ_outliers = circ_total[
-                    (circ_total["Upper_outliers"] == "outlier")
-                    | (circ_total["Lower_outliers"] == "outlier")
+                    (circ_total["Upper_outliers"] == "outlier") | (circ_total["Lower_outliers"] == "outlier")
                 ].copy()
 
                 st.metric("Circumference Outliers", len(circ_outliers))
@@ -2123,10 +2598,8 @@ with tabs[0]:
     st.markdown("---")
 
     # CHECK 3: Suspicious circumference by age
-    st.markdown(f"#### 3️⃣ Suspicious Circumference vs Tree Age ")
-    st.caption(
-        f"Flagging: Circ >{young_tree_circ}cm AND age <5 years, OR Circ >300cm AND age <15 years"
-    )
+    st.markdown("#### 3️⃣ Suspicious Circumference vs Tree Age ")
+    st.caption(f"Flagging: Circ >{young_tree_circ}cm AND age <5 years, OR Circ >300cm AND age <15 years")
 
     if has_complete:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
@@ -2163,9 +2636,7 @@ with tabs[0]:
                 st.metric("Suspicious Circumferences", len(suspicious))
 
                 if len(suspicious) > 0:
-                    st.error(
-                        f"❌ {len(suspicious)} trees have unrealistic circumference for their age"
-                    )
+                    st.error(f"❌ {len(suspicious)} trees have unrealistic circumference for their age")
 
                     # Build display columns safely
                     display_cols = []
@@ -2185,9 +2656,7 @@ with tabs[0]:
                     if len(display_cols) > 0:
                         st.dataframe(
                             (
-                                suspicious[display_cols].sort_values(
-                                    circ_col, ascending=False
-                                )
+                                suspicious[display_cols].sort_values(circ_col, ascending=False)
                                 if circ_col in display_cols
                                 else suspicious[display_cols]
                             ),
@@ -2197,9 +2666,7 @@ with tabs[0]:
                     else:
                         st.warning("No displayable columns available")
                 else:
-                    st.success(
-                        "✅ No suspicious circumference-age combinations detected"
-                    )
+                    st.success("✅ No suspicious circumference-age combinations detected")
             else:
                 st.info("ℹ️ Could not calculate tree age from planting year")
         else:
@@ -2211,9 +2678,7 @@ with tabs[0]:
 
     # CHECK 4: Tree Measurements Scatter Plot
     st.markdown("#### 4️⃣ Tree Measurements Analysis")
-    st.caption(
-        "Interactive scatter plot: Height vs Circumference, sized by stem count, colored by species"
-    )
+    st.caption("Interactive scatter plot: Height vs Circumference, sized by stem count, colored by species")
 
     if has_complete and species_col:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
@@ -2237,18 +2702,14 @@ with tabs[0]:
             species_col,
             "tree_age",
         ]
-        available_cols = [
-            col for col in required_cols if col and col in complete_with_enum.columns
-        ]
+        available_cols = [col for col in required_cols if col and col in complete_with_enum.columns]
 
         if len(available_cols) >= 4:  # Need at least height, circ, stems, species
             # Prepare data for plotting
             plot_data = complete_with_enum[available_cols].copy()
 
             # Remove rows with NaN in critical columns
-            plot_data = plot_data.dropna(
-                subset=["tree_height_m", circ_col, "nr_stems_bh"]
-            )
+            plot_data = plot_data.dropna(subset=["tree_height_m", circ_col, "nr_stems_bh"])
 
             if len(plot_data) > 0:
                 # User controls
@@ -2340,17 +2801,11 @@ with tabs[0]:
                         yaxis_title=y_axis.replace("_", " ").title(),
                         legend_title=species_col.replace("_", " ").title(),
                         showlegend=True,
-                        legend=dict(
-                            orientation="v", yanchor="top", y=1, xanchor="left", x=1.02
-                        ),
+                        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
                     )
 
                     # Update traces for better visibility
-                    fig.update_traces(
-                        marker=dict(
-                            line=dict(width=0.5, color="DarkSlateGrey"), opacity=0.7
-                        )
-                    )
+                    fig.update_traces(marker=dict(line=dict(width=0.5, color="DarkSlateGrey"), opacity=0.7))
 
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -2379,9 +2834,7 @@ with tabs[0]:
                             avg_circ = plot_subset[circ_col].mean()
                             st.metric("Avg Circumference", f"{avg_circ:.1f}cm")
                         else:
-                            st.metric(
-                                "Avg Stems", f"{plot_subset['nr_stems_bh'].mean():.1f}"
-                            )
+                            st.metric("Avg Stems", f"{plot_subset['nr_stems_bh'].mean():.1f}")
 
                     # Download data
                     csv = plot_subset.to_csv(index=False)
@@ -2392,17 +2845,11 @@ with tabs[0]:
                         mime="text/csv",
                     )
                 else:
-                    st.warning(
-                        "⚠️ Not enough data after filtering for selected variables"
-                    )
+                    st.warning("⚠️ Not enough data after filtering for selected variables")
             else:
-                st.info(
-                    "ℹ️ No complete records with height, circumference, and stem data"
-                )
+                st.info("ℹ️ No complete records with height, circumference, and stem data")
         else:
-            st.warning(
-                f"⚠️ Missing required columns. Available: {', '.join(available_cols)}"
-            )
+            st.warning(f"⚠️ Missing required columns. Available: {', '.join(available_cols)}")
     else:
         st.info("ℹ️ Complete dataset or species column not available for visualization")
 
@@ -2422,62 +2869,63 @@ with col1:
             # Track dataframes for column width adjustment
             sheet_dataframes = {}
 
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 # Sheet 1: Coverage-only subplots
                 try:
-                    if 'coverage_only' in locals() and len(coverage_only) > 0:
+                    if "coverage_only" in locals() and len(coverage_only) > 0:
                         export_df = coverage_only.copy()
-                        if 'geometry' in export_df.columns:
-                            export_df = export_df.drop(columns=['geometry'])
-                        sheet_name = 'Coverage Only'
+                        if "geometry" in export_df.columns:
+                            export_df = export_df.drop(columns=["geometry"])
+                        sheet_name = "Coverage Only"
                         export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
-                except: pass
+                except:
+                    pass
 
                 # Sheet 2: Primary trees with 'other'
                 try:
-                    if 'primary_trees' in locals() and len(primary_trees) > 0:
+                    if "primary_trees" in locals() and len(primary_trees) > 0:
                         export_df = primary_trees.copy()
-                        if 'geometry' in export_df.columns:
-                            export_df = export_df.drop(columns=['geometry'])
-                        sheet_name = 'Primary Trees Other'
+                        if "geometry" in export_df.columns:
+                            export_df = export_df.drop(columns=["geometry"])
+                        sheet_name = "Primary Trees Other"
                         export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
-                except: pass
+                except:
+                    pass
 
                 # Sheet 3: Young trees with 'other'
                 try:
-                    if 'young_trees_other' in locals() and len(young_trees_other) > 0:
+                    if "young_trees_other" in locals() and len(young_trees_other) > 0:
                         export_df = young_trees_other.copy()
-                        if 'geometry' in export_df.columns:
-                            export_df = export_df.drop(columns=['geometry'])
-                        sheet_name = 'Young Trees Other'
+                        if "geometry" in export_df.columns:
+                            export_df = export_df.drop(columns=["geometry"])
+                        sheet_name = "Young Trees Other"
                         export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
-                except: pass
+                except:
+                    pass
 
                 # Sheet 4: Non-primary trees with 'other'
                 try:
-                    if 'non_primary_trees' in locals() and len(non_primary_trees) > 0:
+                    if "non_primary_trees" in locals() and len(non_primary_trees) > 0:
                         export_df = non_primary_trees.copy()
-                        if 'geometry' in export_df.columns:
-                            export_df = export_df.drop(columns=['geometry'])
-                        sheet_name = 'Non-Primary Trees Other'
+                        if "geometry" in export_df.columns:
+                            export_df = export_df.drop(columns=["geometry"])
+                        sheet_name = "Non-Primary Trees Other"
                         export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheet_dataframes[sheet_name] = export_df
                         sheets_created += 1
-                except: pass
+                except:
+                    pass
 
                 # Summary sheet if no data
                 if sheets_created == 0:
-                    summary_df = pd.DataFrame({
-                        'Note': ['No flagged records found in quality checks']
-                    })
-                    sheet_name = 'Summary'
+                    summary_df = pd.DataFrame({"Note": ["No flagged records found in quality checks"]})
+                    sheet_name = "Summary"
                     summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
                     sheet_dataframes[sheet_name] = summary_df
 
@@ -2487,7 +2935,7 @@ with col1:
                         if sheet_name in writer.sheets:
                             worksheet = writer.sheets[sheet_name]
                             adjust_excel_column_widths(worksheet, df)
-                except Exception as e:
+                except Exception:
                     # Column width adjustment is optional - don't fail export if it errors
                     pass
 
@@ -2500,7 +2948,7 @@ with col1:
                 data=output.getvalue(),
                 file_name=f"{config.PARTNER}_quality_checks_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                use_container_width=True,
             )
 
         except Exception as e:
@@ -2513,8 +2961,8 @@ with col2:
             export_df = veg_with_enum.copy()
 
             # Remove geometry column if exists
-            if 'geometry' in export_df.columns:
-                export_df = export_df.drop(columns=['geometry'])
+            if "geometry" in export_df.columns:
+                export_df = export_df.drop(columns=["geometry"])
 
             # Convert to CSV
             csv = export_df.to_csv(index=False)
@@ -2524,7 +2972,7 @@ with col2:
                 data=csv,
                 file_name=f"{config.PARTNER}_vegetation_data_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
-                use_container_width=True
+                use_container_width=True,
             )
 
         except Exception as e:

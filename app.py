@@ -4,6 +4,7 @@ Main landing page with data loading and overview analytics
 """
 
 from dotenv import load_dotenv
+
 load_dotenv()  # Load .env file for dev mode
 
 import streamlit as st
@@ -33,7 +34,9 @@ from utils.data_processor import (
 import re as regex_module
 
 
-def fetch_surveycto_data(server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label=""):
+def fetch_surveycto_data(
+    server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label=""
+):
     """
     Fetch data from SurveyCTO API with comprehensive error handling.
 
@@ -57,16 +60,14 @@ def fetch_surveycto_data(server_name, username, password, form_id, progress_bar=
         url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
         params = {"date": "0"}
 
-        response = requests.get(
-            url, auth=(username, password), params=params, timeout=60
-        )
+        response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
         # Check for specific HTTP errors
         if response.status_code == 417:
             try:
                 error_data = response.json()
                 wait_seconds = error_data.get("error", {}).get("message", "")
-                match = regex_module.search(r'(\d+)\s*seconds', wait_seconds)
+                match = regex_module.search(r"(\d+)\s*seconds", wait_seconds)
                 if match:
                     wait_time = int(match.group(1))
                     return False, None, f"Rate limit: Please wait {wait_time} seconds before retrying."
@@ -206,10 +207,7 @@ with st.sidebar:
     st.session_state.server_name = server_name
 
     username = st.text_input(
-        "Username",
-        value=st.session_state.username,
-        key="username_input",
-        help="Your SurveyCTO username"
+        "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
     )
     st.session_state.username = username
 
@@ -218,7 +216,7 @@ with st.sidebar:
         value=st.session_state.password,
         key="password_input",
         type="password",
-        help="Your SurveyCTO password"
+        help="Your SurveyCTO password",
     )
     st.session_state.password = password
 
@@ -234,10 +232,7 @@ with st.sidebar:
     st.markdown("### 📋 Form ID")
 
     # Show current partner's form ID
-    st.info(
-        f"📋 **Active Partner**: {config.PARTNER}\n\n"
-        f"**Form ID**: `{config.GT_FORM_ID}`"
-    )
+    st.info(f"📋 **Active Partner**: {config.PARTNER}\n\n**Form ID**: `{config.GT_FORM_ID}`")
 
     form_id = st.text_input(
         "Form ID (auto-filled based on partner):",
@@ -270,8 +265,8 @@ with st.sidebar:
         "Accept 0m GPS accuracy",
         value=st.session_state.accuracy_zero_valid,
         help="When checked, GPS points with 0m accuracy are accepted. When unchecked, they are filtered out. "
-             "Note: 0m accuracy may indicate device errors, but in some cases it's valid data.",
-        key="accuracy_zero_toggle"
+        "Note: 0m accuracy may indicate device errors, but in some cases it's valid data.",
+        key="accuracy_zero_toggle",
     )
     st.session_state.accuracy_zero_valid = accept_zero_accuracy
 
@@ -293,9 +288,7 @@ with st.sidebar:
 
     # Process button
     if credentials_configured and form_id:
-        process_btn = st.button(
-            "🚀 Fetch GT Data", type="primary", use_container_width=True
-        )
+        process_btn = st.button("🚀 Fetch GT Data", type="primary", use_container_width=True)
     else:
         process_btn = False
         if not credentials_configured:
@@ -324,9 +317,7 @@ if process_btn and credentials_configured:
                 url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
                 params = {"date": "0"}
 
-                response = requests.get(
-                    url, auth=(username, password), params=params, timeout=60
-                )
+                response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
                 # Check for specific HTTP errors
                 if response.status_code == 417:
@@ -338,7 +329,8 @@ if process_btn and credentials_configured:
 
                         # Extract wait time from message
                         import re
-                        match = re.search(r'(\d+)\s*seconds', wait_seconds)
+
+                        match = re.search(r"(\d+)\s*seconds", wait_seconds)
                         if match:
                             wait_time = int(match.group(1))
                             wait_minutes = wait_time // 60
@@ -351,10 +343,7 @@ if process_btn and credentials_configured:
                             )
                         else:
                             st.error("🚫 **SurveyCTO Rate Limit**")
-                            st.warning(
-                                f"⏱️ {wait_seconds}\n\n"
-                                "Please wait before retrying."
-                            )
+                            st.warning(f"⏱️ {wait_seconds}\n\nPlease wait before retrying.")
                     except:
                         st.error("🚫 **SurveyCTO Rate Limit**")
                         st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
@@ -399,8 +388,7 @@ if process_btn and credentials_configured:
                     progress_bar.empty()
                     st.error("🔐 **Authentication Failed**")
                     st.warning(
-                        "❌ Your username or password is incorrect.\n\n"
-                        "**Please check your credentials and try again.**"
+                        "❌ Your username or password is incorrect.\n\n**Please check your credentials and try again.**"
                     )
                     st.stop()
 
@@ -531,11 +519,8 @@ if process_btn and credentials_configured:
             progress_bar.empty()
 
         except Exception as e:
-            st.error(f"❌ **Unexpected Error**")
-            st.warning(
-                "An unexpected error occurred while fetching data.\n\n"
-                f"**Error details:** {str(e)}"
-            )
+            st.error("❌ **Unexpected Error**")
+            st.warning(f"An unexpected error occurred while fetching data.\n\n**Error details:** {str(e)}")
             st.exception(e)
             progress_bar.empty()
 
@@ -595,22 +580,18 @@ if st.session_state.data is not None:
         if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
             temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
             )
-            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
-                lambda x: int(x) if pd.notna(x) else 999
-            )
-            measured_subplot_ids = temp_df[
-                temp_df["subplot_number"] <= temp_df["measured_subplots"]
-            ]["subplot_id"].unique()
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
+            measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]][
+                "subplot_id"
+            ].unique()
             gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
         else:
             gdf_for_plots = filtered_gdf.copy()
 
         plot_summary = (
-            gdf_for_plots.groupby("PLOT_KEY")
-            .agg({"subplot_id": "count", "overall_valid": "sum"})
-            .reset_index()
+            gdf_for_plots.groupby("PLOT_KEY").agg({"subplot_id": "count", "overall_valid": "sum"}).reset_index()
         )
         plot_summary.columns = ["PLOT_KEY", "total_subplots", "valid_subplots"]
         plot_summary["invalid_subplots"] = plot_summary["total_subplots"] - plot_summary["valid_subplots"]
@@ -622,14 +603,12 @@ if st.session_state.data is not None:
         if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
             temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
             )
-            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
-                lambda x: int(x) if pd.notna(x) else 999
-            )
-            measured_subplot_ids = temp_df[
-                temp_df["subplot_number"] <= temp_df["measured_subplots"]
-            ]["subplot_id"].unique()
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
+            measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]][
+                "subplot_id"
+            ].unique()
             gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
         else:
             gdf_for_plots = filtered_gdf.copy()
@@ -667,17 +646,14 @@ if st.session_state.data is not None:
                     calculate_tree_age,
                     get_species_column,
                     add_tree_name_column,
+                    load_species_lookup,
+                    normalize_species_name,
+                    detect_species_outliers,
+                    detect_multivariate_outliers_dbscan,
                 )
                 from utils.vegetation_validation import (
                     get_missing_subplots,
-                    check_coverage_only_subplots,
-                    get_young_trees_with_other,
-                    get_primary_trees_with_other,
-                    get_non_primary_trees_with_other,
-                    validate_species_lists,
                     detect_stem_outliers,
-                    detect_height_outliers,
-                    detect_circumference_outliers,
                     detect_suspicious_circumference_by_age,
                     check_unidentified_species,
                 )
@@ -703,22 +679,36 @@ if st.session_state.data is not None:
                     if has_measurements
                     else pd.DataFrame()
                 )
-                complete_df_all = (
-                    raw_data.get("complete", pd.DataFrame())
-                    if has_complete
-                    else pd.DataFrame()
-                )
+                complete_df_all = raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
 
                 # IMPORTANT: Filter data based on filtered_gdf (which has date/enumerator filters applied)
                 # This ensures the export respects the sidebar filters
-                filtered_subplot_ids = filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
+                filtered_subplot_ids = (
+                    filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
+                )
 
                 if len(filtered_subplot_ids) > 0:
                     # Filter all dataframes to only include subplots from filtered_gdf
-                    plots_df = plots_df_all[plots_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if "SUBPLOT_KEY" in plots_df_all.columns else plots_df_all.copy()
-                    veg_df = veg_df_all[veg_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if "SUBPLOT_KEY" in veg_df_all.columns else veg_df_all.copy()
-                    meas_df = meas_df_all[meas_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if has_measurements and "SUBPLOT_KEY" in meas_df_all.columns else meas_df_all.copy()
-                    complete_df = complete_df_all[complete_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy() if has_complete and "SUBPLOT_KEY" in complete_df_all.columns else complete_df_all.copy()
+                    plots_df = (
+                        plots_df_all[plots_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        if "SUBPLOT_KEY" in plots_df_all.columns
+                        else plots_df_all.copy()
+                    )
+                    veg_df = (
+                        veg_df_all[veg_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        if "SUBPLOT_KEY" in veg_df_all.columns
+                        else veg_df_all.copy()
+                    )
+                    meas_df = (
+                        meas_df_all[meas_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        if has_measurements and "SUBPLOT_KEY" in meas_df_all.columns
+                        else meas_df_all.copy()
+                    )
+                    complete_df = (
+                        complete_df_all[complete_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        if has_complete and "SUBPLOT_KEY" in complete_df_all.columns
+                        else complete_df_all.copy()
+                    )
                 else:
                     plots_df = plots_df_all.copy()
                     veg_df = veg_df_all.copy()
@@ -727,6 +717,7 @@ if st.session_state.data is not None:
 
                 # DEBUG: Check what columns are in filtered_gdf
                 import sys
+
                 print(f"DEBUG EXPORT: filtered_gdf columns: {filtered_gdf.columns.tolist()}", file=sys.stderr)
                 print(f"DEBUG EXPORT: Has SubmissionDate: {'SubmissionDate' in filtered_gdf.columns}", file=sys.stderr)
                 print(f"DEBUG EXPORT: Has starttime: {'starttime' in filtered_gdf.columns}", file=sys.stderr)
@@ -735,9 +726,18 @@ if st.session_state.data is not None:
                 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
                 veg_with_enum = add_tree_name_column(veg_with_enum)
 
-                print(f"DEBUG EXPORT: veg_with_enum columns after merge: {veg_with_enum.columns.tolist()}", file=sys.stderr)
-                print(f"DEBUG EXPORT: veg_with_enum has SubmissionDate: {'SubmissionDate' in veg_with_enum.columns}", file=sys.stderr)
-                print(f"DEBUG EXPORT: veg_with_enum has starttime: {'starttime' in veg_with_enum.columns}", file=sys.stderr)
+                print(
+                    f"DEBUG EXPORT: veg_with_enum columns after merge: {veg_with_enum.columns.tolist()}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"DEBUG EXPORT: veg_with_enum has SubmissionDate: {'SubmissionDate' in veg_with_enum.columns}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"DEBUG EXPORT: veg_with_enum has starttime: {'starttime' in veg_with_enum.columns}",
+                    file=sys.stderr,
+                )
 
                 if has_measurements:
                     meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
@@ -748,12 +748,12 @@ if st.session_state.data is not None:
                 species_col = get_species_column(veg_with_enum)
 
                 # Helper function to format dataframe for export
-                def format_for_export(
-                    df, issue_type, issue_description_col=None, additional_cols=None
-                ):
+                def format_for_export(df, issue_type, issue_description_col=None, additional_cols=None, key_col=None):
                     """
                     Format dataframe according to user's specification:
-                    Plot id | Subplot id | Data collector name | Issue type | Issue description | Empty | Clarification
+                    Plot id | Subplot id | KEY | Data collector name | Issue type | Issue description | Empty | Clarification
+
+                    key_col: The column to use for the KEY field (e.g., SUBPLOT_KEY, VEGETATION_KEY, MEASUREMENT_KEY, CIRCUMFERENCE_KEY)
                     """
                     if df is None or len(df) == 0:
                         return pd.DataFrame()
@@ -771,11 +771,7 @@ if st.session_state.data is not None:
                     # Plot ID (from SUBPLOT_KEY - extract plot portion)
                     if "SUBPLOT_KEY" in df.columns:
                         result["Plot ID"] = df["SUBPLOT_KEY"].apply(
-                            lambda x: (
-                                str(x).split("-")[0]
-                                if pd.notna(x) and "-" in str(x)
-                                else str(x)
-                            )
+                            lambda x: (str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x))
                         )
                     elif "PLOT_KEY" in df.columns:
                         result["Plot ID"] = df["PLOT_KEY"]
@@ -789,6 +785,12 @@ if st.session_state.data is not None:
                         result["Subplot ID"] = df["subplot_id"]
                     else:
                         result["Subplot ID"] = ""
+
+                    # KEY column (most granular key for SurveyCTO reference)
+                    if key_col and key_col in df.columns:
+                        result["KEY"] = df[key_col]
+                    else:
+                        result["KEY"] = ""
 
                     # Data collector name
                     if "enumerator" in df.columns:
@@ -804,19 +806,13 @@ if st.session_state.data is not None:
                         result["Issue Description"] = df[issue_description_col]
                     elif additional_cols:
                         # Build description from multiple columns row-wise
-                        available_cols = [
-                            col for col in additional_cols if col in df.columns
-                        ]
+                        available_cols = [col for col in additional_cols if col in df.columns]
                         if available_cols:
                             # Convert first column to string
                             result["Issue Description"] = df[available_cols[0]].astype(str)
                             # Concatenate remaining columns with " | " separator
                             for col in available_cols[1:]:
-                                result["Issue Description"] = (
-                                    result["Issue Description"]
-                                    + " | "
-                                    + df[col].astype(str)
-                                )
+                                result["Issue Description"] = result["Issue Description"] + " | " + df[col].astype(str)
                         else:
                             result["Issue Description"] = ""
                     else:
@@ -837,7 +833,6 @@ if st.session_state.data is not None:
                 sheet_dataframes = {}
 
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
-
                     # SHEET 1: Geometry Validation Errors (Invalid Subplots)
                     try:
                         # Get invalid subplots
@@ -858,22 +853,22 @@ if st.session_state.data is not None:
                             # Plot ID (extract from subplot_id)
                             if "subplot_id" in invalid_subplots.columns:
                                 result["Plot ID"] = invalid_subplots["subplot_id"].apply(
-                                    lambda x: (
-                                        str(x).split("-")[0]
-                                        if pd.notna(x) and "-" in str(x)
-                                        else str(x)
-                                    )
+                                    lambda x: (str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x))
                                 )
                                 result["Subplot ID"] = invalid_subplots["subplot_id"]
                             else:
                                 result["Plot ID"] = ""
                                 result["Subplot ID"] = ""
 
+                            # KEY column (subplot_id for geometry errors)
+                            if "subplot_id" in invalid_subplots.columns:
+                                result["KEY"] = invalid_subplots["subplot_id"]
+                            else:
+                                result["KEY"] = ""
+
                             # Data collector
                             if "enumerator" in invalid_subplots.columns:
-                                result["Data Collector Name"] = invalid_subplots[
-                                    "enumerator"
-                                ]
+                                result["Data Collector Name"] = invalid_subplots["enumerator"]
                             else:
                                 result["Data Collector Name"] = ""
 
@@ -885,34 +880,21 @@ if st.session_state.data is not None:
 
                             # Add reasons if available
                             if "reasons" in invalid_subplots.columns:
-                                desc_parts.append(
-                                    invalid_subplots["reasons"].fillna("Unknown error")
-                                )
+                                desc_parts.append(invalid_subplots["reasons"].fillna("Unknown error"))
 
                             # Add area if available
                             if "area_m2" in invalid_subplots.columns:
-                                desc_parts.append(
-                                    "Area: "
-                                    + invalid_subplots["area_m2"].round(2).astype(str)
-                                    + " m²"
-                                )
+                                desc_parts.append("Area: " + invalid_subplots["area_m2"].round(2).astype(str) + " m²")
 
                             # Add vertex count if available
                             if "nr_vertices" in invalid_subplots.columns:
-                                desc_parts.append(
-                                    "Vertices: "
-                                    + invalid_subplots["nr_vertices"].astype(str)
-                                )
+                                desc_parts.append("Vertices: " + invalid_subplots["nr_vertices"].astype(str))
 
                             # Combine all description parts
                             if desc_parts:
                                 result["Issue Description"] = desc_parts[0].astype(str)
                                 for part in desc_parts[1:]:
-                                    result["Issue Description"] = (
-                                        result["Issue Description"]
-                                        + " | "
-                                        + part.astype(str)
-                                    )
+                                    result["Issue Description"] = result["Issue Description"] + " | " + part.astype(str)
                             else:
                                 result["Issue Description"] = "Geometry validation failed"
 
@@ -946,13 +928,19 @@ if st.session_state.data is not None:
                                     )
 
                                     # Merge and apply 4x/0.25x thresholds
-                                    height_total = pd.merge(height_check, median_check, how="inner", on="VEGETATION_KEY")
+                                    height_total = pd.merge(
+                                        height_check, median_check, how="inner", on="VEGETATION_KEY"
+                                    )
                                     height_total["Upper_outliers"] = height_total.apply(
-                                        lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
+                                        lambda row: "outlier"
+                                        if row["tree_height_m"] > (row["median_height"] * 4)
+                                        else "ok",
                                         axis=1,
                                     )
                                     height_total["Lower_outliers"] = height_total.apply(
-                                        lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
+                                        lambda row: "outlier"
+                                        if row["tree_height_m"] < (row["median_height"] / 4)
+                                        else "ok",
                                         axis=1,
                                     )
 
@@ -972,7 +960,10 @@ if st.session_state.data is not None:
                                     if "enumerator" in filtered_gdf.columns and "subplot_id" in height_outliers.columns:
                                         enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                         height_outliers = height_outliers.merge(enum_map, on="subplot_id", how="left")
-                                    elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in height_outliers.columns:
+                                    elif (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "SUBPLOT_KEY" in height_outliers.columns
+                                    ):
                                         enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                         enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
                                         height_outliers = height_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
@@ -989,6 +980,7 @@ if st.session_state.data is not None:
                                         "Upper_outliers",
                                         "Lower_outliers",
                                     ],
+                                    key_col="MEASUREMENT_KEY",
                                 )
                                 sheet_name = "Height Outliers"
                                 export_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1049,7 +1041,9 @@ if st.session_state.data is not None:
                                     if "enumerator" in filtered_gdf.columns and "subplot_id" in circ_outliers.columns:
                                         enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                         circ_outliers = circ_outliers.merge(enum_map, on="subplot_id", how="left")
-                                    elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns:
+                                    elif (
+                                        "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns
+                                    ):
                                         enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                         enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
                                         circ_outliers = circ_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
@@ -1066,36 +1060,236 @@ if st.session_state.data is not None:
                                         "Upper_outliers",
                                         "Lower_outliers",
                                     ],
+                                    key_col="CIRCUMFERENCE_KEY",
                                 )
                                 sheet_name = "Circumference Outliers"
-                                export_df.to_excel(
-                                    writer, sheet_name=sheet_name, index=False
-                                )
+                                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                                 sheet_dataframes[sheet_name] = export_df
                                 sheets_created += 1
                         except Exception as e:
                             st.warning(f"Could not export Circumference Outliers: {str(e)}")
+
+                    # SHEET: Height Outliers (by Species) - supplements VEGETATION_KEY-based outliers
+                    if has_complete and len(complete_df) > 0:
+                        try:
+                            # Load species lookup for normalization
+                            scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+
+                            # Filter to woody trees only
+                            if "vegetation_type_woody" in complete_df.columns:
+                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                            else:
+                                woody_export = complete_df.copy()
+
+                            # Normalize species names
+                            woody_export["normalized_species"] = woody_export.apply(
+                                lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                            )
+
+                            # Height outliers by species
+                            if "tree_height_m" in woody_export.columns:
+                                height_by_species = detect_species_outliers(woody_export, "tree_height_m")
+                                if len(height_by_species) > 0:
+                                    height_outliers_species = height_by_species[height_by_species["is_outlier"] == True]
+
+                                    if len(height_outliers_species) > 0:
+                                        # Add outlier type
+                                        height_outliers_species = height_outliers_species.copy()
+                                        height_outliers_species["outlier_type"] = height_outliers_species.apply(
+                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                                            axis=1,
+                                        )
+
+                                        export_df = format_for_export(
+                                            height_outliers_species,
+                                            issue_type="Height Outlier (by Species)",
+                                            additional_cols=[
+                                                "tree_height_m",
+                                                "species_median",
+                                                "normalized_species",
+                                                "outlier_type",
+                                            ],
+                                            key_col="MEASUREMENT_KEY",
+                                        )
+                                        sheet_name = "Height Outliers (Species)"
+                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                        sheet_dataframes[sheet_name] = export_df
+                                        sheets_created += 1
+                        except Exception as e:
+                            st.warning(f"Could not export Height Outliers (Species): {str(e)}")
+
+                    # SHEET: Circumference Outliers (by Species)
+                    if has_complete and len(complete_df) > 0:
+                        try:
+                            # Load species lookup if not already loaded
+                            if "scientific_lookup" not in locals():
+                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+
+                            # Filter to woody trees only
+                            if "vegetation_type_woody" in complete_df.columns:
+                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                            else:
+                                woody_export = complete_df.copy()
+
+                            # Normalize species names if not already done
+                            if "normalized_species" not in woody_export.columns:
+                                woody_export["normalized_species"] = woody_export.apply(
+                                    lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                                )
+
+                            # Circumference outliers by species
+                            if "circumference_bh" in woody_export.columns:
+                                circ_by_species = detect_species_outliers(woody_export, "circumference_bh")
+                                if len(circ_by_species) > 0:
+                                    circ_outliers_species = circ_by_species[circ_by_species["is_outlier"] == True]
+
+                                    if len(circ_outliers_species) > 0:
+                                        # Add outlier type
+                                        circ_outliers_species = circ_outliers_species.copy()
+                                        circ_outliers_species["outlier_type"] = circ_outliers_species.apply(
+                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                                            axis=1,
+                                        )
+
+                                        export_df = format_for_export(
+                                            circ_outliers_species,
+                                            issue_type="Circumference Outlier (by Species)",
+                                            additional_cols=[
+                                                "circumference_bh",
+                                                "species_median",
+                                                "normalized_species",
+                                                "outlier_type",
+                                            ],
+                                            key_col="CIRCUMFERENCE_KEY",
+                                        )
+                                        sheet_name = "Circ Outliers (Species)"
+                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                        sheet_dataframes[sheet_name] = export_df
+                                        sheets_created += 1
+                        except Exception as e:
+                            st.warning(f"Could not export Circumference Outliers (Species): {str(e)}")
+
+                    # SHEET: Stem Count Outliers (by Species)
+                    if has_complete and len(complete_df) > 0:
+                        try:
+                            # Load species lookup if not already loaded
+                            if "scientific_lookup" not in locals():
+                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+
+                            # Filter to woody trees only
+                            if "vegetation_type_woody" in complete_df.columns:
+                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                            else:
+                                woody_export = complete_df.copy()
+
+                            # Normalize species names if not already done
+                            if "normalized_species" not in woody_export.columns:
+                                woody_export["normalized_species"] = woody_export.apply(
+                                    lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                                )
+
+                            # Stem count outliers by species
+                            if "nr_stems_bh" in woody_export.columns:
+                                stems_by_species = detect_species_outliers(woody_export, "nr_stems_bh")
+                                if len(stems_by_species) > 0:
+                                    stems_outliers_species = stems_by_species[stems_by_species["is_outlier"] == True]
+
+                                    if len(stems_outliers_species) > 0:
+                                        # Add outlier type
+                                        stems_outliers_species = stems_outliers_species.copy()
+                                        stems_outliers_species["outlier_type"] = stems_outliers_species.apply(
+                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                                            axis=1,
+                                        )
+
+                                        export_df = format_for_export(
+                                            stems_outliers_species,
+                                            issue_type="Stem Count Outlier (by Species)",
+                                            additional_cols=[
+                                                "nr_stems_bh",
+                                                "species_median",
+                                                "normalized_species",
+                                                "outlier_type",
+                                            ],
+                                            key_col="MEASUREMENT_KEY",
+                                        )
+                                        sheet_name = "Stem Outliers (Species)"
+                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                        sheet_dataframes[sheet_name] = export_df
+                                        sheets_created += 1
+                        except Exception as e:
+                            st.warning(f"Could not export Stem Count Outliers (Species): {str(e)}")
+
+                    # SHEETS: DBSCAN Outliers (one sheet per attribute: Height, Circ, Stems)
+                    if has_complete and len(complete_df) > 0:
+                        # Prepare woody data with age and species
+                        woody_export = complete_df.copy()
+                        if "vegetation_type_woody" in woody_export.columns:
+                            woody_export = woody_export[woody_export["vegetation_type_woody"] == "woody"].copy()
+
+                        if "tree_age" not in woody_export.columns and "tree_year_planted" in woody_export.columns:
+                            woody_export = calculate_tree_age(woody_export)
+
+                        if "normalized_species" not in woody_export.columns:
+                            if "scientific_lookup" not in locals():
+                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                            woody_export["normalized_species"] = woody_export.apply(
+                                lambda row: normalize_species_name(row, scientific_lookup, common_lookup),
+                                axis=1,
+                            )
+
+                        # Export for each attribute (Height, Circumference, Stems)
+                        for metric_col, sheet_suffix in [
+                            ("tree_height_m", "Height"),
+                            ("circumference_bh", "Circ"),
+                            ("nr_stems_bh", "Stems"),
+                        ]:
+                            if (
+                                metric_col in woody_export.columns
+                                and "tree_age" in woody_export.columns
+                                and "normalized_species" in woody_export.columns
+                            ):
+                                try:
+                                    dbscan_results = detect_multivariate_outliers_dbscan(
+                                        woody_export,
+                                        metric_col=metric_col,
+                                        eps=0.5,
+                                        min_samples=3,
+                                    )
+                                    if len(dbscan_results) > 0:
+                                        dbscan_outliers = dbscan_results[dbscan_results["is_outlier"] == True]
+                                        if len(dbscan_outliers) > 0:
+                                            export_df = format_for_export(
+                                                dbscan_outliers,
+                                                issue_type=f"DBSCAN Outlier ({sheet_suffix})",
+                                                additional_cols=[
+                                                    "tree_age",
+                                                    metric_col,
+                                                    "normalized_species",
+                                                ],
+                                                key_col="MEASUREMENT_KEY",
+                                            )
+                                            sheet_name = f"Outliers DBSCAN ({sheet_suffix})"
+                                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                            sheet_dataframes[sheet_name] = export_df
+                                            sheets_created += 1
+                                except Exception as e:
+                                    st.warning(f"Could not export DBSCAN {sheet_suffix} Outliers: {str(e)}")
 
                     # SHEET 10: Super Tall Trees (>25m)
                     if has_measurements:
                         try:
                             m_mea = raw_data["plots_subplots_vegetation_measurements"]
                             if "MEASUREMENT_KEY" in m_mea.columns:
-                                m_mea_actual = m_mea[
-                                    m_mea["MEASUREMENT_KEY"].notna()
-                                ].copy()
+                                m_mea_actual = m_mea[m_mea["MEASUREMENT_KEY"].notna()].copy()
                             else:
                                 m_mea_actual = m_mea.copy()
 
                             if "tree_height_m" in m_mea_actual.columns:
-                                super_tall = m_mea_actual[
-                                    m_mea_actual["tree_height_m"] > 25
-                                ].copy()
+                                super_tall = m_mea_actual[m_mea_actual["tree_height_m"] > 25].copy()
 
                                 if len(super_tall) > 0:
-                                    super_tall = merge_with_enumerator(
-                                        super_tall, filtered_gdf
-                                    )
+                                    super_tall = merge_with_enumerator(super_tall, filtered_gdf)
                                     super_tall = add_tree_name_column(super_tall)
 
                                     # Ensure enumerator column exists - try multiple approaches
@@ -1104,7 +1298,9 @@ if st.session_state.data is not None:
                                         if "enumerator" in filtered_gdf.columns and "subplot_id" in super_tall.columns:
                                             enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                             super_tall = super_tall.merge(enum_map, on="subplot_id", how="left")
-                                        elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in super_tall.columns:
+                                        elif (
+                                            "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in super_tall.columns
+                                        ):
                                             enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                             enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
                                             super_tall = super_tall.merge(enum_map, on="SUBPLOT_KEY", how="left")
@@ -1119,6 +1315,7 @@ if st.session_state.data is not None:
                                             "tree_name",
                                             "tree_year_planted",
                                         ],
+                                        key_col="MEASUREMENT_KEY",
                                     )
                                     sheet_name = "Super Tall Trees"
                                     export_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1130,12 +1327,8 @@ if st.session_state.data is not None:
                     # SHEET 11: High Stem Counts (>20)
                     if has_measurements and len(meas_with_enum) > 0:
                         try:
-                            meas_with_stems = detect_stem_outliers(
-                                meas_with_enum, threshold=20
-                            )
-                            high_stems = meas_with_stems[
-                                meas_with_stems["high_stems_bh"] == True
-                            ]
+                            meas_with_stems = detect_stem_outliers(meas_with_enum, threshold=20)
+                            high_stems = meas_with_stems[meas_with_stems["high_stems_bh"] == True]
 
                             if len(high_stems) > 0:
                                 # Ensure enumerator column exists - try multiple approaches
@@ -1159,6 +1352,7 @@ if st.session_state.data is not None:
                                         "tree_name",
                                         species_col,
                                     ],
+                                    key_col="MEASUREMENT_KEY",
                                 )
                                 sheet_name = "High Stem Counts"
                                 export_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1170,9 +1364,7 @@ if st.session_state.data is not None:
                     # SHEET 12: Suspicious Circumference by Age
                     if has_complete:
                         try:
-                            complete_with_enum = merge_with_enumerator(
-                                complete_df, filtered_gdf
-                            )
+                            complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
                             complete_with_enum = add_tree_name_column(complete_with_enum)
 
                             if "circumference_bh" in complete_with_enum.columns:
@@ -1182,13 +1374,8 @@ if st.session_state.data is not None:
                             else:
                                 circ_col = None
 
-                            if (
-                                circ_col
-                                and "tree_year_planted" in complete_with_enum.columns
-                            ):
-                                circ_data = complete_with_enum[
-                                    complete_with_enum[circ_col].notna()
-                                ].copy()
+                            if circ_col and "tree_year_planted" in complete_with_enum.columns:
+                                circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
                                 circ_data = calculate_tree_age(circ_data)
 
                                 if circ_data["tree_age"].notna().any():
@@ -1207,10 +1394,16 @@ if st.session_state.data is not None:
                                         # Ensure enumerator column exists - try multiple approaches
                                         if "enumerator" not in suspicious.columns:
                                             # Try to add from filtered_gdf if available
-                                            if "enumerator" in filtered_gdf.columns and "subplot_id" in suspicious.columns:
+                                            if (
+                                                "enumerator" in filtered_gdf.columns
+                                                and "subplot_id" in suspicious.columns
+                                            ):
                                                 enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                                 suspicious = suspicious.merge(enum_map, on="subplot_id", how="left")
-                                            elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in suspicious.columns:
+                                            elif (
+                                                "enumerator" in filtered_gdf.columns
+                                                and "SUBPLOT_KEY" in suspicious.columns
+                                            ):
                                                 enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                                                 enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
                                                 suspicious = suspicious.merge(enum_map, on="SUBPLOT_KEY", how="left")
@@ -1226,11 +1419,10 @@ if st.session_state.data is not None:
                                                 "tree_year_planted",
                                                 "tree_name",
                                             ],
+                                            key_col="CIRCUMFERENCE_KEY",
                                         )
                                         sheet_name = "Suspicious Circ by Age"
-                                        export_df.to_excel(
-                                            writer, sheet_name=sheet_name, index=False
-                                        )
+                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                                         sheet_dataframes[sheet_name] = export_df
                                         sheets_created += 1
                         except Exception as e:
@@ -1254,7 +1446,9 @@ if st.session_state.data is not None:
 
                             # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
                             temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
-                                lambda x: int(re.search(r'\[(\d+)\]', str(x)).group(1)) if re.search(r'\[(\d+)\]', str(x)) else 999
+                                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                if re.search(r"\[(\d+)\]", str(x))
+                                else 999
                             )
 
                             # Convert measured_subplots to int
@@ -1295,14 +1489,16 @@ if st.session_state.data is not None:
                                     parts = []
 
                                     # Extract subplot number
-                                    subplot_match = re.search(r'\[(\d+)\]', str(row.get("SUBPLOT_KEY", "")))
+                                    subplot_match = re.search(r"\[(\d+)\]", str(row.get("SUBPLOT_KEY", "")))
                                     if subplot_match:
                                         subplot_num = subplot_match.group(1)
                                         parts.append(f"Subplot #{subplot_num}")
 
                                     # Add measured_subplots info
                                     if pd.notna(row.get("measured_subplots")):
-                                        parts.append(f"Enumerator claimed {int(row['measured_subplots'])} subplots measured")
+                                        parts.append(
+                                            f"Enumerator claimed {int(row['measured_subplots'])} subplots measured"
+                                        )
 
                                     # Add comments if available
                                     if pd.notna(row.get("subplot_comments")):
@@ -1318,12 +1514,14 @@ if st.session_state.data is not None:
                                     missing_veg,
                                     issue_type="Missing Vegetation",
                                     issue_description_col="description",
+                                    key_col="SUBPLOT_KEY",
                                 )
                             else:
                                 export_df = format_for_export(
                                     missing_veg,
                                     issue_type="Missing Vegetation",
                                     additional_cols=["subplot_comments"],
+                                    key_col="SUBPLOT_KEY",
                                 )
                             sheet_name = "Missing Vegetation"
                             export_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1368,17 +1566,29 @@ if st.session_state.data is not None:
                                     parts.append("Species marked as 'other'")
 
                                 # Check which species column has "other"
-                                species_cols = ["woody_species", "bamboo_species", "palm_species",
-                                              "banana_species", "non_woody_species", "vegetation_species_type"]
+                                species_cols = [
+                                    "woody_species",
+                                    "bamboo_species",
+                                    "palm_species",
+                                    "banana_species",
+                                    "non_woody_species",
+                                    "vegetation_species_type",
+                                ]
                                 for col in species_cols:
-                                    if col in row.index and pd.notna(row.get(col)) and str(row.get(col)).lower() == "other":
+                                    if (
+                                        col in row.index
+                                        and pd.notna(row.get(col))
+                                        and str(row.get(col)).lower() == "other"
+                                    ):
                                         parts.append(f"Type: {col.replace('_', ' ').title()}")
                                         break
 
-                                if pd.notna(row.get("language_other_species")) and row.get("language_other_species") != "":
+                                if (
+                                    pd.notna(row.get("language_other_species"))
+                                    and row.get("language_other_species") != ""
+                                ):
                                     parts.append(f"Local: {row['language_other_species']}")
 
-                                
                                 parts.append("Needs botanical verification")
 
                                 return " | ".join(parts)
@@ -1389,8 +1599,15 @@ if st.session_state.data is not None:
                                 unknown_species,
                                 issue_type="Unknown Species",
                                 issue_description_col="description",
-                                additional_cols=["tree_name", "woody_species", "non_woody_species",
-                                               "bamboo_species", "palm_species", "banana_species"],
+                                additional_cols=[
+                                    "tree_name",
+                                    "woody_species",
+                                    "non_woody_species",
+                                    "bamboo_species",
+                                    "palm_species",
+                                    "banana_species",
+                                ],
+                                key_col="VEGETATION_KEY",
                             )
                             sheet_name = "Unknown Species"
                             export_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -1401,9 +1618,7 @@ if st.session_state.data is not None:
 
                     # Summary sheet if no data
                     if sheets_created == 0:
-                        summary_df = pd.DataFrame(
-                            {"Note": ["No quality issues found - all checks passed!"]}
-                        )
+                        summary_df = pd.DataFrame({"Note": ["No quality issues found - all checks passed!"]})
                         sheet_name = "Summary"
                         summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         sheet_dataframes[sheet_name] = summary_df
@@ -1414,7 +1629,7 @@ if st.session_state.data is not None:
                             if sheet_name in writer.sheets:
                                 worksheet = writer.sheets[sheet_name]
                                 adjust_excel_column_widths(worksheet, df)
-                    except Exception as e:
+                    except Exception:
                         # Column width adjustment is optional - don't fail export if it errors
                         pass
 
@@ -1458,15 +1673,11 @@ if st.session_state.data is not None:
                 raw_data = st.session_state.data.get("raw_data", {})
 
                 # Generate PDF
-                pdf_buffer = generate_summary_pdf_report(
-                    filtered_gdf,
-                    raw_data,
-                    partner_name=config.PARTNER
-                )
+                pdf_buffer = generate_summary_pdf_report(filtered_gdf, raw_data, partner_name=config.PARTNER)
 
                 # Store in session state
                 st.session_state.summary_pdf_buffer = pdf_buffer.getvalue()
-                st.session_state.summary_pdf_timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+                st.session_state.summary_pdf_timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
 
                 st.success("✅ PDF summary report generated successfully!")
 
@@ -1474,6 +1685,7 @@ if st.session_state.data is not None:
                 st.error(f"❌ Error generating PDF report: {str(e)}")
                 st.exception(e)
                 import traceback
+
                 st.code(traceback.format_exc())
 
     # Show download button if PDF is available
@@ -1579,8 +1791,7 @@ if st.session_state.data is not None:
                 "Error Type": list(summary["reason_counts"].keys()),
                 "Count": list(summary["reason_counts"].values()),
                 "Percentage": [
-                    f"{(count/summary['invalid']*100):.1f}%"
-                    for count in summary["reason_counts"].values()
+                    f"{(count / summary['invalid'] * 100):.1f}%" for count in summary["reason_counts"].values()
                 ],
             }
         ).sort_values("Count", ascending=False)
@@ -1595,6 +1806,4 @@ else:
     # Welcome screen
     st.markdown("## 👋 Welcome to Ground Truth DQM")
 
-    st.info(
-        "👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data"
-    )
+    st.info("👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data")

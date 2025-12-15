@@ -4,7 +4,6 @@ Add this to your data_processor.py file
 """
 
 import pandas as pd
-import geopandas as gpd
 
 
 def process_surveycto_data(data_dict: dict):
@@ -80,9 +79,7 @@ def process_surveycto_data(data_dict: dict):
                     pass
 
         if subplot_indices:
-            subplots_df = extract_indexed_repeat_group(
-                main_df, "subplots", subplot_indices
-            )
+            subplots_df = extract_indexed_repeat_group(main_df, "subplots", subplot_indices)
         else:
             raise ValueError(
                 "Could not find subplot data in SurveyCTO response. "
@@ -219,17 +216,12 @@ def extract_repeat_group(df: pd.DataFrame, group_name: str) -> pd.DataFrame:
     repeat_df = pd.DataFrame(repeat_data)
 
     # Generate KEY for repeat group records
-    repeat_df["KEY"] = [
-        f"{row['PARENT_KEY']}-{group_name}-{i}"
-        for i, row in enumerate(repeat_df.iterrows())
-    ]
+    repeat_df["KEY"] = [f"{row['PARENT_KEY']}-{group_name}-{i}" for i, row in enumerate(repeat_df.iterrows())]
 
     return repeat_df
 
 
-def extract_indexed_repeat_group(
-    df: pd.DataFrame, group_name: str, indices: set
-) -> pd.DataFrame:
+def extract_indexed_repeat_group(df: pd.DataFrame, group_name: str, indices: set) -> pd.DataFrame:
     """
     Extract repeat group data from indexed columns
     Pattern: {group_name}[0]-field, {group_name}[1]-field, etc.
@@ -292,9 +284,7 @@ def map_surveycto_columns(df: pd.DataFrame, column_mapping: dict) -> pd.DataFram
     """
 
     # Only rename columns that exist
-    existing_mapping = {
-        old: new for old, new in column_mapping.items() if old in df.columns
-    }
+    existing_mapping = {old: new for old, new in column_mapping.items() if old in df.columns}
 
     return df.rename(columns=existing_mapping)
 

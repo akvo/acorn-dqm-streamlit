@@ -25,7 +25,7 @@ def save_to_cache(partner: str, data_type: str, json_data: list):
     """Save API response to cache."""
     CACHE_DIR.mkdir(exist_ok=True)
     cache_path = get_cache_path(partner, data_type)
-    with open(cache_path, 'w') as f:
+    with open(cache_path, "w") as f:
         json.dump(json_data, f)
 
 
@@ -33,7 +33,7 @@ def load_from_cache(partner: str, data_type: str) -> Optional[list]:
     """Load cached data if available."""
     cache_path = get_cache_path(partner, data_type)
     if cache_path.exists():
-        with open(cache_path, 'r') as f:
+        with open(cache_path, "r") as f:
             return json.load(f)
     return None
 

@@ -116,9 +116,7 @@ with col2:
 with col3:
     st.metric("Invalid", f"{summary['invalid']:,}")
 with col4:
-    avg_area = (
-        filtered_gdf["area_m2"].mean() if "area_m2" in filtered_gdf.columns else 0
-    )
+    avg_area = filtered_gdf["area_m2"].mean() if "area_m2" in filtered_gdf.columns else 0
     st.metric("Avg Area", f"{avg_area:.0f} m²")
 
 st.markdown("---")
@@ -148,7 +146,7 @@ if "PLOT_KEY" in filtered_gdf.columns:
             "Select a plot to zoom into",
             options=plot_options,
             index=0,
-            help="Select a specific plot to zoom into and highlight its subplots"
+            help="Select a specific plot to zoom into and highlight its subplots",
         )
 
     # Extract the actual plot key from selection
@@ -161,7 +159,9 @@ if "PLOT_KEY" in filtered_gdf.columns:
 
     with col_select2:
         if selected_plot_key:
-            st.info(f"📍 Showing **1** plot with **{len(filtered_gdf[filtered_gdf['PLOT_KEY'] == selected_plot_key])}** subplots")
+            st.info(
+                f"📍 Showing **1** plot with **{len(filtered_gdf[filtered_gdf['PLOT_KEY'] == selected_plot_key])}** subplots"
+            )
         else:
             st.info(f"📍 Showing **{len(plot_keys_sorted)}** plots")
 else:
@@ -252,24 +252,23 @@ try:
         geom = row.geometry
         polygons_to_plot = []
 
-        if geom.geom_type == 'Polygon':
+        if geom.geom_type == "Polygon":
             polygons_to_plot = [geom]
-        elif geom.geom_type == 'MultiPolygon':
+        elif geom.geom_type == "MultiPolygon":
             polygons_to_plot = list(geom.geoms)
         else:
             # Skip other geometry types (Point, LineString, etc.)
             continue
 
         # Check if this subplot belongs to the selected plot
-        is_selected_plot = (selected_plot_key is not None and
-                           row.get('PLOT_KEY') == selected_plot_key)
+        is_selected_plot = selected_plot_key is not None and row.get("PLOT_KEY") == selected_plot_key
 
         # Create detailed popup
-        plot_key_display = row.get('PLOT_KEY', 'N/A')
+        plot_key_display = row.get("PLOT_KEY", "N/A")
 
         # Get submission date
-        submission_date = row.get('SubmissionDate') or row.get('starttime') or row.get('date', 'N/A')
-        if pd.notna(submission_date) and submission_date != 'N/A':
+        submission_date = row.get("SubmissionDate") or row.get("starttime") or row.get("date", "N/A")
+        if pd.notna(submission_date) and submission_date != "N/A":
             try:
                 submission_date = pd.to_datetime(submission_date).strftime("%Y-%m-%d")
             except:
@@ -277,11 +276,11 @@ try:
 
         popup_html = f"""
         <div style="font-family: Arial, sans-serif; min-width: 250px; max-width: 300px;">
-            <div style="background: {'#4CAF50' if row['geom_valid'] else '#F44336'};
+            <div style="background: {"#4CAF50" if row["geom_valid"] else "#F44336"};
                         color: white; padding: 8px; margin: -10px -10px 10px -10px;
                         border-radius: 3px 3px 0 0;">
                 <h3 style="margin: 0; font-size: 16px;">
-                    {'✅ VALID' if row['geom_valid'] else '❌ INVALID'}
+                    {"✅ VALID" if row["geom_valid"] else "❌ INVALID"}
                 </h3>
             </div>
 
@@ -292,7 +291,7 @@ try:
                 </tr>
                 <tr>
                     <td style="padding: 4px; font-weight: bold; width: 40%;">Subplot ID:</td>
-                    <td style="padding: 4px;">{row.get('subplot_id', 'N/A')}</td>
+                    <td style="padding: 4px;">{row.get("subplot_id", "N/A")}</td>
                 </tr>
                 <tr style="background-color: #f5f5f5;">
                     <td style="padding: 4px; font-weight: bold;">Date:</td>
@@ -300,15 +299,15 @@ try:
                 </tr>
                 <tr>
                     <td style="padding: 4px; font-weight: bold;">Area:</td>
-                    <td style="padding: 4px;">{row.get('area_m2', 0):.1f} m²</td>
+                    <td style="padding: 4px;">{row.get("area_m2", 0):.1f} m²</td>
                 </tr>
                 <tr style="background-color: #f5f5f5;">
                     <td style="padding: 4px; font-weight: bold;">Vertices:</td>
-                    <td style="padding: 4px;">{row.get('nr_vertices', 0)}</td>
+                    <td style="padding: 4px;">{row.get("nr_vertices", 0)}</td>
                 </tr>
                 <tr>
                     <td style="padding: 4px; font-weight: bold;">Enumerator:</td>
-                    <td style="padding: 4px;">{row.get('enumerator', 'N/A')}</td>
+                    <td style="padding: 4px;">{row.get("enumerator", "N/A")}</td>
                 </tr>
         """
 
@@ -316,11 +315,11 @@ try:
         if "area_m2" in row.index and row.get("area_m2", 0) > 0:
             area = row["area_m2"]
             if area < config.MIN_SUBPLOT_AREA_SIZE:
-                area_status = f"<span style='color: red;'>⚠️ Too small</span>"
+                area_status = "<span style='color: red;'>⚠️ Too small</span>"
             elif area > config.MAX_SUBPLOT_AREA_SIZE:
-                area_status = f"<span style='color: red;'>⚠️ Too large</span>"
+                area_status = "<span style='color: red;'>⚠️ Too large</span>"
             else:
-                area_status = f"<span style='color: green;'>✓ Within range</span>"
+                area_status = "<span style='color: green;'>✓ Within range</span>"
 
             popup_html += f"""
                 <tr>
@@ -375,7 +374,7 @@ try:
             fill_opacity = 0.4
 
         # Create tooltip with plot key info
-        plot_short = str(row.get('PLOT_KEY', ''))[-12:] if row.get('PLOT_KEY') else 'N/A'
+        plot_short = str(row.get("PLOT_KEY", ""))[-12:] if row.get("PLOT_KEY") else "N/A"
         tooltip_text = f"Plot: ...{plot_short} | Subplot: {row.get('subplot_id', 'N/A')}"
         if "area_m2" in row.index:
             tooltip_text += f" • {row.get('area_m2', 0):.0f}m²"
@@ -433,9 +432,9 @@ try:
         </h4>
         <div style="font-size: 14px; line-height: 1.8;">
             <b>Total Shown:</b> {len(filtered_gdf)}<br>
-            <b style="color: #4CAF50;">✅ Valid:</b> {summary['valid']}<br>
-            <b style="color: #F44336;">❌ Invalid:</b> {summary['invalid']}<br>
-            <b>📈 Valid %:</b> {summary['valid_pct']:.1f}%
+            <b style="color: #4CAF50;">✅ Valid:</b> {summary["valid"]}<br>
+            <b style="color: #F44336;">❌ Invalid:</b> {summary["invalid"]}<br>
+            <b>📈 Valid %:</b> {summary["valid_pct"]:.1f}%
         </div>
     </div>
     """
@@ -492,17 +491,14 @@ if veg_df is not None and len(veg_df) > 0:
     if "vegetation_species_type" in veg_df.columns:
         unique_types = veg_df["vegetation_species_type"].dropna().unique().tolist()
         # Clean and sort
-        unique_types = sorted([str(t).strip() for t in unique_types if str(t).strip() and str(t).lower() != 'nan'])
+        unique_types = sorted([str(t).strip() for t in unique_types if str(t).strip() and str(t).lower() != "nan"])
         veg_types.extend(unique_types)
 
     # Vegetation type filter and plot selector
     col_filter1, col_filter2, col_filter3 = st.columns([2, 2, 2])
     with col_filter1:
         selected_veg_type = st.selectbox(
-            "Filter by Vegetation Type",
-            options=veg_types,
-            index=0,
-            key="tree_count_veg_filter"
+            "Filter by Vegetation Type", options=veg_types, index=0, key="tree_count_veg_filter"
         )
 
     # Filter vegetation data by type
@@ -537,7 +533,7 @@ if veg_df is not None and len(veg_df) > 0:
             f"Zoom to Plot ({len(tree_map_plot_keys) - 1} plots with {selected_veg_type})",
             options=tree_map_plot_keys,
             index=0,
-            key="tree_count_plot_filter"
+            key="tree_count_plot_filter",
         )
 
     # Calculate tree count per subplot
@@ -560,8 +556,9 @@ if veg_df is not None and len(veg_df) > 0:
             if "PLOT_KEY" in tree_count_gdf.columns:
                 tree_count_gdf["SUBPLOT_KEY"] = tree_count_gdf.apply(
                     lambda row: f"{row['PLOT_KEY']}/sub_plot[{row['subplot_id'].split('[')[1].split(']')[0] if '[' in str(row['subplot_id']) else '0'}]"
-                    if pd.notna(row.get('subplot_id')) and pd.notna(row.get('PLOT_KEY')) else None,
-                    axis=1
+                    if pd.notna(row.get("subplot_id")) and pd.notna(row.get("PLOT_KEY"))
+                    else None,
+                    axis=1,
                 )
 
         # Merge tree counts
@@ -641,9 +638,9 @@ if veg_df is not None and len(veg_df) > 0:
                 geom = row.geometry
                 polygons_to_plot = []
 
-                if geom.geom_type == 'Polygon':
+                if geom.geom_type == "Polygon":
                     polygons_to_plot = [geom]
-                elif geom.geom_type == 'MultiPolygon':
+                elif geom.geom_type == "MultiPolygon":
                     polygons_to_plot = list(geom.geoms)
                 else:
                     continue
@@ -652,8 +649,8 @@ if veg_df is not None and len(veg_df) > 0:
                 color = get_tree_count_color(tree_count)
 
                 # Get submission date for tree count map
-                tree_submission_date = row.get('SubmissionDate') or row.get('starttime') or row.get('date', 'N/A')
-                if pd.notna(tree_submission_date) and tree_submission_date != 'N/A':
+                tree_submission_date = row.get("SubmissionDate") or row.get("starttime") or row.get("date", "N/A")
+                if pd.notna(tree_submission_date) and tree_submission_date != "N/A":
                     try:
                         tree_submission_date = pd.to_datetime(tree_submission_date).strftime("%Y-%m-%d")
                     except:
@@ -664,11 +661,11 @@ if veg_df is not None and len(veg_df) > 0:
                 <div style="font-family: Arial; min-width: 200px;">
                     <h4 style="margin: 0 0 10px 0; color: #2E7D32;">🌳 Tree Count: {tree_count}</h4>
                     <table style="width: 100%; font-size: 12px;">
-                        <tr><td><b>Plot:</b></td><td style="font-size: 10px;">{row.get('PLOT_KEY', 'N/A')}</td></tr>
-                        <tr><td><b>Subplot:</b></td><td>{row.get('subplot_id', 'N/A')}</td></tr>
+                        <tr><td><b>Plot:</b></td><td style="font-size: 10px;">{row.get("PLOT_KEY", "N/A")}</td></tr>
+                        <tr><td><b>Subplot:</b></td><td>{row.get("subplot_id", "N/A")}</td></tr>
                         <tr><td><b>Date:</b></td><td>{tree_submission_date}</td></tr>
                         <tr><td><b>Vegetation Type:</b></td><td>{selected_veg_type}</td></tr>
-                        <tr><td><b>Enumerator:</b></td><td>{row.get('enumerator', 'N/A')}</td></tr>
+                        <tr><td><b>Enumerator:</b></td><td>{row.get("enumerator", "N/A")}</td></tr>
                     </table>
                 </div>
                 """
@@ -730,7 +727,9 @@ if veg_df is not None and len(veg_df) > 0:
             m2.get_root().html.add_child(folium.Element(legend_html))
 
             # Display map
-            st.info(f"💡 Showing tree counts for **{selected_veg_type}** vegetation type. Click subplots to see details.")
+            st.info(
+                f"💡 Showing tree counts for **{selected_veg_type}** vegetation type. Click subplots to see details."
+            )
             st_folium(m2, width=None, height=600, returned_objects=[], key="tree_count_map")
 
         except Exception as e:

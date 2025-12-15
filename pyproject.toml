@@ -1,0 +1,29 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+# Exclude common directories
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "data_cache",
+]
+
+[tool.ruff.lint]
+# Start relaxed: E (pycodestyle errors), F (pyflakes), W (pycodestyle warnings)
+select = ["E", "F", "W"]
+
+# Ignore specific rules that may be too noisy initially
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E402",  # module level import not at top of file (needed for load_dotenv pattern)
+    "E712",  # comparison to True/False (intentional for pandas boolean column filtering)
+    "F841",  # local variable assigned but never used (common during development)
+]
+
+[tool.ruff.format]
+# Use double quotes for strings (Python convention)
+quote-style = "double"
+indent-style = "space"
