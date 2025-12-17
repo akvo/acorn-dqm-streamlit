@@ -194,11 +194,11 @@ def create_sidebar_filters(gdf):
     gdf_with_date = gdf.copy()
 
     try:
-        # Check if date column already exists
-        if "starttime" in gdf.columns:
-            date_col = "starttime"
-        elif "SubmissionDate" in gdf.columns:
+        # Check if date column already exists (prioritize SubmissionDate over starttime)
+        if "SubmissionDate" in gdf.columns:
             date_col = "SubmissionDate"
+        elif "starttime" in gdf.columns:
+            date_col = "starttime"
         elif hasattr(st.session_state, "data") and st.session_state.data and "raw_data" in st.session_state.data:
             # Try to add date from raw_data
             raw_data = st.session_state.data.get("raw_data", {})
