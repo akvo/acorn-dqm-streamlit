@@ -35,7 +35,7 @@ import re as regex_module
 
 
 def fetch_surveycto_data(
-    server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label=""
+    server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label="", start_date=None
 ):
     """
     Fetch data from SurveyCTO API with comprehensive error handling.
@@ -49,16 +49,29 @@ def fetch_surveycto_data(
         progress_start: Start percentage for progress bar
         progress_end: End percentage for progress bar
         label: Label for progress messages (e.g., "GT" or "DQ")
+        start_date: Optional start date string (YYYY-MM-DD) to fetch data from
 
     Returns:
         tuple: (success: bool, data: dict or None, error_message: str or None)
     """
+    from datetime import datetime
+
     try:
         if progress_bar:
             progress_bar.progress(progress_start, text=f"Fetching {label} data from API...")
 
         url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
-        params = {"date": "0"}
+
+        # Convert start_date to Unix timestamp (milliseconds) if provided
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                start_timestamp = int(start_dt.timestamp() * 1000)
+                params = {"date": str(start_timestamp)}
+            except ValueError:
+                params = {"date": "0"}  # Fallback if date parsing fails
+        else:
+            params = {"date": "0"}
 
         response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
@@ -315,7 +328,22 @@ if process_btn and credentials_configured:
                 progress_bar.progress(25, text="📡 Downloading from API...")
 
                 url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
-                params = {"date": "0"}
+
+                # Use partner's start_date to avoid fetching all historical data (reduces throttling)
+                from datetime import datetime
+
+                partner_config = config.PARTNERS.get(config.PARTNER, {})
+                start_date_str = partner_config.get("start_date", None)
+
+                if start_date_str:
+                    try:
+                        start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
+                        start_timestamp = int(start_dt.timestamp() * 1000)  # milliseconds
+                        params = {"date": str(start_timestamp)}
+                    except ValueError:
+                        params = {"date": "0"}
+                else:
+                    params = {"date": "0"}
 
                 response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
@@ -1672,8 +1700,23 @@ if st.session_state.data is not None:
                 # Get raw data
                 raw_data = st.session_state.data.get("raw_data", {})
 
+                # Get DQ data from session state if available
+                dq_data = st.session_state.get("dq_data")
+                if dq_data:
+                    dq_gdf = dq_data.get("subplots")
+                    dq_raw_data = dq_data.get("raw_data", {})
+                else:
+                    dq_gdf = None
+                    dq_raw_data = None
+
                 # Generate PDF
-                pdf_buffer = generate_summary_pdf_report(filtered_gdf, raw_data, partner_name=config.PARTNER)
+                pdf_buffer = generate_summary_pdf_report(
+                    filtered_gdf,
+                    raw_data,
+                    partner_name=config.PARTNER,
+                    dq_gdf=dq_gdf,
+                    dq_raw_data=dq_raw_data,
+                )
 
                 # Store in session state
                 st.session_state.summary_pdf_buffer = pdf_buffer.getvalue()

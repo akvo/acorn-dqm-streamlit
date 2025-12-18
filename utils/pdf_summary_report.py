@@ -40,18 +40,22 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
+def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", dq_gdf=None, dq_raw_data=None):
     """
     Generate a comprehensive summary PDF report with all quality checks
 
     Parameters:
     -----------
     filtered_gdf : GeoDataFrame
-        The filtered geodataframe with subplot data
+        The filtered geodataframe with GT subplot data
     raw_data : dict
-        Dictionary containing all raw data tables
+        Dictionary containing all GT raw data tables
     partner_name : str
         Name of the partner organization
+    dq_gdf : GeoDataFrame, optional
+        The filtered geodataframe with DQ subplot data
+    dq_raw_data : dict, optional
+        Dictionary containing all DQ raw data tables
 
     Returns:
     --------
@@ -194,6 +198,24 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
     else:
         measured_gdf = filtered_gdf.copy()
 
+    # Filter DQ to only measured subplots (if DQ data is available)
+    dq_measured = None
+    if dq_gdf is not None and len(dq_gdf) > 0:
+        if "subplot_id" in dq_gdf.columns and "measured_subplots" in dq_gdf.columns:
+            dq_temp_df = dq_gdf[["subplot_id", "measured_subplots"]].copy()
+            dq_temp_df["subplot_number"] = dq_temp_df["subplot_id"].apply(
+                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
+            )
+            dq_temp_df["measured_subplots"] = dq_temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+            dq_measured_subplot_ids = dq_temp_df[dq_temp_df["subplot_number"] <= dq_temp_df["measured_subplots"]][
+                "subplot_id"
+            ].unique()
+            dq_measured = dq_gdf[dq_gdf["subplot_id"].isin(dq_measured_subplot_ids)].copy()
+        else:
+            dq_measured = dq_gdf.copy()
+
     # Total subplots is the count of MEASURED subplot records only
     total_subplots = len(measured_gdf)
 
@@ -214,35 +236,95 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
         )
         unique_plots = measured_gdf_copy["plot_id"].nunique()
 
-    # Summary statistics table
-    summary_data = [
-        ["Metric", "Value"],
-        ["Total Subplots Measured", f"{total_subplots:,}"],
-        ["Valid Subplots", f"{total_valid:,} ({total_valid / len(measured_gdf) * 100:.1f}%)"],
-        ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)"],
-        ["GT Plots", f"{unique_plots:,}"],
-        ["Data Collectors", f"{unique_enumerators}"],
-    ]
+    # Calculate DQ statistics if available
+    dq_total_subplots = 0
+    dq_total_valid = 0
+    dq_total_invalid = 0
+    dq_error_rate = 0
+    dq_unique_plots = 0
+    dq_unique_enumerators = 0
 
+    if dq_measured is not None and len(dq_measured) > 0:
+        dq_total_subplots = len(dq_measured)
+        dq_total_valid = dq_measured["geom_valid"].sum() if "geom_valid" in dq_measured.columns else 0
+        dq_total_invalid = dq_total_subplots - dq_total_valid
+        dq_error_rate = (dq_total_invalid / dq_total_subplots * 100) if dq_total_subplots > 0 else 0
+        dq_unique_enumerators = dq_measured["enumerator"].nunique() if "enumerator" in dq_measured.columns else 0
+
+        # Count unique DQ plots
+        if "subplot_id" in dq_measured.columns:
+            dq_measured_copy = dq_measured.copy()
+            dq_measured_copy["plot_id"] = dq_measured_copy["subplot_id"].apply(
+                lambda x: str(x).split("/sub_plot")[0] if pd.notna(x) and "/sub_plot" in str(x) else str(x)
+            )
+            dq_unique_plots = dq_measured_copy["plot_id"].nunique()
+
+    # Summary statistics table - show GT and DQ side by side if DQ available
     story.append(Paragraph("📊 Executive Summary", heading_style))
-    summary_table = Table(summary_data, colWidths=[3 * inch, 2.5 * inch])
-    summary_table.setStyle(
-        TableStyle(
+
+    if dq_measured is not None and len(dq_measured) > 0:
+        # Two-column table: GT and DQ
+        summary_data = [
+            ["Metric", "GT", "DQ"],
+            ["Total Subplots Measured", f"{total_subplots:,}", f"{dq_total_subplots:,}"],
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E7D32")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 11),
-                ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
-                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8F5E9")),
-                ("GRID", (0, 0), (-1, -1), 1, colors.grey),
-                ("FONTSIZE", (0, 1), (-1, -1), 10),
-                ("PADDING", (0, 1), (-1, -1), 8),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#E8F5E9"), colors.white]),
-            ]
+                "Valid Subplots",
+                f"{total_valid:,} ({total_valid / len(measured_gdf) * 100:.1f}%)",
+                f"{dq_total_valid:,} ({dq_total_valid / dq_total_subplots * 100:.1f}%)" if dq_total_subplots > 0 else "0",
+            ],
+            ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)", f"{dq_total_invalid:,} ({dq_error_rate:.1f}%)"],
+            ["Plots", f"{unique_plots:,}", f"{dq_unique_plots:,}"],
+            ["Data Collectors", f"{unique_enumerators}", f"{dq_unique_enumerators}"],
+        ]
+        summary_table = Table(summary_data, colWidths=[2.5 * inch, 2 * inch, 2 * inch])
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E7D32")),
+                    ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#2E7D32")),  # GT header green
+                    ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#FF9800")),  # DQ header orange
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 11),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                    ("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#E8F5E9")),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.grey),
+                    ("FONTSIZE", (0, 1), (-1, -1), 10),
+                    ("PADDING", (0, 1), (-1, -1), 8),
+                ]
+            )
         )
-    )
+    else:
+        # Single column table: GT only
+        summary_data = [
+            ["Metric", "Value"],
+            ["Total Subplots Measured", f"{total_subplots:,}"],
+            ["Valid Subplots", f"{total_valid:,} ({total_valid / len(measured_gdf) * 100:.1f}%)"],
+            ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)"],
+            ["GT Plots", f"{unique_plots:,}"],
+            ["Data Collectors", f"{unique_enumerators}"],
+        ]
+        summary_table = Table(summary_data, colWidths=[3 * inch, 2.5 * inch])
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E7D32")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 11),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#E8F5E9")),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.grey),
+                    ("FONTSIZE", (0, 1), (-1, -1), 10),
+                    ("PADDING", (0, 1), (-1, -1), 8),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#E8F5E9"), colors.white]),
+                ]
+            )
+        )
+
     story.append(summary_table)
 
     story.append(PageBreak())
@@ -443,6 +525,178 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
                     ),
                 )
             )
+
+    # ============= DQ GEOMETRY QUALITY CHECK =============
+    if dq_measured is not None and len(dq_measured) > 0:
+        story.append(PageBreak())
+        story.append(
+            Paragraph(
+                "📐 DQ Geometry Quality Check Summary",
+                ParagraphStyle(
+                    "DQHeading",
+                    parent=styles["Heading2"],
+                    fontSize=16,
+                    textColor=colors.HexColor("#FF9800"),  # Orange for DQ
+                    spaceAfter=12,
+                    spaceBefore=20,
+                    fontName="Helvetica-Bold",
+                ),
+            )
+        )
+
+        # Most common DQ errors
+        dq_error_reasons = []
+        if "reasons" in dq_measured.columns and dq_total_invalid > 0:
+            dq_invalid_gdf = dq_measured[~dq_measured["geom_valid"]].copy()
+
+            # Count error types
+            for reasons_str in dq_invalid_gdf["reasons"].dropna():
+                reasons = str(reasons_str).split(";")
+                dq_error_reasons.extend([r.strip() for r in reasons if r.strip()])
+
+            if dq_error_reasons:
+                dq_error_counts = Counter(dq_error_reasons)
+                dq_most_common = dq_error_counts.most_common(1)[0]
+
+                story.append(
+                    Paragraph(
+                        f"The most common DQ issue noticed was: <b>{dq_most_common[0]}</b> ({dq_most_common[1]} occurrences)",
+                        normal_style,
+                    )
+                )
+                story.append(Spacer(1, 0.3 * inch))
+
+        # DQ Geometry errors by enumerator
+        if "enumerator" in dq_measured.columns and dq_total_invalid > 0:
+            dq_enum_stats_list = []
+            for enum_name in dq_measured["enumerator"].unique():
+                enum_data = dq_measured[dq_measured["enumerator"] == enum_name]
+
+                # Count DQ plots
+                enum_plot_count = 0
+                if "subplot_id" in enum_data.columns:
+                    enum_data_copy = enum_data.copy()
+                    enum_data_copy["plot_id"] = enum_data_copy["subplot_id"].apply(
+                        lambda x: str(x).split("/sub_plot")[0] if pd.notna(x) and "/sub_plot" in str(x) else str(x)
+                    )
+                    enum_plot_count = enum_data_copy["plot_id"].nunique()
+
+                total_recs = len(enum_data)
+                valid_recs = enum_data["geom_valid"].sum() if "geom_valid" in enum_data.columns else 0
+                invalid_recs = total_recs - valid_recs
+                error_rate_enum = (invalid_recs / total_recs * 100) if total_recs > 0 else 0
+
+                dq_enum_stats_list.append(
+                    {
+                        "Enumerator": enum_name,
+                        "DQ Plots": enum_plot_count,
+                        "Total Subplots": total_recs,
+                        "Valid Subplots": valid_recs,
+                        "Invalid Subplots": invalid_recs,
+                        "Error Rate %": error_rate_enum,
+                    }
+                )
+
+            dq_enum_errors = pd.DataFrame(dq_enum_stats_list)
+            dq_enum_errors = dq_enum_errors.sort_values("Error Rate %", ascending=False)
+
+            # Create DQ table
+            dq_geom_table_data = [["Data Collector", "DQ Plots", "Sub Plots", "Valid", "Invalid", "Error %"]]
+            for _, row in dq_enum_errors.head(15).iterrows():
+                dq_geom_table_data.append(
+                    [
+                        str(row["Enumerator"]),
+                        str(int(row["DQ Plots"])),
+                        str(int(row["Total Subplots"])),
+                        str(int(row["Valid Subplots"])),
+                        str(int(row["Invalid Subplots"])),
+                        f"{row['Error Rate %']:.1f}%",
+                    ]
+                )
+
+            dq_geom_table = Table(
+                dq_geom_table_data, colWidths=[2.0 * inch, 0.7 * inch, 0.7 * inch, 0.7 * inch, 0.7 * inch, 0.8 * inch]
+            )
+            dq_geom_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF9800")),  # Orange for DQ
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),  # Light orange
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 9),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FFF8E1")]),
+                    ]
+                )
+            )
+            story.append(dq_geom_table)
+
+            if len(dq_enum_errors) > 15:
+                story.append(Spacer(1, 0.1 * inch))
+                story.append(
+                    Paragraph(
+                        f"<i>... and {len(dq_enum_errors) - 15} more data collectors</i>",
+                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
+                    )
+                )
+
+        story.append(Spacer(1, 0.3 * inch))
+
+        # DQ error breakdown
+        if dq_error_reasons and dq_total_invalid > 0:
+            story.append(
+                Paragraph(
+                    "DQ Error Type Breakdown",
+                    ParagraphStyle(
+                        "DQSubheading",
+                        parent=styles["Heading3"],
+                        fontSize=12,
+                        textColor=colors.HexColor("#FF9800"),
+                        spaceAfter=10,
+                        spaceBefore=15,
+                        fontName="Helvetica-Bold",
+                    ),
+                )
+            )
+            dq_error_counts = Counter(dq_error_reasons)
+            dq_error_breakdown_data = [["Error Type", "Count", "Percentage"]]
+
+            for error_type, count in dq_error_counts.most_common(10):
+                pct = count / dq_total_invalid * 100
+                dq_error_breakdown_data.append(
+                    [
+                        error_type,
+                        str(count),
+                        f"{pct:.1f}%",
+                    ]
+                )
+
+            dq_error_table = Table(dq_error_breakdown_data, colWidths=[3.5 * inch, 1 * inch, 1.2 * inch])
+            dq_error_table.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#FF9800")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, 0), 10),
+                        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFF3E0")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                        ("FONTSIZE", (0, 1), (-1, -1), 9),
+                        ("PADDING", (0, 1), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FFF8E1")]),
+                    ]
+                )
+            )
+            story.append(dq_error_table)
 
     # ============= LIVING FENCES TABLE =============
     story.append(Spacer(1, 0.3 * inch))
@@ -792,6 +1046,126 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner"):
 
                         except Exception as e:
                             print(f"DEBUG PDF: Error creating map for plot {plot_display}: {str(e)}", file=sys.stderr)
+
+                story.append(Spacer(1, 0.2 * inch))
+
+    # ============= DQ MAPS BY DATA COLLECTOR =============
+    if dq_measured is not None and len(dq_measured) > 0 and "enumerator" in dq_measured.columns and MATPLOTLIB_AVAILABLE:
+        story.append(PageBreak())
+        story.append(
+            Paragraph(
+                "Maps by Data Collector and DQ Plot",
+                ParagraphStyle(
+                    "DQSubheading",
+                    parent=styles["Heading3"],
+                    fontSize=12,
+                    textColor=colors.HexColor("#FF9800"),
+                    spaceAfter=10,
+                    spaceBefore=15,
+                    fontName="Helvetica-Bold",
+                ),
+            )
+        )
+
+        for enum_name in sorted(dq_measured["enumerator"].unique()):
+            dq_enum_data = dq_measured[dq_measured["enumerator"] == enum_name]
+
+            if len(dq_enum_data) > 0:
+                # Add enumerator header
+                story.append(
+                    Paragraph(
+                        f"<b>{enum_name}</b>",
+                        ParagraphStyle(
+                            "EnumHeader",
+                            parent=styles["Heading3"],
+                            fontSize=12,
+                            textColor=colors.HexColor("#FF9800"),
+                            spaceAfter=10,
+                        ),
+                    )
+                )
+
+                # Group by DQ Plot (PLOT_KEY)
+                if "PLOT_KEY" in dq_enum_data.columns:
+                    for plot_key in sorted(dq_enum_data["PLOT_KEY"].unique()):
+                        dq_plot_data = dq_enum_data[dq_enum_data["PLOT_KEY"] == plot_key]
+
+                        # Extract plot number from PLOT_KEY
+                        plot_display = str(plot_key).split("/")[-1] if "/" in str(plot_key) else str(plot_key)
+
+                        # Count stats for this DQ plot
+                        dq_plot_total = len(dq_plot_data)
+                        dq_plot_valid = dq_plot_data["geom_valid"].sum() if "geom_valid" in dq_plot_data.columns else 0
+                        dq_plot_invalid = dq_plot_total - dq_plot_valid
+
+                        try:
+                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
+
+                            # Plot DQ subplots (orange/purple)
+                            dq_polygons_plotted = 0
+                            for idx, row in dq_plot_data.iterrows():
+                                if pd.notna(row.get("geometry")) and not row["geometry"].is_empty:
+                                    geom = row["geometry"]
+                                    is_valid = row.get("geom_valid", False)
+                                    color = "#FF9800" if is_valid else "#9C27B0"
+                                    alpha = 0.3 if is_valid else 0.6
+
+                                    if geom.geom_type == "Polygon":
+                                        x, y = geom.exterior.xy
+                                        ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                        dq_polygons_plotted += 1
+                                    elif geom.geom_type == "MultiPolygon":
+                                        for poly in geom.geoms:
+                                            x, y = poly.exterior.xy
+                                            ax.fill(x, y, color=color, alpha=alpha, edgecolor=color, linewidth=1.5)
+                                            dq_polygons_plotted += 1
+
+                            ax.set_aspect("equal")
+                            ax.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+                            ax.set_xlabel("Longitude", fontsize=8)
+                            ax.set_ylabel("Latitude", fontsize=8)
+
+                            # Get submission date for this DQ plot
+                            dq_submission_date_str = ""
+                            if "SubmissionDate" in dq_plot_data.columns and len(dq_plot_data) > 0:
+                                sub_date = dq_plot_data["SubmissionDate"].iloc[0]
+                                if pd.notna(sub_date):
+                                    try:
+                                        if isinstance(sub_date, str):
+                                            sub_date = pd.to_datetime(sub_date)
+                                        dq_submission_date_str = f" | Date: {sub_date.strftime('%Y-%m-%d')}"
+                                    except Exception:
+                                        pass
+
+                            ax.set_title(
+                                f"DQ Plot: {plot_display}{dq_submission_date_str} | Subplots: {dq_plot_total} | Valid: {dq_plot_valid}, Invalid: {dq_plot_invalid}",
+                                fontsize=9,
+                                fontweight="bold",
+                            )
+
+                            # Add legend
+                            from matplotlib.patches import Patch
+
+                            legend_elements = [
+                                Patch(facecolor="#FF9800", alpha=0.5, label=f"Valid ({dq_plot_valid})"),
+                                Patch(facecolor="#9C27B0", alpha=0.6, label=f"Invalid ({dq_plot_invalid})"),
+                            ]
+                            ax.legend(handles=legend_elements, loc="upper right", fontsize=7)
+
+                            plt.tight_layout()
+
+                            # Convert to image
+                            dq_map_buffer = BytesIO()
+                            plt.savefig(dq_map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+                            plt.close(fig)
+                            dq_map_buffer.seek(0)
+
+                            dq_plot_img = RLImage(dq_map_buffer, width=4.5 * inch, height=3.2 * inch)
+                            story.append(dq_plot_img)
+                            story.append(Spacer(1, 0.15 * inch))
+
+                        except Exception as e:
+                            print(f"DEBUG PDF: Error creating DQ map for plot {plot_display}: {str(e)}", file=sys.stderr)
 
                 story.append(Spacer(1, 0.2 * inch))
 

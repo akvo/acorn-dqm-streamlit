@@ -98,7 +98,22 @@ else:
                     progress_bar.progress(25, text=f"Downloading DQ data ({dq_form_id})...")
 
                     url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{dq_form_id}"
-                    params = {"date": "0"}
+
+                    # Use partner's start_date to avoid fetching all historical data (reduces throttling)
+                    from datetime import datetime
+
+                    partner_config = config.PARTNERS.get(config.PARTNER, {})
+                    start_date_str = partner_config.get("start_date", None)
+
+                    if start_date_str:
+                        try:
+                            start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
+                            start_timestamp = int(start_dt.timestamp() * 1000)  # milliseconds
+                            params = {"date": str(start_timestamp)}
+                        except ValueError:
+                            params = {"date": "0"}
+                    else:
+                        params = {"date": "0"}
 
                     response = requests.get(url, auth=(username, password), params=params, timeout=60)
 
