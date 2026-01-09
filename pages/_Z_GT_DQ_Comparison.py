@@ -69,11 +69,11 @@ else:
     fetch_btn_label = "🚀 Fetch DQ Data"
 
 # Get credentials from session state
-server_name = st.session_state.get("server_name", "")
+server_name = "akvofoundation"  # Hardcoded
 username = st.session_state.get("username", "")
 password = st.session_state.get("password", "")
 
-credentials_configured = bool(server_name and username and password)
+credentials_configured = bool(username and password)
 
 if not credentials_configured:
     st.error("❌ API credentials not configured. Please configure them on the home page.")
