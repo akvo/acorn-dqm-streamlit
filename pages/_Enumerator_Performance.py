@@ -72,7 +72,7 @@ if "data" not in st.session_state or st.session_state.data is None:
 show_header()
 
 st.markdown("## 👥 Enumerator Performance - Error Analysis")
-st.markdown("Track validation errors and quality issues by enumerator")
+st.caption("Analyzes data quality metrics by individual enumerator. Use this to identify enumerators who may need additional training, equipment checks, or supervision. Compare error rates, review specific error types, and export individual performance reports for team management.")
 
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
@@ -1327,7 +1327,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                     traceback.print_exc(file=sys.stderr)
 
         # Statistics
-        total = get_total_measured_subplots(enum_data)
+        total = len(enum_data)
         invalid = (~enum_data["geom_valid"]).sum()
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
@@ -2411,12 +2411,13 @@ TAB_ERROR_DETAILS = 2
 
 with tabs[TAB_OVERVIEW]:
     st.markdown("### 📊 Error Rate Overview")
+    st.caption("Compares validation error rates across selected enumerators. Higher error rates (red) may indicate training needs, equipment issues, or challenging field conditions. The stacked chart shows absolute counts of valid vs invalid subplots per enumerator.")
 
     # Calculate error statistics
     enum_stats = []
     for enum in selected_enumerators:
         enum_data = filtered_gdf[filtered_gdf["enumerator"] == enum]
-        total = get_total_measured_subplots(enum_data)
+        total = len(enum_data)
         invalid = (~enum_data["geom_valid"]).sum()
         valid = enum_data["geom_valid"].sum()
         error_rate = (invalid / total * 100) if total > 0 else 0
@@ -2471,6 +2472,7 @@ with tabs[TAB_OVERVIEW]:
 
 with tabs[TAB_GEOMETRY]:
     st.markdown("### 📐 Geometry Errors by Enumerator")
+    st.caption("Breaks down GPS/geometry validation failures by error type per enumerator. Common issues include: area too small/large, insufficient GPS accuracy, overlapping subplots. Patterns help identify whether issues are enumerator-specific (training) or equipment-specific (device problems).")
 
     invalid_subplots = filtered_gdf[~filtered_gdf["geom_valid"]]
 
@@ -2537,6 +2539,7 @@ with tabs[TAB_GEOMETRY]:
 
 with tabs[TAB_ERROR_DETAILS]:
     st.markdown("### 📋 Individual Enumerator Error Report")
+    st.caption("Deep dive into a single enumerator's data quality. Shows: summary metrics, interactive map of their subplots, detailed geometry errors, and vegetation/measurement outliers. Use this for one-on-one feedback sessions or to prepare individual training plans.")
 
     selected_enum = st.selectbox(
         "Select enumerator for detailed error report",
@@ -2711,7 +2714,7 @@ with tabs[TAB_ERROR_DETAILS]:
         # ============================================
 
         st.markdown("#### 🗺️ Subplot Locations Map")
-        st.caption("Interactive map with detailed popup information • Click subplots for details")
+        st.caption("All subplots collected by this enumerator. Green = valid, Red = invalid. Click subplots for detailed validation info. Use this to spot geographic patterns in errors (e.g., issues concentrated in specific areas may indicate terrain challenges).")
 
         map_obj = create_enumerator_map(enum_data, selected_enum)
 
@@ -2753,6 +2756,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
         # Show invalid subplots only
         st.markdown("#### ⚠️ Geometry Errors")
+        st.caption("List of this enumerator's subplots that failed geometry validation. Review 'reasons' column for specific issues. Area/vertices/ratios help diagnose whether the problem is GPS accuracy, plot shape, or boundary demarcation.")
 
         invalid_data = enum_data[~enum_data["geom_valid"]]
 
@@ -2777,6 +2781,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
         st.markdown("---")
         st.markdown("#### 🌿 Vegetation & Measurement Errors")
+        st.caption("Measurement quality issues for this enumerator: missing vegetation records, height/circumference outliers, and suspicious age-circumference combinations. These may indicate measurement technique issues that need coaching.")
 
         if has_vegetation and has_measurements:
             try:
@@ -3209,6 +3214,7 @@ with tabs[TAB_ERROR_DETAILS]:
 
         st.markdown("---")
         st.markdown("#### 📥 Export Options")
+        st.caption("Export this enumerator's data for offline review, performance discussions, or record-keeping. CSV for spreadsheet analysis, PDF for printable reports, GeoJSON for GIS software, Errors Only for focused remediation lists.")
 
         col1, col2, col3 = st.columns(3)
 

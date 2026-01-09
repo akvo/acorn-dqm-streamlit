@@ -30,6 +30,7 @@ from ui.charts import (
 from utils.data_processor import (
     process_json_data,
     get_validation_summary,
+    filter_by_date,
 )
 import re as regex_module
 
@@ -646,6 +647,7 @@ if st.session_state.data is not None:
 
     # Main content
     st.markdown("## 📊 Overview Dashboard")
+    st.caption("High-level summary of data quality. Green metrics indicate healthy data. Yellow/red metrics require attention. Click through to detailed pages for investigation and remediation guidance.")
 
     # Plot-level metrics (Row 1)
     show_plot_metrics_row(plot_summary)
@@ -674,10 +676,11 @@ if st.session_state.data is not None:
                     calculate_tree_age,
                     get_species_column,
                     add_tree_name_column,
-                    load_species_lookup,
-                    normalize_species_name,
-                    detect_species_outliers,
-                    detect_multivariate_outliers_dbscan,
+                    # COMMENTED OUT: Only used by species-based and DBSCAN outlier detection
+                    # load_species_lookup,
+                    # normalize_species_name,
+                    # detect_species_outliers,
+                    # detect_multivariate_outliers_dbscan,
                 )
                 from utils.vegetation_validation import (
                     get_missing_subplots,
@@ -1097,212 +1100,212 @@ if st.session_state.data is not None:
                         except Exception as e:
                             st.warning(f"Could not export Circumference Outliers: {str(e)}")
 
-                    # SHEET: Height Outliers (by Species) - supplements VEGETATION_KEY-based outliers
-                    if has_complete and len(complete_df) > 0:
-                        try:
-                            # Load species lookup for normalization
-                            scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                    # COMMENTED OUT: Height Outliers (by Species) - IQR-based detection
+                    # if has_complete and len(complete_df) > 0:
+                    #     try:
+                    #         # Load species lookup for normalization
+                    #         scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                    #
+                    #         # Filter to woody trees only
+                    #         if "vegetation_type_woody" in complete_df.columns:
+                    #             woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                    #         else:
+                    #             woody_export = complete_df.copy()
+                    #
+                    #         # Normalize species names
+                    #         woody_export["normalized_species"] = woody_export.apply(
+                    #             lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                    #         )
+                    #
+                    #         # Height outliers by species
+                    #         if "tree_height_m" in woody_export.columns:
+                    #             height_by_species = detect_species_outliers(woody_export, "tree_height_m")
+                    #             if len(height_by_species) > 0:
+                    #                 height_outliers_species = height_by_species[height_by_species["is_outlier"] == True]
+                    #
+                    #                 if len(height_outliers_species) > 0:
+                    #                     # Add outlier type
+                    #                     height_outliers_species = height_outliers_species.copy()
+                    #                     height_outliers_species["outlier_type"] = height_outliers_species.apply(
+                    #                         lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                    #                         axis=1,
+                    #                     )
+                    #
+                    #                     export_df = format_for_export(
+                    #                         height_outliers_species,
+                    #                         issue_type="Height Outlier (by Species)",
+                    #                         additional_cols=[
+                    #                             "tree_height_m",
+                    #                             "species_median",
+                    #                             "normalized_species",
+                    #                             "outlier_type",
+                    #                         ],
+                    #                         key_col="MEASUREMENT_KEY",
+                    #                     )
+                    #                     sheet_name = "Height Outliers (Species)"
+                    #                     export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    #                     sheet_dataframes[sheet_name] = export_df
+                    #                     sheets_created += 1
+                    #     except Exception as e:
+                    #         st.warning(f"Could not export Height Outliers (Species): {str(e)}")
 
-                            # Filter to woody trees only
-                            if "vegetation_type_woody" in complete_df.columns:
-                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
-                            else:
-                                woody_export = complete_df.copy()
+                    # COMMENTED OUT: Circumference Outliers (by Species) - IQR-based detection
+                    # if has_complete and len(complete_df) > 0:
+                    #     try:
+                    #         # Load species lookup if not already loaded
+                    #         if "scientific_lookup" not in locals():
+                    #             scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                    #
+                    #         # Filter to woody trees only
+                    #         if "vegetation_type_woody" in complete_df.columns:
+                    #             woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                    #         else:
+                    #             woody_export = complete_df.copy()
+                    #
+                    #         # Normalize species names if not already done
+                    #         if "normalized_species" not in woody_export.columns:
+                    #             woody_export["normalized_species"] = woody_export.apply(
+                    #                 lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                    #             )
+                    #
+                    #         # Circumference outliers by species
+                    #         if "circumference_bh" in woody_export.columns:
+                    #             circ_by_species = detect_species_outliers(woody_export, "circumference_bh")
+                    #             if len(circ_by_species) > 0:
+                    #                 circ_outliers_species = circ_by_species[circ_by_species["is_outlier"] == True]
+                    #
+                    #                 if len(circ_outliers_species) > 0:
+                    #                     # Add outlier type
+                    #                     circ_outliers_species = circ_outliers_species.copy()
+                    #                     circ_outliers_species["outlier_type"] = circ_outliers_species.apply(
+                    #                         lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                    #                         axis=1,
+                    #                     )
+                    #
+                    #                     export_df = format_for_export(
+                    #                         circ_outliers_species,
+                    #                         issue_type="Circumference Outlier (by Species)",
+                    #                         additional_cols=[
+                    #                             "circumference_bh",
+                    #                             "species_median",
+                    #                             "normalized_species",
+                    #                             "outlier_type",
+                    #                         ],
+                    #                         key_col="CIRCUMFERENCE_KEY",
+                    #                     )
+                    #                     sheet_name = "Circ Outliers (Species)"
+                    #                     export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    #                     sheet_dataframes[sheet_name] = export_df
+                    #                     sheets_created += 1
+                    #     except Exception as e:
+                    #         st.warning(f"Could not export Circumference Outliers (Species): {str(e)}")
 
-                            # Normalize species names
-                            woody_export["normalized_species"] = woody_export.apply(
-                                lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
-                            )
+                    # COMMENTED OUT: Stem Count Outliers (by Species) - IQR-based detection
+                    # if has_complete and len(complete_df) > 0:
+                    #     try:
+                    #         # Load species lookup if not already loaded
+                    #         if "scientific_lookup" not in locals():
+                    #             scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                    #
+                    #         # Filter to woody trees only
+                    #         if "vegetation_type_woody" in complete_df.columns:
+                    #             woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
+                    #         else:
+                    #             woody_export = complete_df.copy()
+                    #
+                    #         # Normalize species names if not already done
+                    #         if "normalized_species" not in woody_export.columns:
+                    #             woody_export["normalized_species"] = woody_export.apply(
+                    #                 lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
+                    #             )
+                    #
+                    #         # Stem count outliers by species
+                    #         if "nr_stems_bh" in woody_export.columns:
+                    #             stems_by_species = detect_species_outliers(woody_export, "nr_stems_bh")
+                    #             if len(stems_by_species) > 0:
+                    #                 stems_outliers_species = stems_by_species[stems_by_species["is_outlier"] == True]
+                    #
+                    #                 if len(stems_outliers_species) > 0:
+                    #                     # Add outlier type
+                    #                     stems_outliers_species = stems_outliers_species.copy()
+                    #                     stems_outliers_species["outlier_type"] = stems_outliers_species.apply(
+                    #                         lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
+                    #                         axis=1,
+                    #                     )
+                    #
+                    #                     export_df = format_for_export(
+                    #                         stems_outliers_species,
+                    #                         issue_type="Stem Count Outlier (by Species)",
+                    #                         additional_cols=[
+                    #                             "nr_stems_bh",
+                    #                             "species_median",
+                    #                             "normalized_species",
+                    #                             "outlier_type",
+                    #                         ],
+                    #                         key_col="MEASUREMENT_KEY",
+                    #                     )
+                    #                     sheet_name = "Stem Outliers (Species)"
+                    #                     export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    #                     sheet_dataframes[sheet_name] = export_df
+                    #                     sheets_created += 1
+                    #     except Exception as e:
+                    #         st.warning(f"Could not export Stem Count Outliers (Species): {str(e)}")
 
-                            # Height outliers by species
-                            if "tree_height_m" in woody_export.columns:
-                                height_by_species = detect_species_outliers(woody_export, "tree_height_m")
-                                if len(height_by_species) > 0:
-                                    height_outliers_species = height_by_species[height_by_species["is_outlier"] == True]
-
-                                    if len(height_outliers_species) > 0:
-                                        # Add outlier type
-                                        height_outliers_species = height_outliers_species.copy()
-                                        height_outliers_species["outlier_type"] = height_outliers_species.apply(
-                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
-                                            axis=1,
-                                        )
-
-                                        export_df = format_for_export(
-                                            height_outliers_species,
-                                            issue_type="Height Outlier (by Species)",
-                                            additional_cols=[
-                                                "tree_height_m",
-                                                "species_median",
-                                                "normalized_species",
-                                                "outlier_type",
-                                            ],
-                                            key_col="MEASUREMENT_KEY",
-                                        )
-                                        sheet_name = "Height Outliers (Species)"
-                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                        sheet_dataframes[sheet_name] = export_df
-                                        sheets_created += 1
-                        except Exception as e:
-                            st.warning(f"Could not export Height Outliers (Species): {str(e)}")
-
-                    # SHEET: Circumference Outliers (by Species)
-                    if has_complete and len(complete_df) > 0:
-                        try:
-                            # Load species lookup if not already loaded
-                            if "scientific_lookup" not in locals():
-                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
-
-                            # Filter to woody trees only
-                            if "vegetation_type_woody" in complete_df.columns:
-                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
-                            else:
-                                woody_export = complete_df.copy()
-
-                            # Normalize species names if not already done
-                            if "normalized_species" not in woody_export.columns:
-                                woody_export["normalized_species"] = woody_export.apply(
-                                    lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
-                                )
-
-                            # Circumference outliers by species
-                            if "circumference_bh" in woody_export.columns:
-                                circ_by_species = detect_species_outliers(woody_export, "circumference_bh")
-                                if len(circ_by_species) > 0:
-                                    circ_outliers_species = circ_by_species[circ_by_species["is_outlier"] == True]
-
-                                    if len(circ_outliers_species) > 0:
-                                        # Add outlier type
-                                        circ_outliers_species = circ_outliers_species.copy()
-                                        circ_outliers_species["outlier_type"] = circ_outliers_species.apply(
-                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
-                                            axis=1,
-                                        )
-
-                                        export_df = format_for_export(
-                                            circ_outliers_species,
-                                            issue_type="Circumference Outlier (by Species)",
-                                            additional_cols=[
-                                                "circumference_bh",
-                                                "species_median",
-                                                "normalized_species",
-                                                "outlier_type",
-                                            ],
-                                            key_col="CIRCUMFERENCE_KEY",
-                                        )
-                                        sheet_name = "Circ Outliers (Species)"
-                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                        sheet_dataframes[sheet_name] = export_df
-                                        sheets_created += 1
-                        except Exception as e:
-                            st.warning(f"Could not export Circumference Outliers (Species): {str(e)}")
-
-                    # SHEET: Stem Count Outliers (by Species)
-                    if has_complete and len(complete_df) > 0:
-                        try:
-                            # Load species lookup if not already loaded
-                            if "scientific_lookup" not in locals():
-                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
-
-                            # Filter to woody trees only
-                            if "vegetation_type_woody" in complete_df.columns:
-                                woody_export = complete_df[complete_df["vegetation_type_woody"] == "woody"].copy()
-                            else:
-                                woody_export = complete_df.copy()
-
-                            # Normalize species names if not already done
-                            if "normalized_species" not in woody_export.columns:
-                                woody_export["normalized_species"] = woody_export.apply(
-                                    lambda row: normalize_species_name(row, scientific_lookup, common_lookup), axis=1
-                                )
-
-                            # Stem count outliers by species
-                            if "nr_stems_bh" in woody_export.columns:
-                                stems_by_species = detect_species_outliers(woody_export, "nr_stems_bh")
-                                if len(stems_by_species) > 0:
-                                    stems_outliers_species = stems_by_species[stems_by_species["is_outlier"] == True]
-
-                                    if len(stems_outliers_species) > 0:
-                                        # Add outlier type
-                                        stems_outliers_species = stems_outliers_species.copy()
-                                        stems_outliers_species["outlier_type"] = stems_outliers_species.apply(
-                                            lambda row: "Too High" if row.get("is_upper_outlier") else "Too Low",
-                                            axis=1,
-                                        )
-
-                                        export_df = format_for_export(
-                                            stems_outliers_species,
-                                            issue_type="Stem Count Outlier (by Species)",
-                                            additional_cols=[
-                                                "nr_stems_bh",
-                                                "species_median",
-                                                "normalized_species",
-                                                "outlier_type",
-                                            ],
-                                            key_col="MEASUREMENT_KEY",
-                                        )
-                                        sheet_name = "Stem Outliers (Species)"
-                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                        sheet_dataframes[sheet_name] = export_df
-                                        sheets_created += 1
-                        except Exception as e:
-                            st.warning(f"Could not export Stem Count Outliers (Species): {str(e)}")
-
-                    # SHEETS: DBSCAN Outliers (one sheet per attribute: Height, Circ, Stems)
-                    if has_complete and len(complete_df) > 0:
-                        # Prepare woody data with age and species
-                        woody_export = complete_df.copy()
-                        if "vegetation_type_woody" in woody_export.columns:
-                            woody_export = woody_export[woody_export["vegetation_type_woody"] == "woody"].copy()
-
-                        if "tree_age" not in woody_export.columns and "tree_year_planted" in woody_export.columns:
-                            woody_export = calculate_tree_age(woody_export)
-
-                        if "normalized_species" not in woody_export.columns:
-                            if "scientific_lookup" not in locals():
-                                scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
-                            woody_export["normalized_species"] = woody_export.apply(
-                                lambda row: normalize_species_name(row, scientific_lookup, common_lookup),
-                                axis=1,
-                            )
-
-                        # Export for each attribute (Height, Circumference, Stems)
-                        for metric_col, sheet_suffix in [
-                            ("tree_height_m", "Height"),
-                            ("circumference_bh", "Circ"),
-                            ("nr_stems_bh", "Stems"),
-                        ]:
-                            if (
-                                metric_col in woody_export.columns
-                                and "tree_age" in woody_export.columns
-                                and "normalized_species" in woody_export.columns
-                            ):
-                                try:
-                                    dbscan_results = detect_multivariate_outliers_dbscan(
-                                        woody_export,
-                                        metric_col=metric_col,
-                                        eps=0.5,
-                                        min_samples=3,
-                                    )
-                                    if len(dbscan_results) > 0:
-                                        dbscan_outliers = dbscan_results[dbscan_results["is_outlier"] == True]
-                                        if len(dbscan_outliers) > 0:
-                                            export_df = format_for_export(
-                                                dbscan_outliers,
-                                                issue_type=f"DBSCAN Outlier ({sheet_suffix})",
-                                                additional_cols=[
-                                                    "tree_age",
-                                                    metric_col,
-                                                    "normalized_species",
-                                                ],
-                                                key_col="MEASUREMENT_KEY",
-                                            )
-                                            sheet_name = f"Outliers DBSCAN ({sheet_suffix})"
-                                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                            sheet_dataframes[sheet_name] = export_df
-                                            sheets_created += 1
-                                except Exception as e:
-                                    st.warning(f"Could not export DBSCAN {sheet_suffix} Outliers: {str(e)}")
+                    # COMMENTED OUT: DBSCAN Outliers (one sheet per attribute: Height, Circ, Stems)
+                    # if has_complete and len(complete_df) > 0:
+                    #     # Prepare woody data with age and species
+                    #     woody_export = complete_df.copy()
+                    #     if "vegetation_type_woody" in woody_export.columns:
+                    #         woody_export = woody_export[woody_export["vegetation_type_woody"] == "woody"].copy()
+                    #
+                    #     if "tree_age" not in woody_export.columns and "tree_year_planted" in woody_export.columns:
+                    #         woody_export = calculate_tree_age(woody_export)
+                    #
+                    #     if "normalized_species" not in woody_export.columns:
+                    #         if "scientific_lookup" not in locals():
+                    #             scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
+                    #         woody_export["normalized_species"] = woody_export.apply(
+                    #             lambda row: normalize_species_name(row, scientific_lookup, common_lookup),
+                    #             axis=1,
+                    #         )
+                    #
+                    #     # Export for each attribute (Height, Circumference, Stems)
+                    #     for metric_col, sheet_suffix in [
+                    #         ("tree_height_m", "Height"),
+                    #         ("circumference_bh", "Circ"),
+                    #         ("nr_stems_bh", "Stems"),
+                    #     ]:
+                    #         if (
+                    #             metric_col in woody_export.columns
+                    #             and "tree_age" in woody_export.columns
+                    #             and "normalized_species" in woody_export.columns
+                    #         ):
+                    #             try:
+                    #                 dbscan_results = detect_multivariate_outliers_dbscan(
+                    #                     woody_export,
+                    #                     metric_col=metric_col,
+                    #                     eps=0.5,
+                    #                     min_samples=3,
+                    #                 )
+                    #                 if len(dbscan_results) > 0:
+                    #                     dbscan_outliers = dbscan_results[dbscan_results["is_outlier"] == True]
+                    #                     if len(dbscan_outliers) > 0:
+                    #                         export_df = format_for_export(
+                    #                             dbscan_outliers,
+                    #                             issue_type=f"DBSCAN Outlier ({sheet_suffix})",
+                    #                             additional_cols=[
+                    #                                 "tree_age",
+                    #                                 metric_col,
+                    #                                 "normalized_species",
+                    #                             ],
+                    #                             key_col="MEASUREMENT_KEY",
+                    #                         )
+                    #                         sheet_name = f"Outliers DBSCAN ({sheet_suffix})"
+                    #                         export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    #                         sheet_dataframes[sheet_name] = export_df
+                    #                         sheets_created += 1
+                    #             except Exception as e:
+                    #                 st.warning(f"Could not export DBSCAN {sheet_suffix} Outliers: {str(e)}")
 
                     # SHEET 10: Super Tall Trees (>25m)
                     if has_measurements:
@@ -1377,6 +1380,7 @@ if st.session_state.data is not None:
                                     issue_type="High Stem Count (>20)",
                                     additional_cols=[
                                         "nr_stems_bh",
+                                        "nr_stems_10cm",
                                         "tree_name",
                                         species_col,
                                     ],
@@ -1705,6 +1709,13 @@ if st.session_state.data is not None:
                 if dq_data:
                     dq_gdf = dq_data.get("subplots")
                     dq_raw_data = dq_data.get("raw_data", {})
+
+                    # Apply date filter to DQ data (same as GT data)
+                    if dq_gdf is not None and len(dq_gdf) > 0:
+                        date_start = st.session_state.get("date_filter_start")
+                        date_end = st.session_state.get("date_filter_end")
+                        if date_start and date_end:
+                            dq_gdf = filter_by_date(dq_gdf, date_start, date_end)
                 else:
                     dq_gdf = None
                     dq_raw_data = None
@@ -1745,6 +1756,7 @@ if st.session_state.data is not None:
     # Charts
     st.markdown("---")
     st.markdown("## 📈 Validation Analysis")
+    st.caption("Visual breakdown of geometry validation results. The pie chart shows overall pass/fail ratio. The bar chart breaks down specific error types to identify systemic issues (e.g., GPS accuracy problems, area calculation errors).")
 
     col1, col2 = st.columns(2)
 
@@ -1764,12 +1776,16 @@ if st.session_state.data is not None:
 
     # Timeline
     st.markdown("---")
+    st.markdown("## 📅 Data Collection Timeline")
+    st.caption("Shows submission volume over time. Use this to identify data collection patterns, gaps in fieldwork, or periods of intensive surveying. Spikes may indicate batch uploads or focused field campaigns.")
     fig_timeline = create_timeline_chart(filtered_gdf)
     if fig_timeline:
         st.plotly_chart(fig_timeline, use_container_width=True)
 
     # Enumerator performance
     st.markdown("---")
+    st.markdown("## 👥 Enumerator Overview")
+    st.caption("Submission counts by enumerator. Use this for workload distribution analysis. For detailed quality metrics per enumerator (error rates, measurement patterns), see the Enumerator Performance page.")
     fig_enum = create_enumerator_performance_chart(filtered_gdf)
     if fig_enum:
         st.plotly_chart(fig_enum, use_container_width=True)
@@ -1777,6 +1793,7 @@ if st.session_state.data is not None:
     # Area distribution
     st.markdown("---")
     st.markdown("## 📏 Area Distribution")
+    st.caption("Subplot area statistics and distribution. The histogram shows how subplot sizes are distributed relative to the acceptable range (orange dashed lines). Areas outside this range indicate GPS measurement issues or incorrect plot demarcation.")
 
     if "area_m2" in filtered_gdf.columns:
         col1, col2, col3 = st.columns(3)
@@ -1827,6 +1844,7 @@ if st.session_state.data is not None:
     # Summary table
     st.markdown("---")
     st.markdown("## 📋 Summary Statistics")
+    st.caption("Detailed breakdown of validation errors by type. The percentage shows each error's contribution to total invalid records. Focus on high-percentage errors first for maximum impact on data quality improvement.")
 
     if summary["reason_counts"]:
         error_df = pd.DataFrame(

@@ -19,6 +19,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [23.67, 85.38],
+        "start_date": "2025-12-01",
     },
     "IORA": {
         "country": "India",
@@ -29,6 +30,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [25.6, 90.8],
+        "start_date": "2025-11-01",
     },
     "AFOCO": {
         "country": "Kyrgyzstan",
@@ -39,6 +41,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [41.5, 74.5],
+        "start_date": "2025-01-01",
     },
     "COMACO": {
         "country": "Zambia",
@@ -49,6 +52,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [-13.5, 28.5],
+        "start_date": "2025-01-01",
     },
     "AFEC": {
         "country": "India",
@@ -59,6 +63,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [14.6, 77.4],
+        "start_date": "2025-11-01",
     },
 }
 

@@ -46,7 +46,7 @@ if "data" not in st.session_state or st.session_state.data is None:
 show_header()
 
 st.markdown("## 🔄 GT vs DQ Comparison")
-st.caption("Compare Ground Truth data with Data Quality validation data")
+st.caption("Cross-validates Ground Truth (GT) survey data against Data Quality (DQ) monitoring visits. Matches plots by geographic proximity (<50m) to identify discrepancies in subplot measurements, species counts, and validation status between the two datasets.")
 
 # Show dev mode indicator if enabled
 if is_dev_mode():
@@ -212,6 +212,7 @@ if not dq_loaded:
 # Import comparison utilities
 from utils.comparison_utils import (
     match_plots_by_centroid,
+    match_subplots_within_plot,
     get_tree_count_by_name,
     get_tree_records_by_species,
     get_total_tree_count,
@@ -313,7 +314,7 @@ dq_raw = st.session_state.dq_data.get("raw_data", {})
 # GT DATE FILTER (to exclude training data)
 # ============================================
 st.markdown("### 📅 GT Data Filter")
-st.caption("Filter GT data by submission date to exclude training data")
+st.caption("Filter GT submissions by date range. Use this to exclude early training data or focus on specific data collection periods. Only GT plots within the selected range will be matched against DQ data.")
 
 # Get date range from GT plots
 if gt_plots_gdf is not None and len(gt_plots_gdf) > 0 and "SubmissionDate" in gt_plots_gdf.columns:
@@ -387,6 +388,7 @@ dq_only_keys = set(dq_measured["PLOT_KEY"].unique()) - matched_dq_keys if "PLOT_
 # ============================================
 
 st.markdown("### 📊 DQ Data Quality Summary")
+st.caption("Overview of DQ (Data Quality) dataset validation status. 'Overlap with GT' shows how many DQ plots are within 50m of a GT plot, enabling direct comparison. Unmatched plots may indicate: new areas surveyed by DQ, or GT plots that haven't been revisited.")
 
 dq_plot_stats = get_plot_level_stats(dq_measured)
 dq_subplot_stats = get_subplot_stats(dq_measured)
@@ -416,7 +418,7 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### ⚠️ DQ Subplot Issues")
-st.caption("Invalid subplots in DQ data with reasons for failure")
+st.caption("DQ subplots that failed geometry validation. These issues were identified during the quality monitoring visit. Review 'reasons' column to understand specific failures. Compare against GT data to see if the same subplots had issues in the original survey.")
 
 # Get invalid DQ subplots
 dq_invalid_subplots = (
@@ -471,7 +473,7 @@ st.markdown("---")
 
 st.markdown("### 🗺️ Map View")
 st.caption(
-    "GT plots (blue) vs DQ plots (orange). Toggle subplot layers to see individual subplots (green=valid, red=invalid)"
+    "Side-by-side geographic comparison of GT (blue) and DQ (orange) plot locations. Use the dropdown to zoom to specific DQ plots. Toggle subplot layers to inspect individual subplot boundaries. Overlapping plots indicate successful matches; non-overlapping may indicate GPS drift or different survey locations."
 )
 
 if FOLIUM_AVAILABLE:
@@ -727,7 +729,7 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 📋 Matched Plots (Distance < 50m)")
-st.caption("Plots with centroids within 50 meters of each other")
+st.caption("Plots where GT and DQ centroids are within 50m (considered the same location). Compare subplot counts and tree counts between datasets. Differences may indicate: trees added/removed between visits, different measurement methodologies, or data collection errors.")
 
 if len(matches_df) > 0:
     # Build comparison table
@@ -769,7 +771,7 @@ if len(matches_df) > 0:
     # ============================================
 
     st.markdown("### 📝 DQ Plot Details")
-    st.caption("Expand each row to see detailed DQ plot information")
+    st.caption("Click to expand individual plot comparisons. Shows subplot-by-subplot validation status, tree species breakdown (GT vs DQ), and identifies specific discrepancies. Use this for detailed investigation of data quality issues.")
 
     for idx, row in matches_df.iterrows():
         dq_key = row["dq_plot_key"]
@@ -850,6 +852,34 @@ if len(matches_df) > 0:
                 with sub_col3:
                     st.write(f"**Invalid:** {invalid_subplots}")
 
+                # Subplot Mapping (GT to DQ)
+                st.markdown("**Subplot Mapping (GT ↔ DQ):**")
+                st.caption("Matches subplots by centroid distance (strict: ≤20m, fallback: nearest unmatched)")
+
+                # Get subplot data for this plot
+                gt_plot_subplots = gt_measured[gt_measured["PLOT_KEY"] == gt_key]
+                dq_plot_subplots = dq_measured[dq_measured["PLOT_KEY"] == dq_key]
+
+                # Create subplot mapping
+                subplot_mapping = match_subplots_within_plot(gt_plot_subplots, dq_plot_subplots)
+
+                if len(subplot_mapping) > 0:
+                    display_cols = ["gt_subplot_num", "dq_subplot_num", "distance_m", "match_type"]
+                    st.dataframe(
+                        subplot_mapping[display_cols].rename(
+                            columns={
+                                "gt_subplot_num": "GT Subplot",
+                                "dq_subplot_num": "DQ Subplot",
+                                "distance_m": "Distance (m)",
+                                "match_type": "Match Type",
+                            }
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("No subplot mapping available (missing geometry data)")
+
                 # Tree Species Comparison (GT vs DQ)
                 gt_tree_counts = get_tree_count_by_name(gt_key, gt_raw, gt_measured)
                 dq_tree_counts = get_tree_count_by_name(dq_key, dq_raw, dq_measured)
@@ -925,7 +955,7 @@ else:
 # ============================================
 
 st.markdown("### 🔍 Unmatched Plots")
-
+st.caption("Plots that couldn't be matched between GT and DQ datasets (>50m apart). DQ plots not in GT may be monitoring visits to new areas. GT plots not in DQ haven't been revisited for quality verification yet.")
 
 # DQ plots not in GT
 st.markdown("#### DQ Plots Not Found in GT")

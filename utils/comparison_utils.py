@@ -115,6 +115,115 @@ def match_plots_by_iou(gt_gdf: gpd.GeoDataFrame, dq_gdf: gpd.GeoDataFrame, iou_t
     return match_plots_by_centroid(gt_gdf, dq_gdf, distance_threshold=50.0)
 
 
+def match_subplots_within_plot(
+    gt_subplots_gdf: gpd.GeoDataFrame,
+    dq_subplots_gdf: gpd.GeoDataFrame,
+    strict_threshold: float = 20.0,
+) -> pd.DataFrame:
+    """
+    Match DQ subplots to GT subplots using two-pass algorithm.
+
+    Pass 1: Match within strict_threshold (20m) - takes smallest distance match
+    Pass 2: Match remaining DQ to nearest unmatched GT subplot (no distance limit)
+
+    Args:
+        gt_subplots_gdf: GeoDataFrame of GT subplots for one plot (filtered to measured)
+        dq_subplots_gdf: GeoDataFrame of DQ subplots for one plot (filtered to measured)
+        strict_threshold: Distance threshold for strict matching (default 20m)
+
+    Returns:
+        DataFrame with columns: [gt_subplot_id, dq_subplot_id, distance_m,
+                                 gt_subplot_num, dq_subplot_num, match_type]
+    """
+
+    def extract_subplot_num(subplot_id):
+        match = re.search(r"\[(\d+)\]", str(subplot_id))
+        return int(match.group(1)) if match else 0
+
+    matches = []
+    matched_gt_ids = set()
+    matched_dq_ids = set()
+
+    # Validate inputs
+    if gt_subplots_gdf is None or len(gt_subplots_gdf) == 0:
+        return pd.DataFrame(matches)
+    if dq_subplots_gdf is None or len(dq_subplots_gdf) == 0:
+        return pd.DataFrame(matches)
+    if "subplot_id" not in gt_subplots_gdf.columns or "subplot_id" not in dq_subplots_gdf.columns:
+        return pd.DataFrame(matches)
+
+    # Pass 1: Strict matching within threshold (takes smallest distance)
+    for _, dq_row in dq_subplots_gdf.iterrows():
+        if dq_row.geometry is None or dq_row.geometry.is_empty:
+            continue
+
+        best_match = None
+        best_distance = float("inf")
+
+        for _, gt_row in gt_subplots_gdf.iterrows():
+            if gt_row["subplot_id"] in matched_gt_ids:
+                continue
+            if gt_row.geometry is None or gt_row.geometry.is_empty:
+                continue
+
+            dist = calculate_centroid_distance_meters(gt_row.geometry, dq_row.geometry)
+            # Take the smallest distance within threshold
+            if dist < best_distance and dist <= strict_threshold:
+                best_distance = dist
+                best_match = gt_row
+
+        if best_match is not None:
+            matches.append(
+                {
+                    "gt_subplot_id": best_match["subplot_id"],
+                    "dq_subplot_id": dq_row["subplot_id"],
+                    "distance_m": round(best_distance, 1),
+                    "gt_subplot_num": extract_subplot_num(best_match["subplot_id"]),
+                    "dq_subplot_num": extract_subplot_num(dq_row["subplot_id"]),
+                    "match_type": "strict",
+                }
+            )
+            matched_gt_ids.add(best_match["subplot_id"])
+            matched_dq_ids.add(dq_row["subplot_id"])
+
+    # Pass 2: Fallback - match remaining DQ to nearest unmatched GT (no distance limit)
+    for _, dq_row in dq_subplots_gdf.iterrows():
+        if dq_row["subplot_id"] in matched_dq_ids:
+            continue
+        if dq_row.geometry is None or dq_row.geometry.is_empty:
+            continue
+
+        best_match = None
+        best_distance = float("inf")
+
+        for _, gt_row in gt_subplots_gdf.iterrows():
+            if gt_row["subplot_id"] in matched_gt_ids:
+                continue
+            if gt_row.geometry is None or gt_row.geometry.is_empty:
+                continue
+
+            dist = calculate_centroid_distance_meters(gt_row.geometry, dq_row.geometry)
+            if dist < best_distance:
+                best_distance = dist
+                best_match = gt_row
+
+        if best_match is not None:
+            matches.append(
+                {
+                    "gt_subplot_id": best_match["subplot_id"],
+                    "dq_subplot_id": dq_row["subplot_id"],
+                    "distance_m": round(best_distance, 1),
+                    "gt_subplot_num": extract_subplot_num(best_match["subplot_id"]),
+                    "dq_subplot_num": extract_subplot_num(dq_row["subplot_id"]),
+                    "match_type": "fallback",
+                }
+            )
+            matched_gt_ids.add(best_match["subplot_id"])
+            matched_dq_ids.add(dq_row["subplot_id"])
+
+    return pd.DataFrame(matches)
+
+
 def filter_measured_subplots(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Filter GeoDataFrame to only include measured subplots.
