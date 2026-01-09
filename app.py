@@ -184,8 +184,8 @@ if "data" not in st.session_state:
     st.session_state.data = None
 if "filename" not in st.session_state:
     st.session_state.filename = None
-if "server_name" not in st.session_state:
-    st.session_state.server_name = "akvofoundation"
+# Hardcoded server name
+st.session_state.server_name = "akvofoundation"
 if "username" not in st.session_state:
     st.session_state.username = ""
 if "password" not in st.session_state:
@@ -211,15 +211,10 @@ with st.sidebar:
     st.markdown("## 🌐 Data Source: API")
     st.markdown("### 🔐 SurveyCTO Credentials")
 
-    # Manual credential inputs (persisted in session state)
-    server_name = st.text_input(
-        "Server Name",
-        value=st.session_state.server_name,
-        key="server_name_input",
-        help="Your SurveyCTO server name (e.g., akvofoundation)",
-    )
-    st.session_state.server_name = server_name
+    # Hardcoded server name
+    server_name = "akvofoundation"
 
+    # Manual credential inputs (persisted in session state)
     username = st.text_input(
         "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
     )
@@ -234,7 +229,7 @@ with st.sidebar:
     )
     st.session_state.password = password
 
-    credentials_configured = bool(server_name and username and password)
+    credentials_configured = bool(username and password)
 
     if credentials_configured:
         st.success(f"✅ Connected to: {server_name}")

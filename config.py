@@ -10,6 +10,17 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "FA": {
+        "country": "Kenya",
+        "country_iso3": "KEN",
+        "dqID": "data_quality_ground_truth_collection_farm_africa_2026_january",
+        "gtID": "ground_truth_collection_Farm_Africa_2026_January",
+        "description": "Farm Africa 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [0.705, 37.422],
+        "start_date": "2026-01-12",
+    },
     "INTELLECAP": {
         "country": "India",
         "country_iso3": "IND",
