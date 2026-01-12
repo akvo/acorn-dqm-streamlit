@@ -74,24 +74,12 @@ with st.sidebar:
     show_valid = st.checkbox("Show Valid Subplots", value=True)
     show_invalid = st.checkbox("Show Invalid Subplots", value=True)
 
-    st.markdown("---")
-    st.markdown("### 🎨 Map Style")
-
-    map_style = st.radio(
-        "Choose base map:",
-        options=[
-            "OpenStreetMap",
-            "Satellite (Esri)",
-            "Terrain",
-            "Light (CartoDB)",
-            "Dark (CartoDB)",
-        ],
-        index=0,
-    )
-
     st.caption("💡 Use layer control on map to switch styles")
 
     st.markdown("---")
+
+# Default map style (can be changed via layer control on map)
+map_style = "OpenStreetMap"
 
 # Filter by validity
 if not show_valid:
@@ -760,35 +748,6 @@ if veg_df is not None and len(veg_df) > 0:
         st.warning("⚠️ Required columns (SUBPLOT_KEY, vegetation_type_number) not found in vegetation data")
 else:
     st.info("ℹ️ No vegetation data available for tree count map")
-
-st.markdown("---")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.markdown("### 📋 Map Legend")
-    st.markdown("🟢 **Green** = Valid subplots")
-    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;Count: **{summary['valid']:,}**")
-    st.markdown("")
-    st.markdown("🔴 **Red** = Invalid subplots")
-    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;Count: **{summary['invalid']:,}**")
-
-with col2:
-    st.markdown("### 📏 Area Range")
-    st.markdown(f"**Min Required:** {config.MIN_SUBPLOT_AREA_SIZE} m²")
-    st.markdown(f"**Max Allowed:** {config.MAX_SUBPLOT_AREA_SIZE} m²")
-    if "area_m2" in filtered_gdf.columns:
-        valid_areas = filtered_gdf[filtered_gdf["geom_valid"]]["area_m2"]
-        if len(valid_areas) > 0:
-            st.markdown(f"**Avg (Valid):** {valid_areas.mean():.1f} m²")
-
-with col3:
-    st.markdown("### 🗺️ Map Controls")
-    st.markdown(f"**Style:** {map_style}")
-    st.markdown("**📍** Click polygons for details")
-    st.markdown("**🗺️** Layer control (top-right)")
-    st.markdown("**🔲** Fullscreen (top-left)")
-    st.markdown("**🗺️** Minimap (bottom-left)")
 
 # Download visible subplots
 st.markdown("---")
