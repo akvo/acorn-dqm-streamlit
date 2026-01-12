@@ -1785,57 +1785,6 @@ if st.session_state.data is not None:
     if fig_enum:
         st.plotly_chart(fig_enum, use_container_width=True)
 
-    # Area distribution
-    st.markdown("---")
-    st.markdown("## 📏 Area Distribution")
-    st.caption("Subplot area statistics and distribution. The histogram shows how subplot sizes are distributed relative to the acceptable range (orange dashed lines). Areas outside this range indicate GPS measurement issues or incorrect plot demarcation.")
-
-    if "area_m2" in filtered_gdf.columns:
-        col1, col2, col3 = st.columns(3)
-
-        valid_areas = filtered_gdf[filtered_gdf["geom_valid"]]["area_m2"]
-
-        with col1:
-            avg_area = valid_areas.mean()
-            st.metric("Average Area (Valid)", f"{avg_area:.1f} m²")
-
-        with col2:
-            min_area = valid_areas.min()
-            st.metric("Minimum Area (Valid)", f"{min_area:.1f} m²")
-
-        with col3:
-            max_area = valid_areas.max()
-            st.metric("Maximum Area (Valid)", f"{max_area:.1f} m²")
-
-        # Histogram
-        import plotly.express as px
-
-        fig_hist = px.histogram(
-            filtered_gdf[filtered_gdf["area_m2"] > 0],
-            x="area_m2",
-            color="geom_valid",
-            title="Subplot Area Distribution",
-            labels={"area_m2": "Area (m²)", "geom_valid": "Valid"},
-            color_discrete_map={True: "green", False: "red"},
-            nbins=50,
-        )
-
-        # Add threshold lines
-        fig_hist.add_vline(
-            x=config.MIN_SUBPLOT_AREA_SIZE,
-            line_dash="dash",
-            line_color="orange",
-            annotation_text=f"Min: {config.MIN_SUBPLOT_AREA_SIZE}m²",
-        )
-        fig_hist.add_vline(
-            x=config.MAX_SUBPLOT_AREA_SIZE,
-            line_dash="dash",
-            line_color="orange",
-            annotation_text=f"Max: {config.MAX_SUBPLOT_AREA_SIZE}m²",
-        )
-
-        st.plotly_chart(fig_hist, use_container_width=True)
-
     # Summary table
     st.markdown("---")
     st.markdown("## 📋 Summary Statistics")
