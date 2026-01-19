@@ -19,7 +19,7 @@ from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache
 # Import folium for maps
 try:
     import folium
-    from streamlit_folium import st_folium
+    from streamlit_folium import folium_static
 
     FOLIUM_AVAILABLE = True
 except ImportError:
@@ -541,15 +541,17 @@ if FOLIUM_AVAILABLE:
                 center_lat, center_lon = config.MAP_CENTER
             zoom_start = 12
 
-        # Create map
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles="OpenStreetMap")
+        # Create map with Satellite as default
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None)
 
-        # Add satellite layer option
+        # Add tile layers - Satellite as default (show=True), OpenStreetMap as option
         folium.TileLayer(
             tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
             attr="Esri",
             name="Satellite",
+            show=True,
         ).add_to(m)
+        folium.TileLayer("OpenStreetMap", name="OpenStreetMap", show=False).add_to(m)
 
         # Create feature groups for plots and subplots
         gt_group = folium.FeatureGroup(name="🔵 GT Plots", show=True)
@@ -706,7 +708,7 @@ if FOLIUM_AVAILABLE:
         folium.LayerControl().add_to(m)
 
         # Display map
-        st_folium(m, width=None, height=500, use_container_width=True)
+        folium_static(m, width=1200, height=500)
 
         # Legend
         st.markdown("""

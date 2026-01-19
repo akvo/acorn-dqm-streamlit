@@ -12,7 +12,7 @@ from utils.data_processor import get_validation_summary
 # Import folium
 try:
     import folium
-    from streamlit_folium import st_folium
+    from streamlit_folium import folium_static
     from folium.plugins import Fullscreen, MiniMap
 
     FOLIUM_AVAILABLE = True
@@ -77,9 +77,6 @@ with st.sidebar:
     st.caption("💡 Use layer control on map to switch styles")
 
     st.markdown("---")
-
-# Default map style (can be changed via layer control on map)
-map_style = "OpenStreetMap"
 
 # Filter by validity
 if not show_valid:
@@ -180,48 +177,21 @@ center_lon = (bounds[0] + bounds[2]) / 2
 # ============================================
 
 try:
-    # Create map with selected style
-    if map_style == "OpenStreetMap":
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_level,
-            tiles="OpenStreetMap",
-        )
-    elif map_style == "Satellite (Esri)":
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_level,
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri",
-        )
-    elif map_style == "Terrain":
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_level,
-            tiles="Stamen Terrain",
-        )
-    elif map_style == "Light (CartoDB)":
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_level,
-            tiles="CartoDB positron",
-        )
-    else:  # Dark (CartoDB)
-        m = folium.Map(
-            location=[center_lat, center_lon],
-            zoom_start=zoom_level,
-            tiles="CartoDB dark_matter",
-        )
+    # Create map with Satellite as default (no base tiles, we add them manually)
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_level,
+        tiles=None,
+    )
 
-    # Add additional tile layer options
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+    # Add tile layers - Satellite as default (show=True), OpenStreetMap as option
     folium.TileLayer(
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri",
         name="Satellite",
+        show=True,
     ).add_to(m)
-    folium.TileLayer("CartoDB positron", name="Light").add_to(m)
-    folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
+    folium.TileLayer("OpenStreetMap", name="OpenStreetMap", show=False).add_to(m)
 
     # Create feature groups
     valid_group = folium.FeatureGroup(name="✅ Valid Subplots", show=show_valid)
@@ -437,7 +407,7 @@ try:
         "Use the layer control (top-right) to toggle between valid/invalid and change map styles."
     )
 
-    st_folium(m, width=None, height=700, returned_objects=[])
+    folium_static(m, width=1200, height=700)
 
     # Show subplot table for selected plot (below map)
     if selected_plot_key and len(plot_gdf) > 0 and "nr_vertices" in plot_gdf.columns:
@@ -622,22 +592,21 @@ if veg_df is not None and len(veg_df) > 0:
                 center_lat, center_lon = config.MAP_CENTER
                 tree_map_zoom = config.DEFAULT_ZOOM
 
-            # Create map
+            # Create map with Satellite as default
             m2 = folium.Map(
                 location=[center_lat, center_lon],
                 zoom_start=tree_map_zoom,
-                tiles="CartoDB positron",
+                tiles=None,
             )
 
-            # Add additional tile layers
-            folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m2)
+            # Add tile layers - Satellite as default (show=True), OpenStreetMap as option
             folium.TileLayer(
                 tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                 attr="Esri",
                 name="Satellite",
+                show=True,
             ).add_to(m2)
-            folium.TileLayer("CartoDB positron", name="Light").add_to(m2)
-            folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m2)
+            folium.TileLayer("OpenStreetMap", name="OpenStreetMap", show=False).add_to(m2)
 
             # Add subplots colored by tree count
             for idx, row in tree_count_gdf.iterrows():
@@ -739,7 +708,7 @@ if veg_df is not None and len(veg_df) > 0:
             st.info(
                 f"💡 Showing tree counts for **{selected_veg_type}** vegetation type. Click subplots to see details."
             )
-            st_folium(m2, width=None, height=600, returned_objects=[], key="tree_count_map")
+            folium_static(m2, width=1200, height=600)
 
         except Exception as e:
             st.error(f"⚠️ Tree count map failed to load: {str(e)}")

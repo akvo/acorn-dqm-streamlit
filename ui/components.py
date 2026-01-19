@@ -255,10 +255,10 @@ def create_sidebar_filters(gdf):
             if valid_dates.sum() > 0:
                 # Get min/max dates from valid dates only
                 min_date = gdf_with_date.loc[valid_dates, date_col].min().date()
-                data_max_date = gdf_with_date.loc[valid_dates, date_col].max().date()
+                max_date = gdf_with_date.loc[valid_dates, date_col].max().date()
                 today = date_class.today()
                 # Allow selecting up to today (or data max if data is from future)
-                max_date = max(data_max_date, today)
+                # max_date = max(data_max_date, today)
 
                 # Use session state to persist date selection across page navigations
                 if "date_filter_start" not in st.session_state or "date_filter_end" not in st.session_state:

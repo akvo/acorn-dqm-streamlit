@@ -118,21 +118,21 @@ def create_enumerator_map(enum_data, enumerator_name):
         center_lat = (bounds[1] + bounds[3]) / 2
         center_lon = (bounds[0] + bounds[2]) / 2
 
-        # Create map
+        # Create map with Satellite as default
         m = folium.Map(
             location=[center_lat, center_lon],
             zoom_start=13,
-            tiles="OpenStreetMap",
+            tiles=None,
         )
 
-        # Add additional tile layers
-        folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+        # Add tile layers - Satellite as default (show=True), OpenStreetMap as option
         folium.TileLayer(
             tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
             attr="Esri",
             name="Satellite",
+            show=True,
         ).add_to(m)
-        folium.TileLayer("CartoDB positron", name="Light").add_to(m)
+        folium.TileLayer("OpenStreetMap", name="OpenStreetMap", show=False).add_to(m)
 
         # Create feature groups
         valid_group = folium.FeatureGroup(name="✅ Valid Subplots", show=True)
@@ -2721,7 +2721,7 @@ with tabs[TAB_ERROR_DETAILS]:
         if map_obj:
             # Display folium map
             try:
-                from streamlit_folium import st_folium
+                from streamlit_folium import folium_static
 
                 st.info(
                     "💡 **Tip:** Click on subplots to see detailed information. "
@@ -2729,7 +2729,7 @@ with tabs[TAB_ERROR_DETAILS]:
                     "Change map styles using the layers menu."
                 )
 
-                st_folium(map_obj, width=None, height=600, returned_objects=[])
+                folium_static(map_obj, width=1200, height=600)
 
                 # Map legend
                 col_leg1, col_leg2, col_leg3 = st.columns(3)
