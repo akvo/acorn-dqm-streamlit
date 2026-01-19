@@ -544,10 +544,10 @@ if FOLIUM_AVAILABLE:
         # Create map with Satellite as default
         m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=None)
 
-        # Add tile layers - Satellite as default (show=True), OpenStreetMap as option
+        # Add tile layers - Google Hybrid as default (show=True), OpenStreetMap as option
         folium.TileLayer(
-            tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri",
+            tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+            attr="Google",
             name="Satellite",
             show=True,
         ).add_to(m)
