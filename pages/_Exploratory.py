@@ -74,6 +74,7 @@ def load_species_lookup(partner: str) -> dict:
         "banana_species.tsv",
         "palm_species.tsv",
         "living_fences_species.tsv",
+        "non_woody.tsv",
     ]
 
     for filename in species_files:
@@ -317,23 +318,36 @@ for _, row in filtered_veg.iterrows():
         if match:
             subplot_num = int(match.group(1))
 
-    # Get vegetation type
-    veg_type = row.get("vegetation_species_type", "N/A")
+    # Get vegetation type - skip row if blank
+    veg_type = row.get("vegetation_species_type", "")
+    if pd.isna(veg_type) or str(veg_type).strip() == "" or veg_type == "N/A":
+        continue
+
+    # Check if this is a no_coverage case (non-woody vegetation)
+    youngtree_type = row.get("vegetation_type_youngtree", "")
+    is_coverage = str(youngtree_type).lower() == "no_coverage"
 
     # Get tree name from species columns
     tree_name = "Unknown"
-    species_cols = [
-        "woody_species",
-        "bamboo_species",
-        "banana_species",
-        "palm_species",
-        "living_fences_species",
-    ]
-    for col in species_cols:
-        val = row.get(col)
-        if pd.notna(val) and str(val).strip():
-            tree_name = str(val).strip()
-            break
+    if is_coverage:
+        # For no_coverage, get from non_woody_species
+        non_woody = row.get("non_woody_species", "")
+        if pd.notna(non_woody) and str(non_woody).strip():
+            tree_name = str(non_woody).strip()
+    else:
+        # Normal case - check woody species columns
+        species_cols = [
+            "woody_species",
+            "bamboo_species",
+            "banana_species",
+            "palm_species",
+            "living_fences_species",
+        ]
+        for col in species_cols:
+            val = row.get(col)
+            if pd.notna(val) and str(val).strip():
+                tree_name = str(val).strip()
+                break
 
     # If tree_name is "other", get from other_species column
     if tree_name.lower() == "other":
@@ -350,10 +364,21 @@ for _, row in filtered_veg.iterrows():
     if tree_name_lookup_key in species_lookup:
         common_name = species_lookup[tree_name_lookup_key]
 
-    # Get count
-    count = row.get("vegetation_type_number", 0)
-    if pd.isna(count):
-        count = 0
+    # Get count - for no_coverage use coverage_vegetation (percentage)
+    if is_coverage:
+        count = row.get("coverage_vegetation", 0)
+        if pd.isna(count):
+            count = 0
+        else:
+            count = int(float(count))
+        count_display = f"{count}%"  # Indicate it's a percentage
+    else:
+        count = row.get("vegetation_type_number", 0)
+        if pd.isna(count):
+            count = 0
+        else:
+            count = int(float(count))
+        count_display = str(count)
 
     # Get date (full date)
     date_val = row.get("SubmissionDate", row.get("starttime", "N/A"))
@@ -402,7 +427,8 @@ for _, row in filtered_veg.iterrows():
             "Vegetation Type": veg_type,
             "Tree Name": tree_name,
             "Common Name": common_name,
-            "Count": int(count),
+            "Count": count_display,
+            "_tree_count": 0 if is_coverage else count,  # Only count trees, not coverage
             "Above 1.3": above_1_3,
             "Year Planted": year_planted,
             "Enumerator": row.get("enumerator", "N/A"),
@@ -422,7 +448,7 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Total Records", len(species_df))
 with col2:
-    st.metric("Total Tree Count", species_df["Count"].sum())
+    st.metric("Total Tree Count", int(species_df["_tree_count"].sum()))
 with col3:
     unique_subplots = species_df["Subplot #"].nunique()
     st.metric("Unique Subplots", unique_subplots)
@@ -430,8 +456,9 @@ with col4:
     unique_species = species_df["Tree Name"].nunique()
     st.metric("Unique Species", unique_species)
 
-# Display the dataframe
-st.dataframe(species_df, use_container_width=True, height=500)
+# Display the dataframe (drop internal columns)
+display_df = species_df.drop(columns=["_tree_count"])
+st.dataframe(display_df, use_container_width=True, height=500)
 
 # ============================================
 # DOWNLOAD OPTION
