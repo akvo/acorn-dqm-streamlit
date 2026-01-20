@@ -67,7 +67,7 @@ def create_enumerator_performance_chart(gdf):
 
     enum_stats.columns = ["enumerator", "valid", "total"]
     enum_stats["invalid"] = enum_stats["total"] - enum_stats["valid"]
-    enum_stats = enum_stats.sort_values("valid", ascending=True)
+    enum_stats = enum_stats.sort_values("invalid", ascending=False)
 
     fig = go.Figure()
 

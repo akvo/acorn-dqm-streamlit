@@ -1777,11 +1777,11 @@ if st.session_state.data is not None:
     if fig_timeline:
         st.plotly_chart(fig_timeline, use_container_width=True)
 
-    # Enumerator performance
+    # Enumerator performance (using only measured subplots)
     st.markdown("---")
     st.markdown("## 👥 Enumerator Overview")
-    st.caption("Submission counts by enumerator. Use this for workload distribution analysis. For detailed quality metrics per enumerator (error rates, measurement patterns), see the Enumerator Performance page.")
-    fig_enum = create_enumerator_performance_chart(filtered_gdf)
+    st.caption("Submission counts by enumerator (measured subplots only). Use this for workload distribution analysis. For detailed quality metrics per enumerator (error rates, measurement patterns), see the Enumerator Performance page.")
+    fig_enum = create_enumerator_performance_chart(gdf_for_plots)
     if fig_enum:
         st.plotly_chart(fig_enum, use_container_width=True)
 
