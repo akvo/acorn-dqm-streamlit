@@ -40,7 +40,7 @@ def show_header():
                 {config.APP_SUBTITLE}
             </p>
             <p style="color: #C8E6C9; margin-top: 0.3rem; font-size: 0.9em;">
-                Active Partner: <strong>{config.PARTNER}</strong> | Country: <strong>{config.COUNTRY}</strong> | Year: {config.YEAR}
+                Active Partner: <strong>{config.PARTNER}</strong> | Country: <strong>{config.COUNTRY}</strong> | Years: {config.YEAR}
             </p>
         </div>
         """,
