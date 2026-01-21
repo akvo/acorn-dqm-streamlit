@@ -1680,12 +1680,7 @@ if st.session_state.data is not None:
     # PDF Summary Report
     st.markdown("---")
     st.markdown("## 📄 Summary PDF Report")
-    st.caption("Download comprehensive summary report with all quality check statistics")
-
-    # Initialize session state for PDF
-    if "summary_pdf_buffer" not in st.session_state:
-        st.session_state.summary_pdf_buffer = None
-        st.session_state.summary_pdf_timestamp = None
+    st.caption("Download comprehensive summary report with all quality check statisticss")
 
     if st.button(
         "📄 Generate Summary PDF Report",
@@ -1724,11 +1719,18 @@ if st.session_state.data is not None:
                     dq_raw_data=dq_raw_data,
                 )
 
-                # Store in session state
-                st.session_state.summary_pdf_buffer = pdf_buffer.getvalue()
-                st.session_state.summary_pdf_timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+                pdf_bytes = pdf_buffer.getvalue()
+                timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
 
-                st.success("✅ PDF summary report generated successfully!")
+                # Download button INSIDE the if-block - no session state needed
+                st.download_button(
+                    label="💾 Download Summary PDF Report",
+                    data=pdf_bytes,
+                    file_name=f"{config.PARTNER}_summary_report_{timestamp}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+                st.success(f"✅ PDF generated! ({len(pdf_bytes)/1024:.0f} KB)")
 
             except Exception as e:
                 st.error(f"❌ Error generating PDF report: {str(e)}")
@@ -1736,17 +1738,6 @@ if st.session_state.data is not None:
                 import traceback
 
                 st.code(traceback.format_exc())
-
-    # Show download button if PDF is available
-    if st.session_state.summary_pdf_buffer is not None:
-        st.download_button(
-            label="💾 Download Summary PDF Report",
-            data=st.session_state.summary_pdf_buffer,
-            file_name=f"{config.PARTNER}_summary_report_{st.session_state.summary_pdf_timestamp}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            key="download_summary_pdf_report",
-        )
 
     # Charts
     st.markdown("---")
