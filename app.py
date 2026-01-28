@@ -53,6 +53,69 @@ def format_time_ago(timestamp: datetime) -> str:
         return f"{hours}h ago"
 
 
+def validate_credentials(server_name: str, username: str, password: str, form_id: str) -> tuple:
+    """
+    Validate credentials against SurveyCTO API.
+    Uses the form data endpoint with a recent timestamp to get minimal/empty response.
+
+    Args:
+        server_name: SurveyCTO server name (e.g., "akvofoundation")
+        username: SurveyCTO username
+        password: SurveyCTO password
+        form_id: Form ID to validate against (gtID from config)
+
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
+    """
+    import time
+
+    url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
+
+    print(f"[validate_credentials] Starting validation...")
+    print(f"[validate_credentials] URL: {url}")
+    print(f"[validate_credentials] Username: {username[:3]}***" if username else "[validate_credentials] Username: (empty)")
+
+    try:
+        # Use current timestamp (in milliseconds) to get empty/minimal response
+        # This returns only submissions after "now", which should be none
+        current_timestamp = str(int(time.time() * 1000))
+        print(f"[validate_credentials] Making GET request with date={current_timestamp} (current time)...")
+
+        response = requests.get(
+            url,
+            auth=(username, password),
+            params={"date": current_timestamp},
+            timeout=15
+        )
+
+        print(f"[validate_credentials] Response status: {response.status_code}")
+        print(f"[validate_credentials] Response length: {len(response.content)} bytes")
+        print(f"[validate_credentials] Response body: {response.text[:200]}")
+
+        if response.status_code == 200:
+            print("[validate_credentials] Validation SUCCESS")
+            return True, None
+        elif response.status_code == 401:
+            print("[validate_credentials] Validation FAILED - 401 Unauthorized")
+            return False, "Invalid username or password"
+        elif response.status_code == 403:
+            print("[validate_credentials] Validation FAILED - 403 Forbidden")
+            return False, "Access denied - check account permissions"
+        elif response.status_code == 404:
+            print("[validate_credentials] Validation FAILED - 404 Not Found")
+            return False, f"Form '{form_id}' not found"
+        else:
+            print(f"[validate_credentials] Validation FAILED - HTTP {response.status_code}")
+            return False, f"Validation failed (HTTP {response.status_code})"
+
+    except requests.exceptions.Timeout:
+        print("[validate_credentials] EXCEPTION - Timeout")
+        return False, "Connection timeout - check network"
+    except requests.exceptions.RequestException as e:
+        print(f"[validate_credentials] EXCEPTION - {type(e).__name__}: {str(e)}")
+        return False, f"Connection error: {str(e)}"
+
+
 def fetch_surveycto_data(
     server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label="", start_date=None
 ):
@@ -214,6 +277,8 @@ if "dq_filename" not in st.session_state:
     st.session_state.dq_filename = None
 if "data_source_mode" not in st.session_state:
     st.session_state.data_source_mode = "api"
+if "credentials_validated" not in st.session_state:
+    st.session_state.credentials_validated = False
 
 # Header
 show_header()
@@ -268,10 +333,13 @@ with st.sidebar:
     if st.session_state.data_source_mode == "api":
         st.markdown("### 🔐 SurveyCTO Credentials")
 
+        # Track previous values to detect changes
+        prev_username = st.session_state.username
+        prev_password = st.session_state.password
+
         username = st.text_input(
             "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
         )
-        st.session_state.username = username
 
         password = st.text_input(
             "Password",
@@ -280,22 +348,44 @@ with st.sidebar:
             type="password",
             help="Your SurveyCTO password",
         )
+
+        # Reset validation if credentials changed
+        if username != prev_username or password != prev_password:
+            st.session_state.credentials_validated = False
+
+        st.session_state.username = username
         st.session_state.password = password
 
         credentials_configured = bool(username and password)
 
+        # Validate Credentials button
         if credentials_configured:
-            st.success(f"✅ Connected to: {server_name}")
+            if st.button("🔐 Validate Credentials", use_container_width=True):
+                with st.spinner("Validating..."):
+                    is_valid, error = validate_credentials(server_name, username, password, config.GT_FORM_ID)
+                    if is_valid:
+                        st.session_state.credentials_validated = True
+                        st.success("✅ Credentials validated")
+                        st.rerun()
+                    else:
+                        st.session_state.credentials_validated = False
+                        st.error(f"❌ {error}")
+
+            # Show validation status
+            if st.session_state.credentials_validated:
+                st.success(f"✅ Authenticated with: {server_name}")
+            else:
+                st.info("👆 Click 'Validate Credentials' to continue")
         else:
             st.warning("⚠️ Enter credentials above")
 
     st.markdown("---")
 
-    # Process button
+    # Process button - only show if credentials are validated (for API mode)
     process_btn = False
     use_cache_btn = False
     if st.session_state.data_source_mode == "api":
-        if credentials_configured and form_id:
+        if st.session_state.credentials_validated and form_id:
             # Check if cached data exists for this partner
             cached_data_exists = has_data("gt", config.PARTNER)
             cache_time = get_data_timestamp(config.PARTNER)
@@ -311,9 +401,11 @@ with st.sidebar:
             else:
                 # No cache - show single fetch button
                 process_btn = st.button("🚀 Fetch GT Data", type="primary", use_container_width=True)
+        elif not st.session_state.credentials_validated:
+            # Credentials not validated yet - message shown above
+            pass
         else:
-            if not credentials_configured:
-                st.warning("⚠️ Configure API credentials")
+            st.warning("⚠️ Configure API credentials")
     else:
         # File upload mode (dev only)
         if uploaded_file is not None:
@@ -333,7 +425,7 @@ if use_cache_btn:
         st.error("Cache data no longer available. Please fetch fresh data.")
 
 # Process data (fetch from API or cache, then process) - API MODE
-if st.session_state.data_source_mode == "api" and process_btn and credentials_configured:
+if st.session_state.data_source_mode == "api" and process_btn and st.session_state.credentials_validated:
     with st.spinner("Fetching and processing data..."):
         try:
             progress_bar = st.progress(0, text="Connecting to SurveyCTO...")

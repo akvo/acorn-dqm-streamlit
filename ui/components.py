@@ -9,19 +9,15 @@ import pandas as pd
 
 def require_auth():
     """
-    Check if user is authenticated. Call at top of each page.
+    Check if user has validated credentials.
+    Must have credentials_validated=True in session state.
     Returns True if authenticated, stops page if not.
     """
-    # Check for credentials in session state
-    username = st.session_state.get("username", "")
-    password = st.session_state.get("password", "")
+    credentials_validated = st.session_state.get("credentials_validated", False)
 
-    # Check if data was fetched by this user (has their own session data)
-    has_session_data = "data" in st.session_state and st.session_state.data is not None
-
-    if not (username and password) and not has_session_data:
-        st.warning("⚠️ Please log in first.")
-        st.info("You need to enter credentials on the home page to access this data.")
+    if not credentials_validated:
+        st.warning("⚠️ Please validate your credentials first.")
+        st.info("Enter your SurveyCTO credentials on the home page and click 'Validate Credentials'.")
         if st.button("← Go to Home"):
             st.switch_page("app.py")
         st.stop()
