@@ -13,6 +13,7 @@ import config
 import requests
 from io import BytesIO
 from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache_exists
+from utils.session_manager import save_data, load_data, has_data, get_data_timestamp
 from ui.components import (
     show_header,
     show_plot_metrics_row,
@@ -29,10 +30,27 @@ from ui.charts import (
 )
 from utils.data_processor import (
     process_json_data,
+    process_excel_file,
     get_validation_summary,
     filter_by_date,
 )
 import re as regex_module
+from datetime import datetime
+
+
+def format_time_ago(timestamp: datetime) -> str:
+    """Format a timestamp as human-readable time ago string."""
+    if timestamp is None:
+        return "unknown"
+    delta = datetime.now() - timestamp
+    minutes = int(delta.total_seconds() / 60)
+    if minutes < 1:
+        return "just now"
+    elif minutes < 60:
+        return f"{minutes} min ago"
+    else:
+        hours = minutes // 60
+        return f"{hours}h ago"
 
 
 def fetch_surveycto_data(
@@ -194,6 +212,8 @@ if "dq_data" not in st.session_state:
     st.session_state.dq_data = None
 if "dq_filename" not in st.session_state:
     st.session_state.dq_filename = None
+if "data_source_mode" not in st.session_state:
+    st.session_state.data_source_mode = "api"
 
 # Header
 show_header()
@@ -204,109 +224,116 @@ with st.sidebar:
     active_partner = st.session_state.get("partner", config.PARTNER)
     st.info(f"🔗 **Active Partner:** {active_partner}")
 
-    # Show dev mode indicator if enabled
-    if is_dev_mode():
-        st.warning("🛠️ **Dev Mode Active** - Using local cache")
+    st.markdown("---")
 
-    st.markdown("## 🌐 Data Source: API")
-    st.markdown("### 🔐 SurveyCTO Credentials")
-
-    # Hardcoded server name
+    # Initialize variables
     server_name = "akvofoundation"
-
-    # Manual credential inputs (persisted in session state)
-    username = st.text_input(
-        "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
-    )
-    st.session_state.username = username
-
-    password = st.text_input(
-        "Password",
-        value=st.session_state.password,
-        key="password_input",
-        type="password",
-        help="Your SurveyCTO password",
-    )
-    st.session_state.password = password
-
-    credentials_configured = bool(username and password)
-
-    if credentials_configured:
-        st.success(f"✅ Connected to: {server_name}")
-    else:
-        st.warning("⚠️ Enter credentials above")
-
-    # Form ID input
-    st.markdown("---")
-    st.markdown("### 📋 Form ID")
-
-    # Show current partner's form ID
-    st.info(f"📋 **Active Partner**: {config.PARTNER}\n\n**Form ID**: `{config.GT_FORM_ID}`")
-
-    form_id = st.text_input(
-        "Form ID (auto-filled based on partner):",
-        value=config.GT_FORM_ID,
-        help=f"Form ID for {config.PARTNER} - Change URL ?partner= to switch partners",
-        placeholder=config.GT_FORM_ID,
-    )
-
-    if form_id:
-        st.caption(f"✅ Using: `{form_id}`")
-    else:
-        st.warning("⚠️ Form ID required")
-
-    # DQ Form ID display
-    st.markdown("### 🔍 DQ Form ID")
-    st.info(f"**DQ Form ID**: `{config.DQ_FORM_ID}`")
-    st.caption("DQ data will also be fetched for comparison")
-
-    st.markdown("---")
-
-    # GPS Accuracy Settings
-    st.markdown("## ⚙️ GPS Accuracy Settings")
+    credentials_configured = False
+    form_id = config.GT_FORM_ID  # Always use partner's form ID
+    uploaded_file = None
 
     # Initialize session state for accuracy_zero_valid if not exists
     if "accuracy_zero_valid" not in st.session_state:
         st.session_state.accuracy_zero_valid = False
 
-    # Toggle for accepting 0m accuracy
-    accept_zero_accuracy = st.checkbox(
-        "Accept 0m GPS accuracy",
-        value=st.session_state.accuracy_zero_valid,
-        help="When checked, GPS points with 0m accuracy are accepted. When unchecked, they are filtered out. "
-        "Note: 0m accuracy may indicate device errors, but in some cases it's valid data.",
-        key="accuracy_zero_toggle",
-    )
-    st.session_state.accuracy_zero_valid = accept_zero_accuracy
+    # Dev mode: show data source options and file upload
+    if is_dev_mode():
+        st.warning("🛠️ **Dev Mode Active**")
 
-    if accept_zero_accuracy:
-        st.caption("✅ GPS points with 0m accuracy will be **accepted**")
+        st.markdown("## 📊 Data Source")
+        data_source = st.radio(
+            "Select data source:",
+            options=["api", "file"],
+            format_func=lambda x: "🌐 SurveyCTO API" if x == "api" else "📁 Excel File Upload",
+            horizontal=True,
+            help="Use API for live data, or upload an Excel export as fallback",
+        )
+        st.session_state.data_source_mode = data_source
+
+        if st.session_state.data_source_mode == "file":
+            # FILE UPLOAD MODE
+            st.markdown("### 📁 Upload Excel File")
+            uploaded_file = st.file_uploader(
+                "Upload Ground Truth Excel file:",
+                type=["xlsx", "xls"],
+                key="gt_excel_uploader",
+            )
+            if uploaded_file:
+                st.success(f"📁 File: `{uploaded_file.name}`")
     else:
-        st.caption("❌ GPS points with 0m accuracy will be **filtered out**")
+        # Production mode: always use API
+        st.session_state.data_source_mode = "api"
 
-    st.markdown("---")
+    # API Credentials (shown in both modes when using API)
+    if st.session_state.data_source_mode == "api":
+        st.markdown("### 🔐 SurveyCTO Credentials")
 
-    # Validation Settings display
-    st.markdown("## ⚙️ Validation Settings")
-    st.caption(f"**Min Subplot Area:** {config.MIN_SUBPLOT_AREA_SIZE} m²")
-    st.caption(f"**Max Subplot Area:** {config.MAX_SUBPLOT_AREA_SIZE} m²")
-    st.caption(f"**GPS Accuracy:** ≤ {config.GPS_ACCURACY_THRESHOLD}m")
-    st.caption(f"**Radius Check:** {config.THRESHOLD_WITHIN_RADIUS}m")
+        username = st.text_input(
+            "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
+        )
+        st.session_state.username = username
+
+        password = st.text_input(
+            "Password",
+            value=st.session_state.password,
+            key="password_input",
+            type="password",
+            help="Your SurveyCTO password",
+        )
+        st.session_state.password = password
+
+        credentials_configured = bool(username and password)
+
+        if credentials_configured:
+            st.success(f"✅ Connected to: {server_name}")
+        else:
+            st.warning("⚠️ Enter credentials above")
 
     st.markdown("---")
 
     # Process button
-    if credentials_configured and form_id:
-        process_btn = st.button("🚀 Fetch GT Data", type="primary", use_container_width=True)
-    else:
-        process_btn = False
-        if not credentials_configured:
-            st.warning("⚠️ Configure API credentials")
-        elif not form_id:
-            st.warning("⚠️ Enter form ID")
+    process_btn = False
+    use_cache_btn = False
+    if st.session_state.data_source_mode == "api":
+        if credentials_configured and form_id:
+            # Check if cached data exists for this partner
+            cached_data_exists = has_data("gt", config.PARTNER)
+            cache_time = get_data_timestamp(config.PARTNER)
 
-# Process data (fetch from API or cache, then process)
-if process_btn and credentials_configured:
+            if cached_data_exists and cache_time:
+                # Show both buttons: Use Cached and Fetch Fresh
+                age_str = format_time_ago(cache_time)
+                col1, col2 = st.columns(2)
+                with col1:
+                    use_cache_btn = st.button(f"📂 Use Cached ({age_str})", use_container_width=True)
+                with col2:
+                    process_btn = st.button("🚀 Fetch Fresh", type="primary", use_container_width=True)
+            else:
+                # No cache - show single fetch button
+                process_btn = st.button("🚀 Fetch GT Data", type="primary", use_container_width=True)
+        else:
+            if not credentials_configured:
+                st.warning("⚠️ Configure API credentials")
+    else:
+        # File upload mode (dev only)
+        if uploaded_file is not None:
+            process_btn = st.button("🔄 Process Uploaded File", type="primary", use_container_width=True)
+        else:
+            process_btn = False
+            st.warning("⚠️ Upload an Excel file to continue")
+
+# Handle "Use Cached" button - load data from shared cache
+if use_cache_btn:
+    data = load_data("gt", config.PARTNER)
+    if data:
+        st.session_state.data = data
+        st.success("📂 Loaded data from cache")
+        st.rerun()
+    else:
+        st.error("Cache data no longer available. Please fetch fresh data.")
+
+# Process data (fetch from API or cache, then process) - API MODE
+if st.session_state.data_source_mode == "api" and process_btn and credentials_configured:
     with st.spinner("Fetching and processing data..."):
         try:
             progress_bar = st.progress(0, text="Connecting to SurveyCTO...")
@@ -500,8 +527,8 @@ if process_btn and credentials_configured:
 
             progress_bar.progress(100, text="✅ Validation complete!")
 
-            # Store in session state
-            st.session_state.data = data
+            # Store in session state and persistent cache
+            save_data(data, "gt")
             st.session_state.filename = f"API: {form_id}"
 
             st.success(f"✅ Processed {len(data['subplots'])} subplots successfully!")
@@ -547,6 +574,34 @@ if process_btn and credentials_configured:
             st.warning(f"An unexpected error occurred while fetching data.\n\n**Error details:** {str(e)}")
             st.exception(e)
             progress_bar.empty()
+
+# Process uploaded file (FILE UPLOAD MODE)
+if st.session_state.data_source_mode == "file" and process_btn and uploaded_file is not None:
+    with st.spinner("Processing uploaded file..."):
+        try:
+            progress_bar = st.progress(0, text="Reading Excel file...")
+            progress_bar.progress(25, text="Parsing sheets...")
+
+            data = process_excel_file(uploaded_file)
+
+            progress_bar.progress(75, text="Validating geometries...")
+
+            if data.get("subplots") is None or len(data["subplots"]) == 0:
+                st.error("❌ No subplot data found in file")
+                st.stop()
+
+            progress_bar.progress(100, text="✅ Complete!")
+
+            # Store in session state and persistent cache
+            save_data(data, "gt")
+            st.session_state.filename = f"File: {uploaded_file.name}"
+
+            st.success(f"✅ Processed {len(data['subplots'])} subplots!")
+            progress_bar.empty()
+
+        except Exception as e:
+            st.error(f"❌ Error processing file: {str(e)}")
+            st.exception(e)
 
 # Main content - Overview Dashboard
 if st.session_state.data is not None:
@@ -1687,11 +1742,12 @@ if st.session_state.data is not None:
         use_container_width=True,
         type="secondary",
     ):
-        with st.spinner("Generating PDF summary report..."):
+        with st.status("Generating PDF summary report...", expanded=True) as status:
             try:
                 from utils.pdf_summary_report import generate_summary_pdf_report
 
                 # Get raw data
+                status.update(label="Preparing data...", state="running")
                 raw_data = st.session_state.data.get("raw_data", {})
 
                 # Get DQ data from session state if available
@@ -1710,7 +1766,15 @@ if st.session_state.data is not None:
                     dq_gdf = None
                     dq_raw_data = None
 
-                # Generate PDF
+                # Calculate expected work
+                num_enumerators = filtered_gdf["enumerator"].nunique() if "enumerator" in filtered_gdf.columns else 0
+                num_plots = filtered_gdf["PLOT_KEY"].nunique() if "PLOT_KEY" in filtered_gdf.columns else 0
+                st.write(f"Processing {num_enumerators} enumerators, {num_plots} plots...")
+
+                # Generate PDF with progress updates
+                status.update(label="Generating maps and tables (this may take a moment)...", state="running")
+                st.caption("Tip: PDF generation speed depends on the number of plots. Maps are rendered at reduced DPI for faster generation.")
+
                 pdf_buffer = generate_summary_pdf_report(
                     filtered_gdf,
                     raw_data,
@@ -1721,6 +1785,8 @@ if st.session_state.data is not None:
 
                 pdf_bytes = pdf_buffer.getvalue()
                 timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+
+                status.update(label="PDF generated successfully!", state="complete")
 
                 # Download button INSIDE the if-block - no session state needed
                 st.download_button(
@@ -1733,6 +1799,7 @@ if st.session_state.data is not None:
                 st.success(f"✅ PDF generated! ({len(pdf_bytes)/1024:.0f} KB)")
 
             except Exception as e:
+                status.update(label="PDF generation failed", state="error")
                 st.error(f"❌ Error generating PDF report: {str(e)}")
                 st.exception(e)
                 import traceback

@@ -7,6 +7,28 @@ import config
 import pandas as pd
 
 
+def require_auth():
+    """
+    Check if user is authenticated. Call at top of each page.
+    Returns True if authenticated, stops page if not.
+    """
+    # Check for credentials in session state
+    username = st.session_state.get("username", "")
+    password = st.session_state.get("password", "")
+
+    # Check if data was fetched by this user (has their own session data)
+    has_session_data = "data" in st.session_state and st.session_state.data is not None
+
+    if not (username and password) and not has_session_data:
+        st.warning("⚠️ Please log in first.")
+        st.info("You need to enter credentials on the home page to access this data.")
+        if st.button("← Go to Home"):
+            st.switch_page("app.py")
+        st.stop()
+        return False
+    return True
+
+
 def get_total_measured_subplots(gdf):
     """
     Calculate total measured subplots using the measured_subplots field.
@@ -354,18 +376,6 @@ def create_sidebar_filters(gdf):
             from utils.data_processor import filter_by_enumerator
 
             gdf = filter_by_enumerator(gdf, selected_enums)
-
-    # Validity filter
-    validity_filter = st.sidebar.radio(
-        "Show",
-        options=["All", "Valid Only", "Invalid Only"],
-        index=0,
-    )
-
-    if validity_filter == "Valid Only":
-        gdf = gdf[gdf["geom_valid"]]
-    elif validity_filter == "Invalid Only":
-        gdf = gdf[~gdf["geom_valid"]]
 
     return gdf
 

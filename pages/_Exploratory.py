@@ -8,6 +8,8 @@ import pandas as pd
 import re
 import os
 import config
+from ui.components import require_auth
+from utils.session_manager import load_data
 
 st.set_page_config(
     page_title="Exploratory - Ground Truth DQM",
@@ -16,6 +18,9 @@ st.set_page_config(
 )
 
 config.refresh_partner_config()
+
+# Authentication check
+require_auth()
 
 # ============================================
 # PAGE HEADER
@@ -28,15 +33,21 @@ st.markdown("Deep dive into GT and DQ data for comprehensive analysis")
 # DATA AVAILABILITY CHECK
 # ============================================
 
-# Check GT data (mandatory)
-if "data" not in st.session_state or st.session_state.data is None:
+# Check GT data (mandatory) - using persistent data store
+data = load_data("gt")
+if data is None:
     st.warning("⚠️ No GT data loaded. Please fetch GT data from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
-# Check DQ data (optional)
-dq_loaded = st.session_state.get("dq_data") is not None
-
-if not dq_loaded:
+# Check DQ data (optional) - using persistent data store
+dq_data_loaded = load_data("dq")
+dq_loaded = dq_data_loaded is not None
+if dq_loaded:
+    st.session_state.dq_data = dq_data_loaded  # Ensure session state is in sync
+else:
     st.info("ℹ️ DQ data not loaded. Some comparison features will be unavailable.")
 
 # ============================================

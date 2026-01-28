@@ -9,6 +9,7 @@ import re
 from io import BytesIO
 from datetime import datetime
 from collections import Counter
+import config
 
 try:
     from reportlab.lib import colors
@@ -406,9 +407,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
         enum_errors = pd.DataFrame(enum_stats_list)
         enum_errors = enum_errors.sort_values("Error Rate %", ascending=False)
 
-        # Create table with GT plot count
+        # Create table with GT plot count (show all enumerators)
         geom_table_data = [["Data Collector", "GT Plots", "Sub Plots", "Valid", "Invalid", "Error %"]]
-        for _, row in enum_errors.head(15).iterrows():
+        for _, row in enum_errors.iterrows():
             geom_table_data.append(
                 [
                     str(row["Enumerator"]),
@@ -443,15 +444,6 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
         )
         story.append(geom_table)
 
-        if len(enum_errors) > 15:
-            story.append(Spacer(1, 0.1 * inch))
-            story.append(
-                Paragraph(
-                    f"<i>... and {len(enum_errors) - 15} more data collectors</i>",
-                    ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                )
-            )
-
     story.append(Spacer(1, 0.3 * inch))
 
     # Detailed error breakdown
@@ -460,7 +452,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
         error_counts = Counter(error_reasons)
         error_breakdown_data = [["Error Type", "Count", "Percentage"]]
 
-        for error_type, count in error_counts.most_common(10):
+        for error_type, count in error_counts.most_common():
             pct = count / total_invalid * 100
             error_breakdown_data.append(
                 [
@@ -600,9 +592,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
             dq_enum_errors = pd.DataFrame(dq_enum_stats_list)
             dq_enum_errors = dq_enum_errors.sort_values("Error Rate %", ascending=False)
 
-            # Create DQ table
+            # Create DQ table (show all enumerators)
             dq_geom_table_data = [["Data Collector", "DQ Plots", "Sub Plots", "Valid", "Invalid", "Error %"]]
-            for _, row in dq_enum_errors.head(15).iterrows():
+            for _, row in dq_enum_errors.iterrows():
                 dq_geom_table_data.append(
                     [
                         str(row["Enumerator"]),
@@ -637,15 +629,6 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
             )
             story.append(dq_geom_table)
 
-            if len(dq_enum_errors) > 15:
-                story.append(Spacer(1, 0.1 * inch))
-                story.append(
-                    Paragraph(
-                        f"<i>... and {len(dq_enum_errors) - 15} more data collectors</i>",
-                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                    )
-                )
-
         story.append(Spacer(1, 0.3 * inch))
 
         # DQ error breakdown
@@ -667,7 +650,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
             dq_error_counts = Counter(dq_error_reasons)
             dq_error_breakdown_data = [["Error Type", "Count", "Percentage"]]
 
-            for error_type, count in dq_error_counts.most_common(10):
+            for error_type, count in dq_error_counts.most_common():
                 pct = count / dq_total_invalid * 100
                 dq_error_breakdown_data.append(
                     [
@@ -725,9 +708,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
             story.append(Paragraph(f"{len(living_fences_summary)} plots have living fences recorded.", normal_style))
             story.append(Spacer(1, 0.1 * inch))
 
-            # Create table data
+            # Create table data (show all plots)
             living_fences_table_data = [["Plot ID", "Has Living Fences", "Count"]]
-            for _, row in living_fences_summary.head(20).iterrows():
+            for _, row in living_fences_summary.iterrows():
                 # Truncate plot ID if too long
                 plot_id = str(row["PLOT_KEY"])
                 if len(plot_id) > 40:
@@ -756,15 +739,6 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                 )
             )
             story.append(living_fences_table)
-
-            if len(living_fences_summary) > 20:
-                story.append(Spacer(1, 0.1 * inch))
-                story.append(
-                    Paragraph(
-                        f"<i>... and {len(living_fences_summary) - 20} more plots with living fences</i>",
-                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                    )
-                )
         else:
             story.append(Paragraph("No plots with living fences recorded in this dataset.", normal_style))
     else:
@@ -972,7 +946,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                                 file=sys.stderr,
                             )
 
-                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
+                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=config.PDF_MAP_DPI)
 
                             # Count polygons plotted
                             polygons_plotted = 0
@@ -1036,7 +1010,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
 
                             # Convert to image
                             map_buffer = BytesIO()
-                            plt.savefig(map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+                            plt.savefig(map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
                             plt.close(fig)
                             map_buffer.seek(0)
 
@@ -1099,7 +1073,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                         dq_plot_invalid = dq_plot_total - dq_plot_valid
 
                         try:
-                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
+                            fig, ax = plt.subplots(figsize=(5, 3.5), dpi=config.PDF_MAP_DPI)
 
                             # Plot DQ subplots (orange/purple)
                             dq_polygons_plotted = 0
@@ -1156,7 +1130,7 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
 
                             # Convert to image
                             dq_map_buffer = BytesIO()
-                            plt.savefig(dq_map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+                            plt.savefig(dq_map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
                             plt.close(fig)
                             dq_map_buffer.seek(0)
 
@@ -1348,9 +1322,9 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             if "ratio" in height_details_df.columns:
                 height_details_df = height_details_df.sort_values("ratio", ascending=False)
 
-            # Create detailed table
+            # Create detailed table (show all outliers)
             height_detail_data = [["Height (m)", "Median (m)", "Ratio", "Issue"]]
-            for _, row in height_details_df.head(15).iterrows():
+            for _, row in height_details_df.iterrows():
                 height = row.get("tree_height_m", 0)
                 median = row.get("median_height", 0)
                 ratio = row.get("ratio", 0)
@@ -1385,14 +1359,6 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                 )
             )
             story.append(height_detail_table)
-
-            if len(height_details_df) > 15:
-                story.append(
-                    Paragraph(
-                        f"<i>Showing top 15 of {len(height_details_df)} height outliers</i>",
-                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                    )
-                )
 
         story.append(Spacer(1, 0.3 * inch))
 
@@ -1434,9 +1400,9 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             if "ratio" in circ_details_df.columns:
                 circ_details_df = circ_details_df.sort_values("ratio", ascending=False)
 
-            # Create detailed table
+            # Create detailed table (show all outliers)
             circ_detail_data = [["Circ (cm)", "Median (cm)", "Ratio", "Issue"]]
-            for _, row in circ_details_df.head(15).iterrows():
+            for _, row in circ_details_df.iterrows():
                 circ = row.get(circ_col, 0) if circ_col else 0
                 median = row.get("median_circ", 0)
                 ratio = row.get("ratio", 0)
@@ -1472,14 +1438,6 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             )
             story.append(circ_detail_table)
 
-            if len(circ_details_df) > 15:
-                story.append(
-                    Paragraph(
-                        f"<i>Showing top 15 of {len(circ_details_df)} circumference outliers</i>",
-                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                    )
-                )
-
         story.append(Spacer(1, 0.3 * inch))
 
         # High Stem Counts details
@@ -1493,9 +1451,9 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             if "nr_stems_bh" in high_stems_details.columns:
                 high_stems_details = high_stems_details.sort_values("nr_stems_bh", ascending=False)
 
-            # Create detailed table
+            # Create detailed table (show all high stem counts)
             stem_detail_data = [["Stems (BH)", "Threshold", "Issue"]]
-            for _, row in high_stems_details.head(15).iterrows():
+            for _, row in high_stems_details.iterrows():
                 stems = row.get("nr_stems_bh", 0)
 
                 stem_detail_data.append([f"{int(stems)}", ">20", "High stem count"])
@@ -1519,14 +1477,6 @@ We detect measurement issues by comparing tree measurements to expected ranges a
                 )
             )
             story.append(stem_detail_table)
-
-            if len(high_stems_details) > 15:
-                story.append(
-                    Paragraph(
-                        f"<i>Showing top 15 of {len(high_stems_details)} high stem counts</i>",
-                        ParagraphStyle("Remaining", parent=styles["Normal"], fontSize=9, textColor=colors.grey),
-                    )
-                )
 
     else:
         story.append(Paragraph("Vegetation measurement data not available for outlier analysis.", normal_style))

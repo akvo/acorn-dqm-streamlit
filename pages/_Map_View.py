@@ -6,8 +6,9 @@ Removed Plotly fallback as it causes hanging
 import streamlit as st
 import pandas as pd
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info, require_auth
 from utils.data_processor import get_validation_summary
+from utils.session_manager import load_data
 
 # Import folium
 try:
@@ -29,11 +30,17 @@ st.set_page_config(
 # Refresh partner config from URL
 config.refresh_partner_config()
 
-# Check if data exists
-if "data" not in st.session_state or st.session_state.data is None:
-    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
-    st.info("👈 Use the sidebar to navigate back to the home page")
+# Authentication check
+require_auth()
+
+# Check if data exists (using persistent data store)
+data = load_data("gt")
+if data is None:
+    st.warning("⚠️ No data loaded. Please load data from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
 # Check if folium available
 if not FOLIUM_AVAILABLE:

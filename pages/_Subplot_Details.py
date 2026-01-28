@@ -7,7 +7,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info, get_total_measured_subplots
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info, get_total_measured_subplots, require_auth
 from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
@@ -27,6 +27,7 @@ from utils.vegetation_validation import (
     detect_suspicious_circumference_by_age,
 )
 from utils.export_helpers import adjust_excel_column_widths
+from utils.session_manager import load_data
 import os
 
 # Try to import fuzzy matching library
@@ -53,11 +54,17 @@ st.set_page_config(
 # Refresh partner config from URL
 config.refresh_partner_config()
 
-# Check if data exists
-if "data" not in st.session_state or st.session_state.data is None:
-    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
-    st.info("👈 Use the sidebar to navigate back to the home page")
+# Authentication check
+require_auth()
+
+# Check if data exists (using persistent data store)
+data = load_data("gt")
+if data is None:
+    st.warning("⚠️ No data loaded. Please load data from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
 # Header
 show_header()

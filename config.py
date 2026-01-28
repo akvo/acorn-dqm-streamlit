@@ -10,6 +10,17 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "TFK": {
+        "country": "Kenya",
+        "country_iso3": "KEN",
+        "dqID": "data_quality_ground_truth_collection_trees_for_kenya_2026_january",
+        "gtID": "ground_truth_collection_trees_for_kenya_2026_january",
+        "description": "Trees for Kenya 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [0.705, 37.422],
+        "start_date": "2026-01-26",
+    },
     "FA": {
         "country": "Kenya",
         "country_iso3": "KEN",
@@ -153,26 +164,34 @@ GT_FORM_ID = PARTNER_CONFIG["gtID"]
 
 def refresh_partner_config():
     """
-    Refresh partner configuration based on session state or URL query parameters.
+    Refresh partner configuration based on URL query parameters or session state.
     Call this from the app after Streamlit is fully initialized.
 
     Priority: Session State > URL Parameter > Default
+
+    For multi-user apps: URL params are the source of truth.
+    Users should always access via /?partner=PARTNER_NAME
     """
     import streamlit as st
 
     global ACTIVE_PARTNER, PARTNER, PARTNER_CONFIG, COUNTRY, COUNTRY_ISO3
     global DESCRIPTION, DQ_FORM_ID, GT_FORM_ID, APP_TITLE, APP_SUBTITLE, MAP_CENTER
 
-    # Priority 1: Use session state if it exists (for navigation persistence)
+    # Priority 1: Session state (for navigation within same session)
     if "partner" in st.session_state and st.session_state.partner:
         new_partner = st.session_state.partner
     else:
-        # Priority 2: Read from URL parameter (for initial load)
+        # Priority 2: URL parameter (for initial load or explicit request)
         new_partner = get_active_partner()
-        # Store in session state for future navigation
+        # Store in session state for navigation persistence
         st.session_state.partner = new_partner
 
-    # Only update if partner changed
+    # Validate partner exists
+    if new_partner not in PARTNERS:
+        new_partner = _DEFAULT_PARTNER
+        st.session_state.partner = new_partner
+
+    # Update globals if partner changed
     if new_partner != ACTIVE_PARTNER:
         ACTIVE_PARTNER = new_partner
         PARTNER = new_partner
@@ -186,12 +205,12 @@ def refresh_partner_config():
         APP_SUBTITLE = f"Data Quality Management for {COUNTRY}"
         MAP_CENTER = PARTNER_CONFIG["map_center"]
 
-        # Update query params to match session state (Streamlit 1.50.0 syntax)
-        try:
-            st.query_params.update({"partner": new_partner})
-        except Exception:
-            # If query params can't be updated, that's ok - session state will persist
-            pass
+    # Always sync URL params with current partner (keeps URL shareable)
+    try:
+        if st.query_params.get("partner") != new_partner:
+            st.query_params["partner"] = new_partner
+    except Exception:
+        pass
 
     return ACTIVE_PARTNER
 
@@ -238,6 +257,10 @@ GPS_ACCURACY_THRESHOLD = 10  # meters
 
 CRS_EPSG = "EPSG:4326"
 YEAR = "2025"
+
+# PDF Generation Settings
+# Lower DPI = faster PDF generation (50 gives ~4x speedup vs 100)
+PDF_MAP_DPI = 50
 
 # ============================================
 # UI CONFIGURATION

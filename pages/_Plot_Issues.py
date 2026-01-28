@@ -7,8 +7,9 @@ import streamlit as st
 import pandas as pd
 import re
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info
+from ui.components import show_header, create_sidebar_filters, show_sidebar_info, require_auth
 from utils.comparison_utils import get_tree_count_by_name, get_tree_records_by_species
+from utils.session_manager import load_data
 
 # Page config
 st.set_page_config(
@@ -20,12 +21,17 @@ st.set_page_config(
 # Refresh partner config from URL
 config.refresh_partner_config()
 
-# Check if data exists
-if "data" not in st.session_state or st.session_state.data is None:
-    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
+# Authentication check
+require_auth()
+
+# Check if data exists (using persistent data store)
+data = load_data("gt")
+if data is None:
+    st.warning("⚠️ No data loaded. Please load data from the home page.")
     if st.button("← Go to Home"):
         st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
 # Header
 show_header()

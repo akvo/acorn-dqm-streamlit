@@ -12,9 +12,10 @@ import pandas as pd
 import re
 import requests
 import config
-from ui.components import show_header, show_sidebar_info
-from utils.data_processor import process_json_data
+from ui.components import show_header, show_sidebar_info, require_auth
+from utils.data_processor import process_json_data, process_excel_file
 from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache_exists
+from utils.session_manager import load_data, save_data
 
 # Import folium for maps
 try:
@@ -35,12 +36,17 @@ st.set_page_config(
 # Refresh partner config from URL
 config.refresh_partner_config()
 
-# Check if GT data exists
-if "data" not in st.session_state or st.session_state.data is None:
+# Authentication check
+require_auth()
+
+# Check if GT data exists (using persistent data store)
+data = load_data("gt")
+if data is None:
     st.warning("⚠️ No GT data loaded. Please fetch GT data from the home page.")
     if st.button("← Go to Home"):
         st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
 # Header
 show_header()
@@ -55,30 +61,82 @@ if is_dev_mode():
 # ============================================
 # DQ DATA FETCH SECTION
 # ============================================
-st.markdown("### 🔍 Fetch DQ Data")
-st.info(f"**DQ Form ID:** `{config.DQ_FORM_ID}`")
+st.markdown("### 🔍 Load DQ Data")
 
-# Check if DQ data already loaded
-dq_loaded = st.session_state.get("dq_data") is not None
+# Initialize DQ data source mode in session state
+if "dq_data_source_mode" not in st.session_state:
+    st.session_state.dq_data_source_mode = "api"
+
+# Data source toggle
+dq_data_source = st.radio(
+    "Select DQ data source:",
+    options=["api", "file"],
+    format_func=lambda x: "🌐 SurveyCTO API" if x == "api" else "📁 Excel File Upload",
+    horizontal=True,
+    help="Use API for live data, or upload an Excel export as fallback",
+    key="dq_source_radio",
+)
+st.session_state.dq_data_source_mode = dq_data_source
+
+# Check if DQ data already loaded (using persistent data store)
+dq_data_loaded = load_data("dq")
+dq_loaded = dq_data_loaded is not None
+if dq_loaded:
+    st.session_state.dq_data = dq_data_loaded  # Ensure session state is in sync
 
 if dq_loaded:
     st.success(f"✅ DQ data loaded: {st.session_state.get('dq_filename', 'Unknown')}")
-    fetch_btn_label = "🔄 Refresh DQ Data"
-else:
-    st.warning("⚠️ DQ data not loaded yet. Click button below to fetch.")
-    fetch_btn_label = "🚀 Fetch DQ Data"
 
-# Get credentials from session state
+# Initialize variables
 server_name = "akvofoundation"  # Hardcoded
-username = st.session_state.get("username", "")
-password = st.session_state.get("password", "")
+credentials_configured = False
+dq_uploaded_file = None
+dq_process_btn = False
 
-credentials_configured = bool(username and password)
+if st.session_state.dq_data_source_mode == "api":
+    # API MODE
+    st.info(f"**DQ Form ID:** `{config.DQ_FORM_ID}`")
 
-if not credentials_configured:
-    st.error("❌ API credentials not configured. Please configure them on the home page.")
+    # Get credentials from session state
+    username = st.session_state.get("username", "")
+    password = st.session_state.get("password", "")
+    credentials_configured = bool(username and password)
+
+    if not credentials_configured:
+        st.warning("⚠️ API credentials not configured. Please configure them on the home page first.")
+
+    fetch_btn_label = "🔄 Refresh DQ Data" if dq_loaded else "🚀 Fetch DQ Data"
+
+    if credentials_configured:
+        dq_process_btn = st.button(fetch_btn_label, type="primary", key="dq_fetch_btn")
+
 else:
-    if st.button(fetch_btn_label, type="primary"):
+    # FILE UPLOAD MODE
+    st.info(
+        "💡 **Export from SurveyCTO:**\n\n"
+        "1. Go to your SurveyCTO server\n"
+        "2. Export the DQ form → Download (Wide format, Excel)\n"
+        "3. Upload the file below"
+    )
+
+    dq_uploaded_file = st.file_uploader(
+        "Upload DQ Excel file:",
+        type=["xlsx", "xls"],
+        key="dq_excel_uploader",
+    )
+
+    if dq_uploaded_file:
+        st.success(f"📁 File: `{dq_uploaded_file.name}`")
+
+    upload_btn_label = "🔄 Re-process DQ File" if dq_loaded else "🔄 Process DQ File"
+
+    if dq_uploaded_file is not None:
+        dq_process_btn = st.button(upload_btn_label, type="primary", key="dq_upload_btn")
+    else:
+        st.warning("⚠️ Upload a DQ Excel file to continue")
+
+# Process DQ data - API MODE
+if st.session_state.dq_data_source_mode == "api" and dq_process_btn and credentials_configured:
         with st.spinner("Fetching DQ data..."):
             try:
                 progress_bar = st.progress(0, text="Connecting to SurveyCTO for DQ data...")
@@ -190,8 +248,8 @@ else:
 
                 progress_bar.progress(100, text="✅ DQ validation complete!")
 
-                # Store in session state
-                st.session_state.dq_data = dq_data
+                # Store in session state and persistent cache
+                save_data(dq_data, "dq")
                 st.session_state.dq_filename = f"API: {dq_form_id}"
 
                 st.success(f"✅ Processed {len(dq_data['subplots'])} DQ subplots successfully!")
@@ -201,6 +259,35 @@ else:
             except Exception as e:
                 st.error("❌ **DQ Fetch Error**")
                 st.warning(f"Error fetching DQ data: {str(e)}")
+
+# Process DQ data - FILE UPLOAD MODE
+if st.session_state.dq_data_source_mode == "file" and dq_process_btn and dq_uploaded_file is not None:
+    with st.spinner("Processing uploaded DQ file..."):
+        try:
+            progress_bar = st.progress(0, text="Reading DQ Excel file...")
+            progress_bar.progress(25, text="Parsing DQ sheets...")
+
+            dq_data = process_excel_file(dq_uploaded_file)
+
+            progress_bar.progress(75, text="Validating DQ geometries...")
+
+            if dq_data.get("subplots") is None or len(dq_data["subplots"]) == 0:
+                st.error("❌ No subplot data found in DQ file")
+                st.stop()
+
+            progress_bar.progress(100, text="✅ DQ processing complete!")
+
+            # Store in session state and persistent cache
+            save_data(dq_data, "dq")
+            st.session_state.dq_filename = f"File: {dq_uploaded_file.name}"
+
+            st.success(f"✅ Processed {len(dq_data['subplots'])} DQ subplots!")
+            progress_bar.empty()
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ Error processing DQ file: {str(e)}")
+            st.exception(e)
 
 st.markdown("---")
 

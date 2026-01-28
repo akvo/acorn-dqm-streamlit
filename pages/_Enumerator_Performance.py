@@ -8,7 +8,8 @@ import pandas as pd
 import plotly.express as px
 import re
 import config
-from ui.components import show_header, show_sidebar_info, create_sidebar_filters
+from ui.components import show_header, show_sidebar_info, create_sidebar_filters, require_auth
+from utils.session_manager import load_data
 
 
 def get_total_measured_subplots(gdf):
@@ -62,11 +63,17 @@ st.set_page_config(
 # Refresh partner config from URL
 config.refresh_partner_config()
 
-# Check if data exists
-if "data" not in st.session_state or st.session_state.data is None:
-    st.warning("⚠️ No data loaded. Please upload a file from the home page.")
-    st.info("👈 Use the sidebar to navigate back to the home page")
+# Authentication check
+require_auth()
+
+# Check if data exists (using persistent data store)
+data = load_data("gt")
+if data is None:
+    st.warning("⚠️ No data loaded. Please load data from the home page.")
+    if st.button("← Go to Home"):
+        st.switch_page("app.py")
     st.stop()
+st.session_state.data = data  # Ensure session state is in sync
 
 # Header
 show_header()
@@ -427,8 +434,8 @@ def capture_map_as_image(enum_data, enumerator_name):
             valid_count = map_data["geom_valid"].sum()
             invalid_count = (~map_data["geom_valid"]).sum()
 
-            # Create figure with high DPI for quality
-            fig, ax = plt.subplots(figsize=(12, 8), dpi=100)
+            # Create figure with configurable DPI for quality/speed balance
+            fig, ax = plt.subplots(figsize=(12, 8), dpi=config.PDF_MAP_DPI)
             fig.patch.set_facecolor("white")
 
             # Extract coordinates for valid and invalid subplots
@@ -574,7 +581,7 @@ def capture_map_as_image(enum_data, enumerator_name):
 
             # Convert to PIL Image
             buf = BytesIO()
-            plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+            plt.savefig(buf, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
             buf.seek(0)
             img = Image.open(buf)
             plt.close(fig)
@@ -696,7 +703,7 @@ def create_subplot_polygon_image(subplot_row):
         )
 
         # Create figure
-        fig, ax = plt.subplots(figsize=(4, 3), dpi=100)
+        fig, ax = plt.subplots(figsize=(4, 3), dpi=config.PDF_MAP_DPI)
 
         # Plot the polygon
         if geom.geom_type == "Polygon":
@@ -748,7 +755,7 @@ def create_subplot_polygon_image(subplot_row):
 
         # Convert to PIL Image
         buf = BytesIO()
-        plt.savefig(buf, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+        plt.savefig(buf, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
         plt.close(fig)
         buf.seek(0)
 
@@ -1531,7 +1538,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         file=sys.stderr,
                                     )
 
-                                    fig, ax = plt.subplots(figsize=(5, 3.5), dpi=100)
+                                    fig, ax = plt.subplots(figsize=(5, 3.5), dpi=config.PDF_MAP_DPI)
 
                                     # Plot all subplots for this GT plot
                                     for idx, row in plot_data.iterrows():
@@ -1581,7 +1588,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     # Convert to image for PDF
                                     map_buffer = BytesIO()
                                     plt.savefig(
-                                        map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white"
+                                        map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white"
                                     )
                                     plt.close(fig)
                                     map_buffer.seek(0)
@@ -1613,7 +1620,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                     file=sys.stderr,
                                 )
 
-                                fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+                                fig, ax = plt.subplots(figsize=(6, 4), dpi=config.PDF_MAP_DPI)
 
                                 # Plot all subplots for this date
                                 for idx, row in date_data.iterrows():
@@ -1651,7 +1658,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
 
                                 # Convert to image for PDF
                                 map_buffer = BytesIO()
-                                plt.savefig(map_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white")
+                                plt.savefig(map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
                                 plt.close(fig)
                                 map_buffer.seek(0)
 
@@ -1754,7 +1761,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         geom = row["geometry"]
                                         is_valid = row.get("geom_valid", False)
 
-                                        fig, ax = plt.subplots(figsize=(3, 2.5), dpi=100)
+                                        fig, ax = plt.subplots(figsize=(3, 2.5), dpi=config.PDF_MAP_DPI)
 
                                         color = "#4CAF50" if is_valid else "#F44336"
 
@@ -1790,7 +1797,7 @@ def generate_enhanced_pdf_report(enum_data, enumerator_name, partner_name, raw_d
                                         # Convert to image
                                         poly_buffer = BytesIO()
                                         plt.savefig(
-                                            poly_buffer, format="png", dpi=100, bbox_inches="tight", facecolor="white"
+                                            poly_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white"
                                         )
                                         plt.close(fig)
                                         poly_buffer.seek(0)
