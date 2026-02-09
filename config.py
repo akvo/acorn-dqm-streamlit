@@ -10,6 +10,17 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "SOLK": {
+        "country": "Kenya",
+        "country_iso3": "KEN",
+        "dqID": "data_quality_ground_truth_collection_solidaridad_kenya_2026_February",
+        "gtID": "ground_truth_collection_Solidaridad_Kenya_2026_February",
+        "description": "Solidaridad Kenya 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [0.705, 37.422],
+        "start_date": "2026-02-09",
+    },
     "TFK": {
         "country": "Kenya",
         "country_iso3": "KEN",
