@@ -13,7 +13,7 @@ PARTNERS = {
     "SOLK": {
         "country": "Kenya",
         "country_iso3": "KEN",
-        "dqID": "data_quality_ground_truth_collection_solidaridad_kenya_2026_February",
+        "dqID": "data_quality_ground_truth_collection_Solidaridad_Kenya_2026_February",
         "gtID": "ground_truth_collection_Solidaridad_Kenya_2026_February",
         "description": "Solidaridad Kenya 2026",
         "min_plot_area": 1000,
