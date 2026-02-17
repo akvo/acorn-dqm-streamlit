@@ -98,6 +98,17 @@ PARTNERS = {
         "map_center": [14.6, 77.4],
         "start_date": "2025-11-01",
     },
+    "SOLU": {
+        "country": "Uganda",
+        "country_iso3": "UGA",
+        "dqID": "data_quality_ground_truth_collection_solidaridad_uganda_2026_february",
+        "gtID": "ground_truth_collection_Solidaridad_Uganda_2026_February",
+        "description": "Solidaridad Uganda 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [0.705, 37.422],
+        "start_date": "2026-02-19",
+    },
 }
 
 # ============================================
