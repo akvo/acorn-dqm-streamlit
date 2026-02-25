@@ -101,7 +101,7 @@ PARTNERS = {
     "SOLU": {
         "country": "Uganda",
         "country_iso3": "UGA",
-        "dqID": "data_quality_ground_truth_collection_solidaridad_uganda_2026_february",
+        "dqID": "data_quality_ground_truth_collection_Solidaridad_Uganda_2026_February",
         "gtID": "ground_truth_collection_Solidaridad_Uganda_2026_February",
         "description": "Solidaridad Uganda 2026",
         "min_plot_area": 1000,
