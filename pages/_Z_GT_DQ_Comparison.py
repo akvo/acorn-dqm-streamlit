@@ -173,7 +173,7 @@ if st.session_state.dq_data_source_mode == "api" and dq_process_btn and credenti
                     else:
                         params = {"date": "0"}
 
-                    response = requests.get(url, auth=(username, password), params=params, timeout=60)
+                    response = requests.get(url, auth=(username, password), params=params, timeout=300)
 
                     # Handle errors
                     if response.status_code == 417:
