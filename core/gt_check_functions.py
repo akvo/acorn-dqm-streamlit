@@ -19,9 +19,12 @@ from shapely.geometry import (
     shape,
 )
 import math
+import logging
 import utm
 from geojson_rewind import rewind
 from shapely.geometry.polygon import orient
+
+logger = logging.getLogger("dqm")
 
 
 # ============================================
@@ -142,7 +145,7 @@ def length_width_ratio(geom: Polygon, geodisic=False) -> Optional[float]:
         )
 
     if min(edge_length) == 0:
-        print("too small width, length is: " + str(max(edge_length)))
+        logger.debug("too small width, length is: " + str(max(edge_length)))
         ratio = max(edge_length) / 0.00000000001
     else:
         ratio = max(edge_length) / min(edge_length)
@@ -353,7 +356,7 @@ def replace_multipolygons(
                 return geom
     elif isinstance(geom, GeometryCollection):
         if len(geom.geoms) == 1:
-            print(geom)
+            logger.debug(f"geom: {geom}")
             return geom.geoms[0]
         else:
             return geom
@@ -383,23 +386,40 @@ def replace_out_of_bound_geometries(geom: Polygon) -> Polygon:
 # ============================================
 
 
+# Cache for UTM transformers — avoids recreating Transformer objects for every geometry
+_utm_transformer_cache = {}
+
+
+def _get_utm_transformer(lat, lon, inverse=False):
+    """Get or create a cached UTM transformer for the given zone."""
+    _, _, zone, _ = utm.from_latlon(lat, lon)
+    south = lat < 0
+    cache_key = (zone, south, inverse)
+    if cache_key not in _utm_transformer_cache:
+        utm_crs = CRS.from_dict({"proj": "utm", "zone": zone, "south": south})
+        if inverse:
+            _utm_transformer_cache[cache_key] = (
+                Transformer.from_crs(utm_crs, CRS(crs), always_xy=True).transform,
+                utm_crs,
+            )
+        else:
+            _utm_transformer_cache[cache_key] = (
+                Transformer.from_crs(CRS(crs), utm_crs, always_xy=True).transform,
+                utm_crs,
+            )
+    return _utm_transformer_cache[cache_key]
+
+
 def geom_to_utm(geom: Polygon) -> Polygon:
     """Convert WGS84 geometry to UTM projection"""
     if geom.is_empty:
         return geom
     lon, lat = geom.centroid.x, geom.centroid.y
     if not -80.0 <= lat <= 84.0:
-        geom = Polygon()
-        return geom
+        return Polygon()
     if not -180.0 <= lon <= 180.0:
-        geom = Polygon()
-        return geom
-    _, _, zone, _ = utm.from_latlon(lat, lon)
-    project = Transformer.from_crs(
-        CRS(crs),
-        CRS.from_dict({"proj": "utm", "zone": zone, "south": lat < 0}),
-        always_xy=True,
-    ).transform
+        return Polygon()
+    project, _ = _get_utm_transformer(lat, lon)
     return transform(project, geom)
 
 
@@ -409,16 +429,12 @@ def geom_to_utm_with_crs(geom: Polygon):
         return geom
     lon, lat = geom.centroid.x, geom.centroid.y
     if not -80.0 <= lat <= 84.0:
-        geom = Polygon()
-        return geom
+        return Polygon()
     if not -180.0 <= lon <= 180.0:
-        geom = Polygon()
-        return geom
-    _, _, zone, _ = utm.from_latlon(lat, lon)
-    crs_dict = CRS.from_dict({"proj": "utm", "zone": zone, "south": lat < 0})
-    project = Transformer.from_crs(CRS(crs), crs_dict, always_xy=True).transform
+        return Polygon()
+    project, utm_crs = _get_utm_transformer(lat, lon)
     geom_utm = transform(project, geom)
-    return geom_utm, crs_dict
+    return geom_utm, utm_crs
 
 
 def simplify_geometry(geom, tolerance: float = 0.05, units="meters"):
@@ -434,8 +450,8 @@ def simplify_geometry(geom, tolerance: float = 0.05, units="meters"):
         else:
             return utm_geom_with_crs
         utm_geom_s = utm_geom.simplify(tolerance, preserve_topology=True)
-        project = Transformer.from_crs(utm_crs_dict, CRS(crs), always_xy=True).transform
-        simple_geom = transform(project, utm_geom_s)
+        inv_project, _ = _get_utm_transformer(geom.centroid.y, geom.centroid.x, inverse=True)
+        simple_geom = transform(inv_project, utm_geom_s)
     else:
         simple_geom = geom.simplify(tolerance, preserve_topology=True)
 
@@ -561,11 +577,11 @@ def is_invalid_polygon_string(polygon_string, pd_row=None, column=None):
     """Check if polygon string is invalid"""
     if pd.isna(polygon_string):
         if column is not None:
-            print(f"No coordinates for: {column}, so returning empty Polygon")
+            logger.debug(f"No coordinates for: {column}, so returning empty Polygon")
         return True
     if len(polygon_string) == 32767:
         if pd_row is not None:
-            print(
+            logger.debug(
                 f"Reached cell limit of excel for: {getattr(pd_row, 'plot_id', '')} "
                 f"collected by: {getattr(pd_row, 'enumerator_id', '')},"
                 "so returning empty Polygon"
@@ -664,7 +680,7 @@ def geom_from_scto_str(pd_row, column, accuracy_m, accuracy_zero_valid=False):
 
     elif len(coordinates) < (skip_coordinates_counter * 4):
         # Ratio check failed: too many points dropped relative to valid points
-        print("Dropped too many points for pd_row")
+        logger.debug("Dropped too many points for pd_row")
         valid_percentage = (valid_points / total_vertices * 100) if total_vertices > 0 else 0
         reason = f"{total_vertices} collected, {total_dropped} dropped"
         if stats["dropped_over_threshold"] > 0 or stats["dropped_zero_accuracy"] > 0:
@@ -750,7 +766,7 @@ class GeometryFixer:
         if newly_empty.any():
             # Mark which operation caused emptiness
             gdf.loc[newly_empty, "became_empty_at"] = operation_name
-            print(f"  → {newly_empty.sum()} geometries became empty during {operation_name}")
+            logger.debug(f"  → {newly_empty.sum()} geometries became empty during {operation_name}")
 
     def _merge_empty_details(self, row: pd.Series) -> str:
         """Merge GPS details with fix operation details"""
@@ -794,39 +810,71 @@ class GeometryFixer:
         )
         gdf["became_empty_at"] = ""  # Track which fix operation caused emptiness
 
-        # Step 1: Remove duplicate vertices
-        gdf = self._apply_fix(gdf, remove_duplicate_vertices, "remove_duplicate_vertices")
+        # Combined fix: apply all per-geometry fixes in a single pass
+        # This avoids 13 separate .apply() iterations over the dataframe
+        def _apply_all_fixes(geom):
+            """Apply all fix steps to a single geometry, return (fixed_geom, became_empty_at)."""
+            became_empty_at = ""
 
-        valid = gdf.is_valid.sum()
+            # Step 1: Remove duplicate vertices
+            was_empty = geom.is_empty
+            geom = remove_duplicate_vertices(geom)
+            if not was_empty and geom.is_empty:
+                return geom, "remove_duplicate_vertices"
 
-        # Step 2-6: Apply various fix operations
-        gdf = self._apply_fix(gdf, fix_self_intersecting_square, "fix_self_intersecting_square")
-        gdf = self._apply_fix(gdf, fix_with_orient, "fix_with_orient")
-        gdf = self._apply_fix(gdf, fix_with_rewind, "fix_with_rewind")
-        gdf = self._apply_fix(gdf, fix_with_zero_buffer, "fix_with_zero_buffer")
-        gdf = self._apply_fix(gdf, fix_with_2d_polygon, "fix_with_2d_polygon")
+            # Steps 2-6: Fix operations (each returns early if already valid)
+            fixes = [
+                (fix_self_intersecting_square, "fix_self_intersecting_square"),
+                (fix_with_orient, "fix_with_orient"),
+                (fix_with_rewind, "fix_with_rewind"),
+                (fix_with_zero_buffer, "fix_with_zero_buffer"),
+                (fix_with_2d_polygon, "fix_with_2d_polygon"),
+            ]
+            for fix_func, fix_name in fixes:
+                was_empty = geom.is_empty
+                geom = fix_func(geom)
+                if geom is None:
+                    geom = Polygon()
+                if not was_empty and geom.is_empty:
+                    return geom, fix_name
 
-        # Step 7: Replace degraded geometry types (Point/LineString/MultiLineString)
-        before_type_check = gdf.geometry.is_empty.copy()
-        gdf["geometry"] = gdf["geometry"].apply(
-            lambda geom: (geom if geom.geom_type not in ["Point", "LineString", "MultiLineString"] else Polygon())
-        )
-        self._track_empty_change(gdf, before_type_check, "geometry_type_degradation")
+            # Step 7: Replace degraded geometry types
+            if geom.geom_type in ("Point", "LineString", "MultiLineString"):
+                return Polygon(), "geometry_type_degradation"
 
-        # Step 8-9: More fix operations
-        gdf = self._apply_fix(gdf, replace_multipolygons, "replace_multipolygons")
-        gdf = self._apply_fix(gdf, lambda g: simplify_geometry(g, tolerance=0.1), "simplify_geometry")
+            # Step 8: Replace multipolygons
+            was_empty = geom.is_empty
+            geom = replace_multipolygons(geom)
+            if not was_empty and geom.is_empty:
+                return geom, "replace_multipolygons"
 
-        print(f"\nFixed {gdf.is_valid.sum() - valid} polygons")
-        empty = gdf.is_empty.sum()
+            # Step 9: Simplify
+            was_empty = geom.is_empty
+            geom = simplify_geometry(geom, tolerance=0.1)
+            if not was_empty and geom.is_empty:
+                return geom, "simplify_geometry"
 
-        # Step 10-13: Replace invalid geometries
-        gdf = self._apply_fix(gdf, replace_area_zero, "replace_area_zero")
-        gdf = self._apply_fix(gdf, replace_none_geometries, "replace_none_geometries")
-        gdf = self._apply_fix(gdf, replace_out_of_bound_geometries, "replace_out_of_bound_geometries")
-        gdf = self._apply_fix(gdf, replace_invalid, "replace_invalid")
+            # Steps 10-13: Replace invalid geometries
+            cleanup = [
+                (replace_area_zero, "replace_area_zero"),
+                (replace_none_geometries, "replace_none_geometries"),
+                (replace_out_of_bound_geometries, "replace_out_of_bound_geometries"),
+                (replace_invalid, "replace_invalid"),
+            ]
+            for fix_func, fix_name in cleanup:
+                was_empty = geom.is_empty
+                geom = fix_func(geom)
+                if geom is None:
+                    geom = Polygon()
+                if not was_empty and geom.is_empty:
+                    return geom, fix_name
 
-        print(f"Replaced {gdf.is_empty.sum() - empty} polygons with empty polygons\n")
+            return geom, became_empty_at
+
+        # Single pass over all geometries
+        results = gdf.geometry.apply(_apply_all_fixes)
+        gdf["geometry"] = results.apply(lambda x: x[0])
+        gdf["became_empty_at"] = results.apply(lambda x: x[1])
 
         # Update empty_geom_detail for geometries that became empty during fixing
         gdf["empty_geom_detail"] = gdf.apply(lambda row: self._merge_empty_details(row), axis=1)
@@ -870,7 +918,7 @@ class GeometryValidator:
             gdf = gdf.drop(columns=["index"])
 
         if gdf.geometry.is_empty.all():
-            print("All geometries in gdf are empty, no validation can be done")
+            logger.debug("All geometries in gdf are empty, no validation can be done")
         else:
             gdf = (
                 gdf.pipe(self.validate_length_width_ratio)

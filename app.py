@@ -631,8 +631,8 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
             st.warning(
                 "❌ The request took too long to complete (>5 minutes).\n\n"
                 "**Possible causes:**\n"
-                "- Slow internet connection\n"
                 "- Large form with many submissions\n"
+                "- Slow internet connection\n"
                 "- SurveyCTO server is slow\n\n"
                 "**Please try again.**"
             )
@@ -663,7 +663,7 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
 
         except Exception as e:
             st.error("❌ **Unexpected Error**")
-            st.warning(f"An unexpected error occurred while fetching data.\n\n**Error details:** {str(e)}")
+            st.warning(f"An unexpected error occurred.\n\n**Error details:** {str(e)}")
             st.exception(e)
             progress_bar.empty()
 

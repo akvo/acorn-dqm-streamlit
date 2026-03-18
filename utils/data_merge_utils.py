@@ -6,7 +6,6 @@ Handles merging vegetation data with enumerator information and other utilities
 import pandas as pd
 from datetime import datetime
 from typing import Optional
-import sys
 import os
 import re
 
@@ -328,21 +327,8 @@ def debug_enumerator_data(gdf, context=""):
     """
 
     if gdf is not None and len(gdf) > 0:
-        print(f"Columns: {gdf.columns.tolist()}", file=sys.stderr)
-
-        if "enumerator" in gdf.columns:
-            unique_enums = gdf["enumerator"].nunique()
-            print(
-                f"✓ Enumerator column exists with {unique_enums} unique values",
-                file=sys.stderr,
-            )
-            print(f"Sample values: {gdf['enumerator'].head().tolist()}", file=sys.stderr)
-            return True
-        else:
-            print("✗ No enumerator column found", file=sys.stderr)
-            return False
+        return "enumerator" in gdf.columns
     else:
-        print("✗ GDF is None or empty", file=sys.stderr)
         return False
 
 
