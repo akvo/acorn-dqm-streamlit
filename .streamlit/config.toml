@@ -13,6 +13,8 @@ enableXsrfProtection = true
 enableCORS = true
 headless = true
 
+scriptRunnerCommandTimeout = 600
+
 [browser]
 gatherUsageStats = false
 serverAddress = "0.0.0.0"

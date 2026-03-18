@@ -155,7 +155,7 @@ def fetch_surveycto_data(
         else:
             params = {"date": "0"}
 
-        response = requests.get(url, auth=(username, password), params=params, timeout=60)
+        response = requests.get(url, auth=(username, password), params=params, timeout=300)
 
         # Check for specific HTTP errors
         if response.status_code == 417:
@@ -460,7 +460,7 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
                 else:
                     params = {"date": "0"}
 
-                response = requests.get(url, auth=(username, password), params=params, timeout=60)
+                response = requests.get(url, auth=(username, password), params=params, timeout=300)
 
                 # Check for specific HTTP errors
                 if response.status_code == 417:
@@ -629,7 +629,7 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
         except requests.exceptions.Timeout:
             st.error("⏱️ **Request Timeout**")
             st.warning(
-                "❌ The request took too long to complete (>60 seconds).\n\n"
+                "❌ The request took too long to complete (>5 minutes).\n\n"
                 "**Possible causes:**\n"
                 "- Slow internet connection\n"
                 "- Large form with many submissions\n"
