@@ -1177,6 +1177,7 @@ with tabs[0]:
             "enumerator",
             "VEGETATION_KEY",
             "MEASUREMENT_KEY",
+            "CIRCUMFERENCE_KEY",
             "vegetation_type_number",
             "circumference_bh",
             "circumference_10cm",
@@ -1305,11 +1306,11 @@ with tabs[0]:
                                 large_bh["tree_year_planted"], errors="coerce"
                             ).dt.year
 
-                        # Display columns
+                        # Display columns - use CIRCUMFERENCE_KEY for circumference data
                         display_cols = [
                             "enumerator",
                             "tree_name",
-                            "MEASUREMENT_KEY",
+                            "CIRCUMFERENCE_KEY",
                             "vegetation_type_number",
                             "circumference_bh",
                             "tree_year_planted",
@@ -1362,11 +1363,10 @@ with tabs[0]:
                         if "tree_year_planted" in large_10cm.columns:
                             large_10cm = calculate_tree_age_corrected(large_10cm)
 
-                        # Display columns
+                        # Display columns - use CIRCUMFERENCE_KEY for circumference data
                         display_cols = [
                             "enumerator",
-                            "VEGETATION_KEY",
-                            "MEASUREMENT_KEY",
+                            "CIRCUMFERENCE_KEY",
                             "vegetation_type_number",
                             "circumference_10cm",
                             "tree_year_planted",
@@ -1563,8 +1563,10 @@ with tabs[0]:
                                 elif "SUBPLOT_KEY" in outliers_only.columns:
                                     display_cols.append("SUBPLOT_KEY")
 
-                                # Add measurement key
-                                if "MEASUREMENT_KEY" in outliers_only.columns:
+                                # Add appropriate key - CIRCUMFERENCE_KEY for circumference, MEASUREMENT_KEY otherwise
+                                if metric in ("circumference_bh", "circumference_10cm") and "CIRCUMFERENCE_KEY" in outliers_only.columns:
+                                    display_cols.append("CIRCUMFERENCE_KEY")
+                                elif "MEASUREMENT_KEY" in outliers_only.columns:
                                     display_cols.append("MEASUREMENT_KEY")
 
                                 # Add enumerator and date
@@ -1597,6 +1599,7 @@ with tabs[0]:
                                     "subplot_id": "Subplot ID",
                                     "SUBPLOT_KEY": "Subplot ID",
                                     "MEASUREMENT_KEY": "Measurement Key",
+                                    "CIRCUMFERENCE_KEY": "Circumference Key",
                                     "enumerator": "Enumerator",
                                     "SubmissionDate": "Date",
                                     "vegetation_type_height": "Height Category",
@@ -1721,7 +1724,10 @@ with tabs[0]:
                             elif "SUBPLOT_KEY" in display_df.columns:
                                 display_cols.insert(0, "SUBPLOT_KEY")
 
-                            if "MEASUREMENT_KEY" in display_df.columns:
+                            # Add appropriate key - CIRCUMFERENCE_KEY for circumference, MEASUREMENT_KEY otherwise
+                            if selected_age_species_col in ("circumference_bh", "circumference_10cm") and "CIRCUMFERENCE_KEY" in display_df.columns:
+                                display_cols.append("CIRCUMFERENCE_KEY")
+                            elif "MEASUREMENT_KEY" in display_df.columns:
                                 display_cols.append("MEASUREMENT_KEY")
                             if "enumerator" in display_df.columns:
                                 display_cols.append("enumerator")
@@ -1756,6 +1762,7 @@ with tabs[0]:
                                     "subplot_id": "Subplot ID",
                                     "SUBPLOT_KEY": "Subplot ID",
                                     "MEASUREMENT_KEY": "Measurement Key",
+                                    "CIRCUMFERENCE_KEY": "Circumference Key",
                                     "enumerator": "Enumerator",
                                 }
                             )
@@ -2105,10 +2112,10 @@ with tabs[1]:
 
                     circ_outliers["Outlier_Type"] = circ_outliers.apply(get_circ_outlier_type, axis=1)
 
-                    # Build display columns safely
+                    # Build display columns safely - use CIRCUMFERENCE_KEY for circumference data
                     display_cols = []
                     for col in [
-                        "VEGETATION_KEY",
+                        "CIRCUMFERENCE_KEY",
                         "enumerator",
                         "tree_name",
                         circ_col,
@@ -2209,10 +2216,10 @@ with tabs[1]:
                             enum_date_map = filtered_gdf[merge_cols].drop_duplicates()
                             suspicious = suspicious.merge(enum_date_map, on="subplot_id", how="left")
 
-                    # Build display columns safely
+                    # Build display columns safely - use CIRCUMFERENCE_KEY for circumference data
                     display_cols = []
                     for col in [
-                        "VEGETATION_KEY",
+                        "CIRCUMFERENCE_KEY",
                         "enumerator",
                         "SubmissionDate",
                         "tree_name",
@@ -2281,11 +2288,13 @@ with tabs[1]:
                     enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
                     complete_with_enum = complete_with_enum.merge(enum_map, on="subplot_id", how="left")
 
-            # Add hover columns (enumerator and MEASUREMENT_KEY) if available
+            # Add hover columns (enumerator and key) if available
             hover_cols = []
             if "enumerator" in complete_with_enum.columns:
                 hover_cols.append("enumerator")
-            if "MEASUREMENT_KEY" in complete_with_enum.columns:
+            if "CIRCUMFERENCE_KEY" in complete_with_enum.columns:
+                hover_cols.append("CIRCUMFERENCE_KEY")
+            elif "MEASUREMENT_KEY" in complete_with_enum.columns:
                 hover_cols.append("MEASUREMENT_KEY")
 
             # Prepare data for plotting (include hover columns)
@@ -2368,10 +2377,12 @@ with tabs[1]:
                         size_var: True,
                         species_col: True,
                     }
-                    # Add enumerator and MEASUREMENT_KEY to hover if available
+                    # Add enumerator and key to hover if available
                     if "enumerator" in plot_subset.columns:
                         hover_data_dict["enumerator"] = True
-                    if "MEASUREMENT_KEY" in plot_subset.columns:
+                    if "CIRCUMFERENCE_KEY" in plot_subset.columns:
+                        hover_data_dict["CIRCUMFERENCE_KEY"] = True
+                    elif "MEASUREMENT_KEY" in plot_subset.columns:
                         hover_data_dict["MEASUREMENT_KEY"] = True
 
                     # Create figure
