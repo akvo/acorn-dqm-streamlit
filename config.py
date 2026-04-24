@@ -10,6 +10,17 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "RAV": {
+        "country": "Vietnam",
+        "country_iso3": "VNM",
+        "dqID": "data_quality_ground_truth_collection_rainforestalliance_vietnam_2026_may",
+        "gtID": "ground_truth_collection_Raiforestalliance_Vietnam_2026_May",
+        "description": "Rainforest Alliance Vietnam 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [13.920683, 108.438476],
+        "start_date": "2026-05-06",
+    },
     "SOLK": {
         "country": "Kenya",
         "country_iso3": "KEN",
