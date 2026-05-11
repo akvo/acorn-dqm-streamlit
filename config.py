@@ -13,8 +13,8 @@ PARTNERS = {
     "RAV": {
         "country": "Vietnam",
         "country_iso3": "VNM",
-        "dqID": "data_quality_ground_truth_collection_ra_vietnam_2026_may",
-        "gtID": "ground_truth_collection_RA_Vietnam_2026_may",
+        "dqID": "data_quality_ground_truth_collection_ra_vietnam_2026_may_vietnamese",
+        "gtID": "ground_truth_collection_RA_Vietnam_2026_may_Vietnamese",
         "description": "Rainforest Alliance Vietnam 2026",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
