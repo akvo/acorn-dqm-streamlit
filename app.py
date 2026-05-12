@@ -233,6 +233,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Show partner tiles landing page when no ?partner= param is present
+if not config.has_partner_param():
+    from ui.partner_tiles import render_landing_page
+    render_landing_page()
+    st.stop()
+
 # Refresh partner configuration based on URL parameter
 config.refresh_partner_config()
 
@@ -285,6 +291,15 @@ show_header()
 
 # Sidebar - API Configuration & Filters
 with st.sidebar:
+    st.markdown(
+        '<a href="/" target="_self" style="text-decoration:none;">'
+        '← All Cases'
+        '</a>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+
     # Show active partner
     active_partner = st.session_state.get("partner", config.PARTNER)
     st.info(f"🔗 **Active Partner:** {active_partner}")

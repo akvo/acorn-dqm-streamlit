@@ -58,7 +58,7 @@ def show_header():
                 {config.APP_SUBTITLE}
             </p>
             <p style="color: #C8E6C9; margin-top: 0.3rem; font-size: 0.9em;">
-                Active Partner: <strong>{config.PARTNER}</strong> | Country: <strong>{config.COUNTRY}</strong> | Years: {config.YEAR}
+                Active Partner: <strong>{config.PARTNER}</strong> | Country: <strong>{config.COUNTRY}</strong> | Year: {config.PARTNER_CONFIG["start_date"][:4]}
             </p>
         </div>
         """,
@@ -184,6 +184,10 @@ def show_sidebar_info():
     Show common sidebar information.
     Displays active partner and data status (appears after date filter).
     """
+    st.sidebar.markdown(
+        '<a href="/" target="_self" style="text-decoration:none;font-size:0.9rem;">← All Cases</a>',
+        unsafe_allow_html=True,
+    )
     st.sidebar.markdown("---")
 
     # Show active partner

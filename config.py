@@ -10,6 +10,18 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "AFEC-26": {
+        "country": "India",
+        "country_iso3": "IND",
+        "dqID": "data_quality_verification_ground_truth_collection_AFEC_2026_April",
+        "gtID": "verification_ground_truth_collection_AFEC_2026_April",
+        "description": "AFEC India 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [14.39, 77.49],
+        "start_date": "2026-05-18",
+        "map_zoom": 5
+    },
     "RAV": {
         "country": "Vietnam",
         "country_iso3": "VNM",
@@ -19,6 +31,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [13.920683, 108.438476],
+        "map_zoom": 5,
         "start_date": "2026-05-06",
     },
     "SOLK": {
@@ -29,7 +42,8 @@ PARTNERS = {
         "description": "Solidaridad Kenya 2026",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [0.705, 37.422],
+        "map_center": [0.37, 35.00],
+        "map_zoom": 6,
         "start_date": "2026-02-09",
     },
     "TFK": {
@@ -40,7 +54,8 @@ PARTNERS = {
         "description": "Trees for Kenya 2026",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [0.705, 37.422],
+        "map_center": [-0.571, 37.39],
+        "map_zoom": 6,
         "start_date": "2026-01-26",
     },
     "FA": {
@@ -51,7 +66,8 @@ PARTNERS = {
         "description": "Farm Africa 2026",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [0.705, 37.422],
+        "map_center": [-0.33, 37.68],
+        "map_zoom": 6,
         "start_date": "2026-01-12",
     },
     "INTELLECAP": {
@@ -63,6 +79,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [23.67, 85.38],
+        "map_zoom": 5,
         "start_date": "2025-12-01",
     },
     "IORA": {
@@ -73,7 +90,8 @@ PARTNERS = {
         "description": "IORA - India",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [25.6, 90.8],
+        "map_center": [25.58, 91.598],
+        "map_zoom": 6,
         "start_date": "2025-11-01",
     },
     "AFOCO": {
@@ -85,6 +103,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [41.5, 74.5],
+        "map_zoom": 5,
         "start_date": "2025-01-01",
     },
     "COMACO": {
@@ -96,6 +115,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [-13.5, 28.5],
+        "map_zoom": 5,
         "start_date": "2025-01-01",
     },
     "AFEC": {
@@ -107,6 +127,7 @@ PARTNERS = {
         "min_plot_area": 1000,
         "max_plot_area": 300000,
         "map_center": [14.6, 77.4],
+        "map_zoom": 6,
         "start_date": "2025-11-01",
     },
     "SOLU": {
@@ -117,7 +138,8 @@ PARTNERS = {
         "description": "Solidaridad Uganda 2026",
         "min_plot_area": 1000,
         "max_plot_area": 300000,
-        "map_center": [0.705, 37.422],
+        "map_center": [1.105, 31.975],
+        "map_zoom": 6,
         "start_date": "2026-02-19",
     },
 }
@@ -179,6 +201,22 @@ def get_active_partner():
 
     # Default partner if no URL parameter or error
     return "COMACO"
+
+
+def has_partner_param() -> bool:
+    """Return True if a valid ?partner=X is present in the URL, without defaulting."""
+    try:
+        if hasattr(st, "query_params") and "partner" in st.query_params:
+            return str(st.query_params["partner"]).upper() in PARTNERS
+        elif hasattr(st, "experimental_get_query_params"):
+            params = st.experimental_get_query_params()
+            if "partner" in params:
+                val = params["partner"]
+                val = val[0] if isinstance(val, list) else val
+                return str(val).upper() in PARTNERS
+    except Exception:
+        pass
+    return False
 
 
 # Initialize with default, will be updated when app runs
