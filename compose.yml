@@ -1,0 +1,15 @@
+name: acorn-dqm
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    environment:
+      - DEV_MODE=${DEV_MODE:-false}
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
