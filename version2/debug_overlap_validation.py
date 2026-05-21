@@ -14,7 +14,12 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.gt_check_functions import wgs_to_utm, calculate_area, geom_from_scto_str, geom_to_utm
+from core.gt_check_functions import (
+    wgs_to_utm,
+    calculate_area,
+    geom_from_scto_str,
+    geom_to_utm,
+)
 
 crs = "EPSG:4326"
 
@@ -59,11 +64,17 @@ def main():
     subplot_cols = [c for c in main_df.columns if "subplot" in c.lower()]
     print(f"   Subplot-related columns: {subplot_cols[:10]}...")
 
-    gps_cols = [c for c in main_df.columns if "gps" in c.lower() or "geoshape" in c.lower()]
+    gps_cols = [
+        c
+        for c in main_df.columns
+        if "gps" in c.lower() or "geoshape" in c.lower()
+    ]
     print(f"   GPS-related columns: {gps_cols[:10]}...")
 
     # Look for indexed subplot columns (e.g., subplots[0]-gt_subplot_gps)
-    indexed_cols = [c for c in main_df.columns if "[" in c and "subplot" in c.lower()]
+    indexed_cols = [
+        c for c in main_df.columns if "[" in c and "subplot" in c.lower()
+    ]
     print(f"   Indexed subplot columns: {indexed_cols[:10]}...")
 
     # Extract subplot GPS data for the specific plot
@@ -72,13 +83,20 @@ def main():
     plot_row = plot_data.iloc[0]
 
     # Find all subplot GPS columns with indices
-    subplot_gps_cols = sorted([c for c in main_df.columns if "gt_subplot_gps" in c.lower()])
+    subplot_gps_cols = sorted(
+        [c for c in main_df.columns if "gt_subplot_gps" in c.lower()]
+    )
     print(f"   Found {len(subplot_gps_cols)} subplot GPS columns")
 
     if not subplot_gps_cols:
         # Try alternative naming
         subplot_gps_cols = sorted(
-            [c for c in main_df.columns if "subplot" in c.lower() and ("gps" in c.lower() or "geoshape" in c.lower())]
+            [
+                c
+                for c in main_df.columns
+                if "subplot" in c.lower()
+                and ("gps" in c.lower() or "geoshape" in c.lower())
+            ]
         )
         print(f"   Alternative search found: {subplot_gps_cols[:5]}...")
 
@@ -97,14 +115,23 @@ def main():
                     idx = len(geometries)
 
                 # Parse geometry
-                geom, metadata = geom_from_scto_str(plot_row.to_dict(), col, accuracy_m=10, accuracy_zero_valid=True)
+                geom, metadata = geom_from_scto_str(
+                    plot_row.to_dict(),
+                    col,
+                    accuracy_m=10,
+                    accuracy_zero_valid=True,
+                )
 
                 if not geom.is_empty:
                     geometries.append(geom)
                     subplot_ids.append(idx + 1)  # 1-indexed subplot numbers
-                    print(f"   Subplot {idx + 1}: Valid geometry with area ~{geom_to_utm(geom).area:.1f} m²")
+                    print(
+                        f"   Subplot {idx + 1}: Valid geometry with area ~{geom_to_utm(geom).area:.1f} m²"
+                    )
                 else:
-                    print(f"   Subplot {idx + 1}: Empty geometry - {metadata.get('reason', 'unknown')}")
+                    print(
+                        f"   Subplot {idx + 1}: Empty geometry - {metadata.get('reason', 'unknown')}"
+                    )
             except Exception as e:
                 print(f"   Error parsing {col}: {e}")
 
@@ -116,14 +143,18 @@ def main():
 
     # Create GeoDataFrame
     print("\n5. Creating GeoDataFrame for overlap analysis...")
-    gdf = gpd.GeoDataFrame({"subplot_id": subplot_ids, "geometry": geometries}, crs=crs)
+    gdf = gpd.GeoDataFrame(
+        {"subplot_id": subplot_ids, "geometry": geometries}, crs=crs
+    )
 
     print(f"   GeoDataFrame created with {len(gdf)} subplots")
 
     # Check which subplots we're interested in
     target_subplots = [4, 6, 13]
     available_targets = [s for s in target_subplots if s in subplot_ids]
-    print(f"   Target subplots {target_subplots}: available = {available_targets}")
+    print(
+        f"   Target subplots {target_subplots}: available = {available_targets}"
+    )
 
     # Run overlap validation step by step
     print("\n6. Running overlap validation step-by-step...")
@@ -141,7 +172,9 @@ def main():
         geom = row["geometry"]
         original_area = gdf_utm.loc[idx, "geometry"].area
         buffered_area = geom.area if not geom.is_empty else 0
-        print(f"   Subplot {subplot_id}: {original_area:.1f} m² -> {buffered_area:.1f} m² (after -5m buffer)")
+        print(
+            f"   Subplot {subplot_id}: {original_area:.1f} m² -> {buffered_area:.1f} m² (after -5m buffer)"
+        )
         if geom.is_empty:
             print("      WARNING: Geometry became EMPTY after buffer!")
         elif not geom.is_valid:
@@ -153,21 +186,31 @@ def main():
     print("\n   Step 6d: Calculate areas...")
     gdf_with_area = calculate_area(gdf_wgs.copy(), geodisic=True)
     for idx, row in gdf_with_area.iterrows():
-        print(f"   Subplot {row['subplot_id']}: area_m2 = {row['area_m2']:.1f}")
+        print(
+            f"   Subplot {row['subplot_id']}: area_m2 = {row['area_m2']:.1f}"
+        )
 
     print("\n   Step 6e: Perform overlay (self-intersection)...")
     try:
-        overlay_result = gdf_with_area.overlay(gdf_with_area, keep_geom_type=False)
+        overlay_result = gdf_with_area.overlay(
+            gdf_with_area, keep_geom_type=False
+        )
         print(f"   Overlay produced {len(overlay_result)} results")
 
         # Filter to different subplots only
-        overlay_filtered = overlay_result[overlay_result["subplot_id_1"] != overlay_result["subplot_id_2"]]
-        print(f"   After filtering (different subplots): {len(overlay_filtered)} results")
+        overlay_filtered = overlay_result[
+            overlay_result["subplot_id_1"] != overlay_result["subplot_id_2"]
+        ]
+        print(
+            f"   After filtering (different subplots): {len(overlay_filtered)} results"
+        )
 
         if len(overlay_filtered) > 0:
             print("\n   Overlapping pairs found:")
             # Calculate overlap areas
-            overlay_filtered = calculate_area(overlay_filtered.copy(), geodisic=True)
+            overlay_filtered = calculate_area(
+                overlay_filtered.copy(), geodisic=True
+            )
 
             for idx, row in overlay_filtered.iterrows():
                 s1 = row["subplot_id_1"]
@@ -176,7 +219,11 @@ def main():
                 area1 = row["area_m2_1"]
                 area2 = row["area_m2_2"]
                 min_area = min(area1, area2)
-                ratio = intersection_area / min_area if min_area > 0 else float("inf")
+                ratio = (
+                    intersection_area / min_area
+                    if min_area > 0
+                    else float("inf")
+                )
                 geom_type = row["geometry"].geom_type
 
                 print(f"\n   Subplot {s1} <-> Subplot {s2}:")
@@ -204,17 +251,26 @@ def main():
     gdf_no_buffer = calculate_area(gdf_no_buffer, geodisic=True)
 
     try:
-        overlay_no_buffer = gdf_no_buffer.overlay(gdf_no_buffer, keep_geom_type=False)
-        overlay_no_buffer = overlay_no_buffer[overlay_no_buffer["subplot_id_1"] != overlay_no_buffer["subplot_id_2"]]
+        overlay_no_buffer = gdf_no_buffer.overlay(
+            gdf_no_buffer, keep_geom_type=False
+        )
+        overlay_no_buffer = overlay_no_buffer[
+            overlay_no_buffer["subplot_id_1"]
+            != overlay_no_buffer["subplot_id_2"]
+        ]
         print(f"   Overlapping pairs without buffer: {len(overlay_no_buffer)}")
 
         if len(overlay_no_buffer) > 0:
-            overlay_no_buffer = calculate_area(overlay_no_buffer.copy(), geodisic=True)
+            overlay_no_buffer = calculate_area(
+                overlay_no_buffer.copy(), geodisic=True
+            )
             for idx, row in overlay_no_buffer.iterrows():
                 s1 = row["subplot_id_1"]
                 s2 = row["subplot_id_2"]
                 intersection_area = row["area_m2"]
-                print(f"   Subplot {s1} <-> Subplot {s2}: intersection = {intersection_area:.2f} m²")
+                print(
+                    f"   Subplot {s1} <-> Subplot {s2}: intersection = {intersection_area:.2f} m²"
+                )
     except Exception as e:
         print(f"   ERROR: {e}")
 

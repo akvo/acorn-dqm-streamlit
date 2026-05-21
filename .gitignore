@@ -16,3 +16,6 @@ agent_docs/
 .python-version
 docs/decisions
 docs/research_logs
+
+version2/data/*
+version2/.ipynb_checkpoints/*
