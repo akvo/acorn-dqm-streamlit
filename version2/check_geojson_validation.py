@@ -11,8 +11,7 @@ print("=" * 60)
 
 # Check which GeoJSON file you have
 geojson_files = [
-    "Ground Truth Collection COMACO 2025_subplots_checks.geojson",
-    "Ground Truth Collection AFOCO 2025_subplots_checks.geojson",
+    "data/Data Quality Ground Truth Collection Farm Africa 2026 January_subplots_checks.geojson",
 ]
 
 file_found = None
@@ -24,6 +23,7 @@ for filename in geojson_files:
         print(f"\n✓ Found file: {filename}")
         break
     except FileNotFoundError:
+        print(f"❌ File not found: {filename}")
         continue
 
 if not file_found:
@@ -102,9 +102,21 @@ checks.append(
     )
 )
 
-checks.append(("Your screenshot valid (852)", valid_count == 852, f"{valid_count} == 852"))
+checks.append(
+    (
+        "Your screenshot valid (852)",
+        valid_count == 852,
+        f"{valid_count} == 852",
+    )
+)
 
-checks.append(("Your screenshot invalid (796)", invalid_count == 796, f"{invalid_count} == 796"))
+checks.append(
+    (
+        "Your screenshot invalid (796)",
+        invalid_count == 796,
+        f"{invalid_count} == 796",
+    )
+)
 
 all_correct = True
 for check_name, is_correct, detail in checks:
@@ -130,7 +142,9 @@ if issues_list:
                     issue_types[issue] = issue_types.get(issue, 0) + 1
 
     # Sort by count
-    sorted_issues = sorted(issue_types.items(), key=lambda x: x[1], reverse=True)
+    sorted_issues = sorted(
+        issue_types.items(), key=lambda x: x[1], reverse=True
+    )
 
     print("\nIssue breakdown:")
     for issue, count in sorted_issues[:10]:  # Show top 10

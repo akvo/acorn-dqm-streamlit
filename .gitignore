@@ -9,3 +9,13 @@ data_cache/*.json
 
 # Environment variables
 .env
+
+# Agent Config & Docs
+.agent/
+agent_docs/
+.python-version
+docs/decisions
+docs/research_logs
+
+version2/data/*
+version2/.ipynb_checkpoints/*
