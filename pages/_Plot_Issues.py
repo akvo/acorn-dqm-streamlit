@@ -37,7 +37,9 @@ st.session_state.data = data  # Ensure session state is in sync
 show_header()
 
 st.markdown("## ⚠️ Plot Issues")
-st.caption("Identifies plots with significant validation problems (≥8 invalid subplots per plot). These plots likely need field revisits or data correction. Use this view to prioritize QA/QC efforts on the most problematic plots first.")
+st.caption(
+    "Identifies plots with significant validation problems (≥8 invalid subplots per plot). These plots likely need field revisits or data correction. Use this view to prioritize QA/QC efforts on the most problematic plots first."
+)
 
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
@@ -220,7 +222,9 @@ show_sidebar_info()
 # ============================================
 
 st.markdown("### 📊 Overall Summary")
-st.caption("High-level validation status across all plots and subplots. 'Invalid Plots' have ≥8 invalid subplots and should be prioritized for review.")
+st.caption(
+    "High-level validation status across all plots and subplots. 'Invalid Plots' have ≥8 invalid subplots and should be prioritized for review."
+)
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -260,7 +264,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### ⚠️ Subplot Issues Breakdown")
-st.caption("Categorizes subplot issues by type. 'Geometry Only' = GPS/area problems. 'Vegetation Only' = species classification issues (≥10 trees as 'other'). 'Both' = subplots with multiple issue types requiring comprehensive review.")
+st.caption(
+    "Categorizes subplot issues by type. 'Geometry Only' = GPS/area problems. 'Vegetation Only' = species classification issues (≥10 trees as 'other'). 'Both' = subplots with multiple issue types requiring comprehensive review."
+)
 
 col1, col2, col3 = st.columns(3)
 
@@ -286,7 +292,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 📋 Plots with ≥8 Invalid Subplots")
-st.caption("Plots exceeding the error threshold. Click column headers to sort. Focus on plots with highest invalid_subplots count first. The enumerator column helps identify if issues are concentrated with specific field staff.")
+st.caption(
+    "Plots exceeding the error threshold. Click column headers to sort. Focus on plots with highest invalid_subplots count first. The enumerator column helps identify if issues are concentrated with specific field staff."
+)
 
 if len(plot_summary) > 0:
     invalid_plots_df = plot_summary[~plot_summary["plot_valid"]].sort_values("invalid_subplots", ascending=False)
@@ -357,7 +365,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🌿 Subplots with Vegetation Issues Only")
-st.caption("Subplots with valid GPS boundaries but excessive 'other' species entries (≥10 trees). This often indicates enumerators couldn't identify species from the dropdown list. Consider adding commonly reported species to the partner's species registry.")
+st.caption(
+    "Subplots with valid GPS boundaries but excessive 'other' species entries (≥10 trees). This often indicates enumerators couldn't identify species from the dropdown list. Consider adding commonly reported species to the partner's species registry."
+)
 
 veg_issues_only = measured_gdf[measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]].copy()
 
@@ -418,7 +428,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🔶 Subplots with Geometry Issues Only")
-st.caption("Subplots with correct species data but GPS/area validation failures. Common causes: insufficient GPS accuracy, irregular polygon shapes, area outside acceptable range (450-750 m²), or overlapping boundaries. May require field revisit to re-capture GPS coordinates.")
+st.caption(
+    "Subplots with correct species data but GPS/area validation failures. Common causes: insufficient GPS accuracy, irregular polygon shapes, area outside acceptable range (450-750 m²), or overlapping boundaries. May require field revisit to re-capture GPS coordinates."
+)
 
 geom_issues_only = measured_gdf[~measured_gdf["geom_valid"] & measured_gdf["veg_valid"]].copy()
 
@@ -485,7 +497,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 📍 Subplots with Empty Geometry")
-st.caption("Subplots where GPS data was missing, incomplete, or couldn't form a valid polygon. This typically indicates: GPS device issues, incomplete field visits, or data transmission failures. These subplots have no spatial footprint and must be revisited.")
+st.caption(
+    "Subplots where GPS data was missing, incomplete, or couldn't form a valid polygon. This typically indicates: GPS device issues, incomplete field visits, or data transmission failures. These subplots have no spatial footprint and must be revisited."
+)
 
 # Filter for empty geometry subplots
 empty_geom_subplots = measured_gdf[measured_gdf["reasons"].str.contains("Empty geometry", case=False, na=False)].copy()
@@ -561,7 +575,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### ❌ Subplots with Both Geometry & Vegetation Issues")
-st.caption("Highest priority for field revisits. These subplots have both GPS boundary problems AND species classification issues. Often indicates rushed data collection or challenging field conditions. Review enumerator patterns to determine if retraining is needed.")
+st.caption(
+    "Highest priority for field revisits. These subplots have both GPS boundary problems AND species classification issues. Often indicates rushed data collection or challenging field conditions. Review enumerator patterns to determine if retraining is needed."
+)
 
 both_issues = measured_gdf[~measured_gdf["geom_valid"] & ~measured_gdf["veg_valid"]].copy()
 
@@ -660,7 +676,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🌿 Plots with Living Fences")
-st.caption("Living fences are perimeter plantings that serve as boundaries. This table shows plots where living_fences vegetation type was recorded. Count indicates number of vegetation records per plot. Use this to verify living fence documentation across plots.")
+st.caption(
+    "Living fences are perimeter plantings that serve as boundaries. This table shows plots where living_fences vegetation type was recorded. Count indicates number of vegetation records per plot. Use this to verify living fence documentation across plots."
+)
 
 # Get living fences data from raw_data
 raw_data = st.session_state.data.get("raw_data", {})
@@ -725,7 +743,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🔍 Plot Details Explorer")
-st.caption("Interactive drill-down into individual plots. Select a plot to see all its subplots, validation status, and tree species data. ❌ indicates plots with ≥8 invalid subplots. ✅ indicates plots meeting quality thresholds. Use this to investigate specific issues in detail.")
+st.caption(
+    "Interactive drill-down into individual plots. Select a plot to see all its subplots, validation status, and tree species data. ❌ indicates plots with ≥8 invalid subplots. ✅ indicates plots meeting quality thresholds. Use this to investigate specific issues in detail."
+)
 
 # Get all unique plot keys
 if "PLOT_KEY" in filtered_gdf.columns:
@@ -861,9 +881,11 @@ if "PLOT_KEY" in filtered_gdf.columns:
 
                         # Extract subplot number for cleaner display
                         invalid_display["Subplot #"] = invalid_display["subplot_id"].apply(
-                            lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) + 1
-                            if re.search(r"\[(\d+)\]", str(x))
-                            else 0
+                            lambda x: (
+                                int(re.search(r"\[(\d+)\]", str(x)).group(1)) + 1
+                                if re.search(r"\[(\d+)\]", str(x))
+                                else 0
+                            )
                         )
 
                         if "reasons" in invalid_display.columns:

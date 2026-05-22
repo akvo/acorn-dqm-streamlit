@@ -7,7 +7,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info, get_total_measured_subplots, require_auth
+from ui.components import (
+    show_header,
+    create_sidebar_filters,
+    show_sidebar_info,
+    get_total_measured_subplots,
+    require_auth,
+)
 from utils.data_merge_utils import (
     merge_with_enumerator,
     calculate_tree_age,
@@ -70,7 +76,9 @@ st.session_state.data = data  # Ensure session state is in sync
 show_header()
 
 st.markdown("## 🌳 Subplot Details & Vegetation Quality Checks")
-st.caption("Comprehensive data quality checks for vegetation records. Use the sidebar filters to narrow down by date range or enumerator. Each section highlights potential issues that may require field verification or data correction.")
+st.caption(
+    "Comprehensive data quality checks for vegetation records. Use the sidebar filters to narrow down by date range or enumerator. Each section highlights potential issues that may require field verification or data correction."
+)
 
 # Page-level documentation
 with st.expander("📖 Page Documentation", expanded=False):
@@ -207,6 +215,7 @@ young_tree_circ = st.sidebar.number_input(
     help="Suspicious if circ > this AND age < 5 years",
 )
 
+
 def extract_year_from_planted(series):
     """
     Extract year from tree_year_planted column
@@ -303,7 +312,9 @@ tabs = st.tabs(
 
 with tabs[2]:
     st.markdown("### 🚫 Missing Vegetation and Measurement Data")
-    st.caption("Identifies gaps in data collection. Subplots without vegetation records may indicate incomplete surveys. Vegetation records without measurements may indicate trees that were recorded but not measured. These gaps should be addressed during field revisits or data reconciliation.")
+    st.caption(
+        "Identifies gaps in data collection. Subplots without vegetation records may indicate incomplete surveys. Vegetation records without measurements may indicate trees that were recorded but not measured. These gaps should be addressed during field revisits or data reconciliation."
+    )
 
     # FILTER veg_df to only actual vegetation (non-null VEGETATION_KEY)
     # This is needed if data_processor uses LEFT JOIN
@@ -396,7 +407,9 @@ with tabs[2]:
 
     # CHECK 4: Tree Density and Coverage Analysis
     st.markdown("#### 2️⃣ Subplot Tree Density & Coverage")
-    st.caption("Identifies subplots with zero trees. 'Coverage-Only' subplots have vegetation records but no trees (e.g., grass/crops). 'Empty' subplots have no records at all and may indicate missed data collection.")
+    st.caption(
+        "Identifies subplots with zero trees. 'Coverage-Only' subplots have vegetation records but no trees (e.g., grass/crops). 'Empty' subplots have no records at all and may indicate missed data collection."
+    )
 
     # IMPORTANT: Start with ALL subplots from geometry (176), not just those with vegetation (162)
     # This ensures we count empty subplots as coverage-only
@@ -446,7 +459,9 @@ with tabs[2]:
         if "coverage_vegetation" in density.columns:
             density["coverage_vegetation"] = pd.to_numeric(density["coverage_vegetation"], errors="coerce").fillna(0)
         if "vegetation_type_number" in density.columns:
-            density["vegetation_type_number"] = pd.to_numeric(density["vegetation_type_number"], errors="coerce").fillna(0)
+            density["vegetation_type_number"] = pd.to_numeric(
+                density["vegetation_type_number"], errors="coerce"
+            ).fillna(0)
 
         # Group by subplot
         agg_dict = {}
@@ -646,7 +661,9 @@ with tabs[2]:
 
 with tabs[3]:
     st.markdown("### 🌲 Tree Classification & Species Registry")
-    st.caption("Analyzes species entered as 'other' (free-text) to improve data quality and expand the species registry. The first section matches manually-entered species against existing registry entries. The second aggregates frequently reported species that may need to be added to the official TSV lists.")
+    st.caption(
+        "Analyzes species entered as 'other' (free-text) to improve data quality and expand the species registry. The first section matches manually-entered species against existing registry entries. The second aggregates frequently reported species that may need to be added to the official TSV lists."
+    )
 
     # Get tree lists using utility functions on RAW data
     primary_trees = get_primary_trees_with_other(veg_df, primary_value="yes_primary_group")
@@ -669,7 +686,9 @@ with tabs[3]:
     # ============================================
 
     st.markdown("### 🔍 Potential Species Matches (Fuzzy)")
-    st.caption("When enumerators enter species as 'other' with a free-text name, this check compares those entries against the partner's species registry (TSV files). High-confidence matches suggest the species already exists in the list and enumerators should be trained to select it directly instead of typing manually.")
+    st.caption(
+        "When enumerators enter species as 'other' with a free-text name, this check compares those entries against the partner's species registry (TSV files). High-confidence matches suggest the species already exists in the list and enumerators should be trained to select it directly instead of typing manually."
+    )
 
     if not FUZZY_AVAILABLE:
         st.warning("Fuzzy matching library not available. Install 'rapidfuzz' to enable this feature.")
@@ -790,7 +809,9 @@ with tabs[3]:
 
     st.markdown("---")
     st.markdown("### 📊 Commonly Reported 'Other' Species")
-    st.caption("Aggregates all manually-entered 'other' species by name (with fuzzy grouping to handle spelling variations). Use this to identify frequently reported species that should be added to the partner's official species registry (TSV files). 'Total Trees' = sum of vegetation_type_number across all matching records.")
+    st.caption(
+        "Aggregates all manually-entered 'other' species by name (with fuzzy grouping to handle spelling variations). Use this to identify frequently reported species that should be added to the partner's official species registry (TSV files). 'Total Trees' = sum of vegetation_type_number across all matching records."
+    )
 
     # Combine all "other" trees
     all_other = pd.concat([primary_trees, non_primary_trees, young_trees_other], ignore_index=True)
@@ -840,12 +861,14 @@ with tabs[3]:
                 subset = all_other[all_other["tree_name"].isin(variants)]
                 tree_count = int(subset["vegetation_type_number"].sum())
                 record_count = len(subset)
-                agg_data.append({
-                    "Species Name": canonical,
-                    "Variants": ", ".join(sorted(set(v for v in variants if v != canonical))) or "-",
-                    "Total Trees": tree_count,
-                    "Records": record_count,
-                })
+                agg_data.append(
+                    {
+                        "Species Name": canonical,
+                        "Variants": ", ".join(sorted(set(v for v in variants if v != canonical))) or "-",
+                        "Total Trees": tree_count,
+                        "Records": record_count,
+                    }
+                )
 
             agg_df = pd.DataFrame(agg_data).sort_values("Total Trees", ascending=False)
 
@@ -856,10 +879,11 @@ with tabs[3]:
             )
         elif len(all_other) > 0:
             # Simple groupby without fuzzy
-            agg_df = all_other.groupby("tree_name").agg(
-                Total_Trees=("vegetation_type_number", "sum"),
-                Records=("tree_name", "size")
-            ).reset_index()
+            agg_df = (
+                all_other.groupby("tree_name")
+                .agg(Total_Trees=("vegetation_type_number", "sum"), Records=("tree_name", "size"))
+                .reset_index()
+            )
             agg_df.columns = ["Species Name", "Total Trees", "Records"]
             agg_df["Variants"] = "-"
             agg_df = agg_df.sort_values("Total Trees", ascending=False)
@@ -880,7 +904,9 @@ with tabs[3]:
 
     st.markdown("---")
     st.markdown("### 🌾 Commonly Reported 'Other' Species in Coverage")
-    st.caption("Same as above but for coverage-type records (non-woody vegetation like grasses, crops, ground cover). These are filtered by vegetation_type_woody='nonwoody_coverage' OR vegetation_type_youngtree='no_coverage'. Frequently reported coverage species may warrant addition to the non-woody species list.")
+    st.caption(
+        "Same as above but for coverage-type records (non-woody vegetation like grasses, crops, ground cover). These are filtered by vegetation_type_woody='nonwoody_coverage' OR vegetation_type_youngtree='no_coverage'. Frequently reported coverage species may warrant addition to the non-woody species list."
+    )
 
     # Filter for coverage records
     coverage_filter = pd.Series([False] * len(veg_df), index=veg_df.index)
@@ -943,12 +969,14 @@ with tabs[3]:
                     subset = coverage_other[coverage_other["other_species"].isin(variants)]
                     total_coverage = int(subset["coverage_vegetation"].sum())
                     record_count = len(subset)
-                    agg_data.append({
-                        "Species Name": canonical,
-                        "Variants": ", ".join(sorted(set(v for v in variants if v != canonical))) or "-",
-                        "Total Coverage": total_coverage,
-                        "Records": record_count,
-                    })
+                    agg_data.append(
+                        {
+                            "Species Name": canonical,
+                            "Variants": ", ".join(sorted(set(v for v in variants if v != canonical))) or "-",
+                            "Total Coverage": total_coverage,
+                            "Records": record_count,
+                        }
+                    )
 
                 agg_df = pd.DataFrame(agg_data).sort_values("Total Coverage", ascending=False)
 
@@ -959,10 +987,11 @@ with tabs[3]:
                 )
             else:
                 # Simple groupby without fuzzy
-                agg_df = coverage_other.groupby("other_species").agg(
-                    Total_Coverage=("coverage_vegetation", "sum"),
-                    Records=("other_species", "size")
-                ).reset_index()
+                agg_df = (
+                    coverage_other.groupby("other_species")
+                    .agg(Total_Coverage=("coverage_vegetation", "sum"), Records=("other_species", "size"))
+                    .reset_index()
+                )
                 agg_df.columns = ["Species Name", "Total Coverage", "Records"]
                 agg_df["Variants"] = "-"
                 agg_df = agg_df.sort_values("Total Coverage", ascending=False)
@@ -983,7 +1012,9 @@ with tabs[3]:
 
 with tabs[0]:
     st.markdown("### 📏 Measurement Quality Checks")
-    st.caption("Validates tree measurements (height, circumference, stem count) against configurable thresholds and biological plausibility rules. Adjust thresholds in the sidebar based on regional species characteristics.")
+    st.caption(
+        "Validates tree measurements (height, circumference, stem count) against configurable thresholds and biological plausibility rules. Adjust thresholds in the sidebar based on regional species characteristics."
+    )
 
     if not has_measurements:
         st.error("❌ Measurement data not available")
@@ -993,7 +1024,9 @@ with tabs[0]:
 
     # CHECK 1: Super Tall Trees Check
     st.markdown(f"#### 1️⃣ Super Tall Trees (> {tall_tree_threshold}m)")
-    st.caption("Lists trees exceeding the height threshold. Cross-check with tree_year_planted - a 40m tree planted in 2023 is likely a data entry error. Adjust the threshold in the sidebar if needed for specific regions or species.")
+    st.caption(
+        "Lists trees exceeding the height threshold. Cross-check with tree_year_planted - a 40m tree planted in 2023 is likely a data entry error. Adjust the threshold in the sidebar if needed for specific regions or species."
+    )
 
     # Use filtered measurement data for tall tree check
     if has_measurements and len(meas_df) > 0:
@@ -1064,7 +1097,9 @@ with tabs[0]:
 
     # CHECK 2: High stem counts
     st.markdown(f"#### 2️⃣ High Stem Counts (> {stem_threshold})")
-    st.caption("Trees with unusually high stem counts at breast height. While some species (e.g., bamboo, coppiced trees) legitimately have many stems, counts above 20-40 may indicate measurement errors or confusion about what constitutes a 'stem'. Review species context before flagging.")
+    st.caption(
+        "Trees with unusually high stem counts at breast height. While some species (e.g., bamboo, coppiced trees) legitimately have many stems, counts above 20-40 may indicate measurement errors or confusion about what constitutes a 'stem'. Review species context before flagging."
+    )
 
     meas_with_enum = detect_stem_outliers(meas_with_enum, threshold=stem_threshold)
     high_stems = meas_with_enum[meas_with_enum["high_stems_bh"] == True]
@@ -1410,7 +1445,9 @@ with tabs[0]:
 
     # CHECK 6: Species Measurement Statistics
     st.markdown("#### 4️⃣ Species Measurement Statistics")
-    st.caption("Summary statistics (mean, median, min, max) for height, circumference, and stem count by species. Use this to establish baseline expectations for each species and identify species with unusual measurement distributions that may warrant closer inspection.")
+    st.caption(
+        "Summary statistics (mean, median, min, max) for height, circumference, and stem count by species. Use this to establish baseline expectations for each species and identify species with unusual measurement distributions that may warrant closer inspection."
+    )
 
     # Load species lookup for normalization (returns two dicts)
     scientific_lookup, common_lookup = load_species_lookup(config.PARTNER)
@@ -1564,7 +1601,10 @@ with tabs[0]:
                                     display_cols.append("SUBPLOT_KEY")
 
                                 # Add appropriate key - CIRCUMFERENCE_KEY for circumference, MEASUREMENT_KEY otherwise
-                                if metric in ("circumference_bh", "circumference_10cm") and "CIRCUMFERENCE_KEY" in outliers_only.columns:
+                                if (
+                                    metric in ("circumference_bh", "circumference_10cm")
+                                    and "CIRCUMFERENCE_KEY" in outliers_only.columns
+                                ):
                                     display_cols.append("CIRCUMFERENCE_KEY")
                                 elif "MEASUREMENT_KEY" in outliers_only.columns:
                                     display_cols.append("MEASUREMENT_KEY")
@@ -1725,7 +1765,10 @@ with tabs[0]:
                                 display_cols.insert(0, "SUBPLOT_KEY")
 
                             # Add appropriate key - CIRCUMFERENCE_KEY for circumference, MEASUREMENT_KEY otherwise
-                            if selected_age_species_col in ("circumference_bh", "circumference_10cm") and "CIRCUMFERENCE_KEY" in display_df.columns:
+                            if (
+                                selected_age_species_col in ("circumference_bh", "circumference_10cm")
+                                and "CIRCUMFERENCE_KEY" in display_df.columns
+                            ):
                                 display_cols.append("CIRCUMFERENCE_KEY")
                             elif "MEASUREMENT_KEY" in display_df.columns:
                                 display_cols.append("MEASUREMENT_KEY")
@@ -1964,11 +2007,11 @@ with tabs[1]:
 
             # Apply outlier detection (4x and 1/4x median - Rabobank methodology)
             height_total["Upper_outliers"] = height_total.apply(
-                lambda row: ("outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"),
+                lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok",
                 axis=1,
             )
             height_total["Lower_outliers"] = height_total.apply(
-                lambda row: ("outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"),
+                lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok",
                 axis=1,
             )
 
@@ -2081,11 +2124,11 @@ with tabs[1]:
 
                 # Apply outlier detection (4x and 1/4x median)
                 circ_total["Upper_outliers"] = circ_total.apply(
-                    lambda row: ("outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok"),
+                    lambda row: "outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok",
                     axis=1,
                 )
                 circ_total["Lower_outliers"] = circ_total.apply(
-                    lambda row: ("outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok"),
+                    lambda row: "outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok",
                     axis=1,
                 )
 
@@ -2161,7 +2204,9 @@ with tabs[1]:
 
     # CHECK 3: Suspicious circumference by age
     st.markdown("#### 3️⃣ Suspicious Circumference vs Tree Age ")
-    st.caption(f"Cross-validates circumference against tree age. Young trees (<5 years) with circumference >{young_tree_circ}cm, or trees <15 years with circumference >300cm are flagged. These combinations are biologically implausible and likely indicate data entry errors (e.g., entering diameter instead of circumference, or incorrect planting year).")
+    st.caption(
+        f"Cross-validates circumference against tree age. Young trees (<5 years) with circumference >{young_tree_circ}cm, or trees <15 years with circumference >300cm are flagged. These combinations are biologically implausible and likely indicate data entry errors (e.g., entering diameter instead of circumference, or incorrect planting year)."
+    )
 
     if has_complete:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
@@ -2255,7 +2300,9 @@ with tabs[1]:
 
     # CHECK 4: Tree Measurements Scatter Plot
     st.markdown("#### 4️⃣ Tree Measurements Analysis")
-    st.caption("Interactive scatter plot showing the relationship between tree height and circumference. Each point represents one measurement, sized by stem count and colored by species. Look for outliers in unexpected regions (e.g., very tall trees with thin circumference, or very thick trees that are short). Hover over points for details.")
+    st.caption(
+        "Interactive scatter plot showing the relationship between tree height and circumference. Each point represents one measurement, sized by stem count and colored by species. Look for outliers in unexpected regions (e.g., very tall trees with thin circumference, or very thick trees that are short). Hover over points for details."
+    )
 
     if has_complete and species_col:
         complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)

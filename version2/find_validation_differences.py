@@ -35,9 +35,7 @@ print("=" * 70)
 
 # 1. Load notebook results from GeoJSON
 print("\n1. Loading notebook validation results from GeoJSON...")
-geojson_path = (
-    "version2/Ground Truth Collection COMACO 2025_subplots_checks.geojson"
-)
+geojson_path = "version2/Ground Truth Collection COMACO 2025_subplots_checks.geojson"
 
 try:
     with open(geojson_path, "r") as f:
@@ -45,9 +43,7 @@ try:
 except FileNotFoundError:
     # Try current directory
     try:
-        with open(
-            "Ground Truth Collection COMACO 2025_subplots_checks.geojson", "r"
-        ) as f:
+        with open("Ground Truth Collection COMACO 2025_subplots_checks.geojson", "r") as f:
             geojson_data = json.load(f)
     except FileNotFoundError:
         print("   ❌ GeoJSON file not found!")
@@ -96,21 +92,16 @@ merged_data = merge_data(raw_data)
 plots_subplots = merged_data["plots_subplots"]
 
 if "gt_subplot" in plots_subplots.columns:
-    plots_subplots = add_geometry_to_subplots(
-        plots_subplots, accuracy_m=10, apply_fixes=True
-    )
+    plots_subplots = add_geometry_to_subplots(plots_subplots, accuracy_m=10, apply_fixes=True)
     merged_data["plots_subplots"] = plots_subplots
 
 # Filter by date
-plots_subplots["SubmissionDate"] = pd.to_datetime(
-    plots_subplots["SubmissionDate"]
-).dt.date
+plots_subplots["SubmissionDate"] = pd.to_datetime(plots_subplots["SubmissionDate"]).dt.date
 start_date = date(2025, 8, 11)
 end_date = date(2025, 8, 28)
 
 plots_subplots = plots_subplots[
-    (plots_subplots["SubmissionDate"] >= start_date)
-    & (plots_subplots["SubmissionDate"] <= end_date)
+    (plots_subplots["SubmissionDate"] >= start_date) & (plots_subplots["SubmissionDate"] <= end_date)
 ]
 merged_data["plots_subplots"] = plots_subplots
 
@@ -158,18 +149,12 @@ for subplot_id in notebook_results.keys():
                     "subplot_id": subplot_id,
                     "notebook_valid": notebook_valid,
                     "streamlit_valid": streamlit_valid,
-                    "notebook_reasons": notebook_results[subplot_id][
-                        "reasons"
-                    ],
-                    "streamlit_issues": streamlit_results[subplot_id][
-                        "issues"
-                    ],
+                    "notebook_reasons": notebook_results[subplot_id]["reasons"],
+                    "streamlit_issues": streamlit_results[subplot_id]["issues"],
                 }
             )
 
-print(
-    f"\nFound {len(different_subplots)} subplots with different validation results"
-)
+print(f"\nFound {len(different_subplots)} subplots with different validation results")
 
 # 5. Show details of differences
 if different_subplots:
@@ -179,12 +164,8 @@ if different_subplots:
 
     for i, diff in enumerate(different_subplots[:20], 1):  # Show first 20
         print(f"\n{i}. Subplot: ...{diff['subplot_id'][-40:]}")
-        print(
-            f"   Notebook: {'VALID' if diff['notebook_valid'] else 'INVALID'}"
-        )
-        print(
-            f"   Streamlit: {'VALID' if diff['streamlit_valid'] else 'INVALID'}"
-        )
+        print(f"   Notebook: {'VALID' if diff['notebook_valid'] else 'INVALID'}")
+        print(f"   Streamlit: {'VALID' if diff['streamlit_valid'] else 'INVALID'}")
 
         if diff["notebook_reasons"]:
             print(f"   Notebook reasons: {diff['notebook_reasons']}")
@@ -192,9 +173,7 @@ if different_subplots:
         if diff["streamlit_issues"]:
             print("   Streamlit issues:")
             for issue in diff["streamlit_issues"][:3]:  # Show first 3 issues
-                print(
-                    f"      • [{issue.get('severity')}] {issue.get('message')}"
-                )
+                print(f"      • [{issue.get('severity')}] {issue.get('message')}")
 
 # 6. Analyze patterns
 print("\n" + "=" * 70)
@@ -203,22 +182,14 @@ print("=" * 70)
 
 # Count which way the differences go
 notebook_valid_streamlit_invalid = sum(
-    1
-    for d in different_subplots
-    if d["notebook_valid"] and not d["streamlit_valid"]
+    1 for d in different_subplots if d["notebook_valid"] and not d["streamlit_valid"]
 )
 notebook_invalid_streamlit_valid = sum(
-    1
-    for d in different_subplots
-    if not d["notebook_valid"] and d["streamlit_valid"]
+    1 for d in different_subplots if not d["notebook_valid"] and d["streamlit_valid"]
 )
 
-print(
-    f"\nNotebook VALID → Streamlit INVALID: {notebook_valid_streamlit_invalid}"
-)
-print(
-    f"Notebook INVALID → Streamlit VALID: {notebook_invalid_streamlit_valid}"
-)
+print(f"\nNotebook VALID → Streamlit INVALID: {notebook_valid_streamlit_invalid}")
+print(f"Notebook INVALID → Streamlit VALID: {notebook_invalid_streamlit_valid}")
 
 # Analyze Streamlit issues for the different ones
 if different_subplots:
@@ -229,10 +200,7 @@ if different_subplots:
             # Extract the main issue type
             if "too small" in issue_msg.lower():
                 issue_type = "Plot too small"
-            elif (
-                "too big" in issue_msg.lower()
-                or "too large" in issue_msg.lower()
-            ):
+            elif "too big" in issue_msg.lower() or "too large" in issue_msg.lower():
                 issue_type = "Plot too big"
             elif "vertices" in issue_msg.lower():
                 issue_type = "Vertex count"
@@ -247,14 +215,10 @@ if different_subplots:
             else:
                 issue_type = "Other"
 
-            streamlit_issue_types[issue_type] = (
-                streamlit_issue_types.get(issue_type, 0) + 1
-            )
+            streamlit_issue_types[issue_type] = streamlit_issue_types.get(issue_type, 0) + 1
 
     print("\nStreamlit issue types in different subplots:")
-    for issue_type, count in sorted(
-        streamlit_issue_types.items(), key=lambda x: x[1], reverse=True
-    ):
+    for issue_type, count in sorted(streamlit_issue_types.items(), key=lambda x: x[1], reverse=True):
         print(f"  • {issue_type}: {count}")
 
 # 7. Recommendation
@@ -263,9 +227,7 @@ print("RECOMMENDATION")
 print("=" * 70)
 
 if len(different_subplots) <= 15:
-    print(
-        f"\n✅ Only {len(different_subplots)} subplots differ - this is ACCEPTABLE!"
-    )
+    print(f"\n✅ Only {len(different_subplots)} subplots differ - this is ACCEPTABLE!")
     print("   The difference is likely due to:")
     print("   • Floating point precision in area calculations")
     print("   • Minor differences in geometry processing order")

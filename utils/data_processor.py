@@ -588,11 +588,11 @@ def get_height_outliers(raw_data, threshold_multiplier=4):
     height_total = pd.merge(m_mea, median_check, how="inner", on="VEGETATION_KEY")
 
     height_total["Upper_outliers"] = height_total.apply(
-        lambda row: ("outlier" if row["tree_height_m"] > (row["median_height"] * threshold_multiplier) else "ok"),
+        lambda row: "outlier" if row["tree_height_m"] > (row["median_height"] * threshold_multiplier) else "ok",
         axis=1,
     )
     height_total["Lower_outliers"] = height_total.apply(
-        lambda row: ("outlier" if row["tree_height_m"] < (row["median_height"] / threshold_multiplier) else "ok"),
+        lambda row: "outlier" if row["tree_height_m"] < (row["median_height"] / threshold_multiplier) else "ok",
         axis=1,
     )
 
@@ -704,10 +704,7 @@ def read_json_to_sheets(json_data):
     # =============================================
     # PRE-SCAN: Parse all column patterns ONCE
     # =============================================
-    subplot_nums = sorted({
-        int(m.group(1)) for col in columns
-        for m in [re.match(r"gt_subplot_(\d+)$", col)] if m
-    })
+    subplot_nums = sorted({int(m.group(1)) for col in columns for m in [re.match(r"gt_subplot_(\d+)$", col)] if m})
 
     veg_type_indices = []  # (subplot_num, veg_num)
     for col in columns:
@@ -744,8 +741,7 @@ def read_json_to_sheets(json_data):
     # =============================================
     # Sheet 0: Plots
     # =============================================
-    plot_cols = [col for col in columns
-                 if not re.search(r"_\d+_\d+", col) and not re.match(r"gt_subplot_\d+$", col)]
+    plot_cols = [col for col in columns if not re.search(r"_\d+_\d+", col) and not re.match(r"gt_subplot_\d+$", col)]
 
     plots_df = df_main[plot_cols].copy()
     plots_df = plots_df.rename(columns={"KEY": "PLOT_KEY"})
@@ -794,17 +790,19 @@ def read_json_to_sheets(json_data):
             gt_subplot_val = row.get(f"gt_subplot_{num}")
             if pd.notna(gt_subplot_val) and str(gt_subplot_val).strip():
                 subplot_key = f"{plot_key}/sub_plot[{num}]"
-                subplot_records.append({
-                    "PLOT_KEY": plot_key,
-                    "SUBPLOT_KEY": subplot_key,
-                    "KEY": subplot_key,
-                    "PARENT_KEY": plot_key,
-                    "gt_subplot": gt_subplot_val,
-                    "subplot_comments": row.get(f"subplot_comments_{num}", ""),
-                    "starttime": starttime,
-                    "SubmissionDate": submission_date,
-                    "enumerator": enumerator,
-                })
+                subplot_records.append(
+                    {
+                        "PLOT_KEY": plot_key,
+                        "SUBPLOT_KEY": subplot_key,
+                        "KEY": subplot_key,
+                        "PARENT_KEY": plot_key,
+                        "gt_subplot": gt_subplot_val,
+                        "subplot_comments": row.get(f"subplot_comments_{num}", ""),
+                        "starttime": starttime,
+                        "SubmissionDate": submission_date,
+                        "enumerator": enumerator,
+                    }
+                )
 
     subplot_df = pd.DataFrame(subplot_records) if subplot_records else pd.DataFrame()
 
@@ -825,32 +823,34 @@ def read_json_to_sheets(json_data):
                 vegetation_keys_found.add((plot_key, subplot_num, veg_num))
                 subplot_key = f"{plot_key}/sub_plot[{subplot_num}]"
                 veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
-                vegetation_records.append({
-                    "SUBPLOT_KEY": subplot_key,
-                    "PARENT_KEY": subplot_key,
-                    "VEGETATION_KEY": veg_key,
-                    "KEY": veg_key,
-                    "vegetation_type_number": veg_type_num,
-                    "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
-                    "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
-                    "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
-                    "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
-                    "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
-                    "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
-                    "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
-                    "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
-                    "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
-                    "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
-                    "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
-                    "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
-                    "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
-                    "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
-                    "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
-                    "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
-                    "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
-                    "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
-                    "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
-                })
+                vegetation_records.append(
+                    {
+                        "SUBPLOT_KEY": subplot_key,
+                        "PARENT_KEY": subplot_key,
+                        "VEGETATION_KEY": veg_key,
+                        "KEY": veg_key,
+                        "vegetation_type_number": veg_type_num,
+                        "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
+                        "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
+                        "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
+                        "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
+                        "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
+                        "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
+                        "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
+                        "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
+                        "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
+                        "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
+                        "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
+                        "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
+                        "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
+                        "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
+                        "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
+                        "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
+                        "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
+                        "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
+                        "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
+                    }
+                )
 
         # Second pass: Coverage-only (indices not already in veg_type_indices)
         for subplot_num, veg_num in coverage_indices - set(veg_type_indices):
@@ -863,32 +863,34 @@ def read_json_to_sheets(json_data):
                 vegetation_keys_found.add((plot_key, subplot_num, veg_num))
                 subplot_key = f"{plot_key}/sub_plot[{subplot_num}]"
                 veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
-                vegetation_records.append({
-                    "SUBPLOT_KEY": subplot_key,
-                    "PARENT_KEY": subplot_key,
-                    "VEGETATION_KEY": veg_key,
-                    "KEY": veg_key,
-                    "vegetation_type_number": None,
-                    "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
-                    "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
-                    "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
-                    "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
-                    "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
-                    "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
-                    "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
-                    "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
-                    "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
-                    "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
-                    "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
-                    "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
-                    "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
-                    "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
-                    "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
-                    "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
-                    "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
-                    "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
-                    "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
-                })
+                vegetation_records.append(
+                    {
+                        "SUBPLOT_KEY": subplot_key,
+                        "PARENT_KEY": subplot_key,
+                        "VEGETATION_KEY": veg_key,
+                        "KEY": veg_key,
+                        "vegetation_type_number": None,
+                        "vegetation_type_height": row.get(f"vegetation_type_height_{subplot_num}_{veg_num}"),
+                        "vegetation_species_type": row.get(f"vegetation_species_type_{subplot_num}_{veg_num}"),
+                        "vegetation_type_woody": row.get(f"vegetation_type_woody_{subplot_num}_{veg_num}"),
+                        "vegetation_type_primary": row.get(f"vegetation_type_primary_{subplot_num}_{veg_num}"),
+                        "vegetation_type_dbh": row.get(f"vegetation_type_dbh_{subplot_num}_{veg_num}"),
+                        "tree_year_planted": row.get(f"tree_year_planted_{subplot_num}_{veg_num}"),
+                        "woody_species": row.get(f"woody_species_{subplot_num}_{veg_num}"),
+                        "non_woody_species": row.get(f"non_woody_species_{subplot_num}_{veg_num}"),
+                        "bamboo_species": row.get(f"bamboo_species_{subplot_num}_{veg_num}"),
+                        "banana_species": row.get(f"banana_species_{subplot_num}_{veg_num}"),
+                        "palm_species": row.get(f"palm_species_{subplot_num}_{veg_num}"),
+                        "other_species": row.get(f"other_species_{subplot_num}_{veg_num}"),
+                        "language_other_species": row.get(f"language_other_species_{subplot_num}_{veg_num}"),
+                        "coverage_vegetation": row.get(f"coverage_vegetation_{subplot_num}_{veg_num}"),
+                        "coverage_height": row.get(f"coverage_height_{subplot_num}_{veg_num}"),
+                        "crop_prune": row.get(f"crop_prune_{subplot_num}_{veg_num}"),
+                        "coverage_prune_height": row.get(f"coverage_prune_height_{subplot_num}_{veg_num}"),
+                        "crop_comments": row.get(f"crop_comments_{subplot_num}_{veg_num}"),
+                        "vegetation_type_youngtree": row.get(f"vegetation_type_youngtree_{subplot_num}_{veg_num}"),
+                    }
+                )
 
     vegetation_df = pd.DataFrame(vegetation_records) if vegetation_records else pd.DataFrame()
 
@@ -914,19 +916,21 @@ def read_json_to_sheets(json_data):
             if pd.notna(tree_height):
                 veg_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]"
                 mea_key = f"{veg_key}/vegetation_measurements[{mea_num}]"
-                measurement_records.append({
-                    "VEGETATION_KEY": veg_key,
-                    "PARENT_KEY": veg_key,
-                    "MEASUREMENT_KEY": mea_key,
-                    "KEY": mea_key,
-                    "tree_height_m": tree_height,
-                    "tree_prune": row.get(f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"),
-                    # NOTE: API has typo "prune_heigth" instead of "prune_height"
-                    "prune_height": row.get(f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"),
-                    "nr_stems_bh": row.get(f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"),
-                    "nr_stems_10cm": row.get(f"nr_stems_10cm_{subplot_num}_{veg_num}_{mea_num}"),
-                    "tree_comments": row.get(f"tree_comments_{subplot_num}_{veg_num}_{mea_num}"),
-                })
+                measurement_records.append(
+                    {
+                        "VEGETATION_KEY": veg_key,
+                        "PARENT_KEY": veg_key,
+                        "MEASUREMENT_KEY": mea_key,
+                        "KEY": mea_key,
+                        "tree_height_m": tree_height,
+                        "tree_prune": row.get(f"tree_prune_{subplot_num}_{veg_num}_{mea_num}"),
+                        # NOTE: API has typo "prune_heigth" instead of "prune_height"
+                        "prune_height": row.get(f"prune_heigth_{subplot_num}_{veg_num}_{mea_num}"),
+                        "nr_stems_bh": row.get(f"nr_stems_bh_{subplot_num}_{veg_num}_{mea_num}"),
+                        "nr_stems_10cm": row.get(f"nr_stems_10cm_{subplot_num}_{veg_num}_{mea_num}"),
+                        "tree_comments": row.get(f"tree_comments_{subplot_num}_{veg_num}_{mea_num}"),
+                    }
+                )
 
     measurement_df = pd.DataFrame(measurement_records) if measurement_records else pd.DataFrame()
 
@@ -948,30 +952,38 @@ def read_json_to_sheets(json_data):
             circumference_bh = row.get(f"circumference_bh_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
             circumference_10cm = row.get(f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
             if pd.notna(circumference_bh) or pd.notna(circumference_10cm):
-                mea_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                mea_key = (
+                    f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                )
                 cir_key = f"{mea_key}/circumference_bh_group[{cir_num}]"
-                circumference_records.append({
-                    "MEASUREMENT_KEY": mea_key,
-                    "PARENT_KEY": mea_key,
-                    "CIRCUMFERENCE_KEY": cir_key,
-                    "KEY": cir_key,
-                    "circumference_bh": circumference_bh,
-                    "circumference_10cm": circumference_10cm,
-                })
+                circumference_records.append(
+                    {
+                        "MEASUREMENT_KEY": mea_key,
+                        "PARENT_KEY": mea_key,
+                        "CIRCUMFERENCE_KEY": cir_key,
+                        "KEY": cir_key,
+                        "circumference_bh": circumference_bh,
+                        "circumference_10cm": circumference_10cm,
+                    }
+                )
 
         for subplot_num, veg_num, mea_num, cir_num in circumference_10cm_only_indices:
             circumference_10cm = row.get(f"circumference_10cm_{subplot_num}_{veg_num}_{mea_num}_{cir_num}")
             if pd.notna(circumference_10cm):
-                mea_key = f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                mea_key = (
+                    f"{plot_key}/sub_plot[{subplot_num}]/new_vegetation[{veg_num}]/vegetation_measurements[{mea_num}]"
+                )
                 cir_key = f"{mea_key}/circumference_bh_group[{cir_num}]"
-                circumference_records.append({
-                    "MEASUREMENT_KEY": mea_key,
-                    "PARENT_KEY": mea_key,
-                    "CIRCUMFERENCE_KEY": cir_key,
-                    "KEY": cir_key,
-                    "circumference_bh": None,
-                    "circumference_10cm": circumference_10cm,
-                })
+                circumference_records.append(
+                    {
+                        "MEASUREMENT_KEY": mea_key,
+                        "PARENT_KEY": mea_key,
+                        "CIRCUMFERENCE_KEY": cir_key,
+                        "KEY": cir_key,
+                        "circumference_bh": None,
+                        "circumference_10cm": circumference_10cm,
+                    }
+                )
 
     circumference_df = pd.DataFrame(circumference_records) if circumference_records else pd.DataFrame()
 

@@ -130,7 +130,7 @@ def _render_tile_card(code: str, cfg: dict) -> str:
         padding:4px 10px;
       ">
         <span style="color:#fff;font-size:0.75rem;font-weight:600;letter-spacing:0.5px;">
-          {cfg['country'].upper()}
+          {cfg["country"].upper()}
         </span>
       </div>
     </div>
@@ -147,10 +147,10 @@ def _render_tile_card(code: str, cfg: dict) -> str:
         margin-bottom:0.4rem;
       ">{code}</div>
       <div style="font-size:0.95rem;font-weight:600;color:#1a1a1a;margin-bottom:0.2rem;line-height:1.3;">
-        {cfg['description']}
+        {cfg["description"]}
       </div>
       <div style="font-size:0.8rem;color:#666;">
-        Since {cfg['start_date']}
+        Since {cfg["start_date"]}
       </div>
     </div>
   </div>
@@ -189,15 +189,10 @@ def render_landing_page():
     )
 
     # Build combined search strings for fuzzy matching (lowercased for case-insensitive search)
-    choices = {
-        f"{code} {cfg['description']} {cfg['country']}".lower(): (code, cfg)
-        for code, cfg in PARTNERS.items()
-    }
+    choices = {f"{code} {cfg['description']} {cfg['country']}".lower(): (code, cfg) for code, cfg in PARTNERS.items()}
 
     if search_query.strip():
-        matches = process.extract(
-            search_query.lower(), choices.keys(), scorer=fuzz.partial_ratio, score_cutoff=90
-        )
+        matches = process.extract(search_query.lower(), choices.keys(), scorer=fuzz.partial_ratio, score_cutoff=90)
         candidate_pairs = [choices[m[0]] for m in matches]
     else:
         candidate_pairs = list(PARTNERS.items())

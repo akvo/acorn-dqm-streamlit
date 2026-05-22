@@ -63,7 +63,9 @@ if not FOLIUM_AVAILABLE:
 show_header()
 
 st.markdown("## 🗺️ Interactive Map View")
-st.caption("Visual geospatial validation of subplot boundaries. Green polygons are valid, red polygons have validation issues. Click any subplot to see details including area, vertices, enumerator, and specific validation errors.")
+st.caption(
+    "Visual geospatial validation of subplot boundaries. Green polygons are valid, red polygons have validation issues. Click any subplot to see details including area, vertices, enumerator, and specific validation errors."
+)
 
 # Get data
 gdf_subplots = st.session_state.data["subplots"]
@@ -119,7 +121,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("### 🎯 Plot Selection")
-st.caption("Select a specific plot to zoom in and inspect its subplots in detail. Useful for investigating clusters of errors or verifying field team data collection patterns.")
+st.caption(
+    "Select a specific plot to zoom in and inspect its subplots in detail. Useful for investigating clusters of errors or verifying field team data collection patterns."
+)
 
 # Get unique plot keys from the filtered data
 if "PLOT_KEY" in filtered_gdf.columns:
@@ -419,20 +423,24 @@ try:
     # Show subplot table for selected plot (below map)
     if selected_plot_key and len(plot_gdf) > 0 and "nr_vertices" in plot_gdf.columns:
         st.markdown("#### Subplots in Selected Plot")
-        st.caption("GPS points per subplot. Standard plots should have 4 vertices (quadrilateral). More or fewer vertices may indicate GPS collection issues or complex boundary shapes.")
+        st.caption(
+            "GPS points per subplot. Standard plots should have 4 vertices (quadrilateral). More or fewer vertices may indicate GPS collection issues or complex boundary shapes."
+        )
 
         # Extract subplot number from subplot_id
         import re
+
         table_data = plot_gdf[["subplot_id", "nr_vertices"]].copy()
         table_data["Subplot #"] = table_data["subplot_id"].apply(
-            lambda x: re.search(r"\[(\d+)\]", str(x)).group(1)
-            if re.search(r"\[(\d+)\]", str(x)) else "?"
+            lambda x: re.search(r"\[(\d+)\]", str(x)).group(1) if re.search(r"\[(\d+)\]", str(x)) else "?"
         )
 
         # Display table
-        display_df = table_data[["Subplot #", "nr_vertices"]].rename(
-            columns={"nr_vertices": "GPS Points"}
-        ).sort_values("Subplot #", key=lambda x: x.astype(int))
+        display_df = (
+            table_data[["Subplot #", "nr_vertices"]]
+            .rename(columns={"nr_vertices": "GPS Points"})
+            .sort_values("Subplot #", key=lambda x: x.astype(int))
+        )
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 except Exception as e:
@@ -465,7 +473,9 @@ st.markdown("---")
 # ============================================
 
 st.markdown("## 🌳 Tree Count Map")
-st.caption("Visualizes tree density per subplot using a green color gradient (darker = more trees, grey = no trees). Filter by vegetation type to see distribution of specific species categories. Use this to identify under-planted subplots or verify expected planting patterns.")
+st.caption(
+    "Visualizes tree density per subplot using a green color gradient (darker = more trees, grey = no trees). Filter by vegetation type to see distribution of specific species categories. Use this to identify under-planted subplots or verify expected planting patterns."
+)
 
 # Get vegetation data
 raw_data = st.session_state.data.get("raw_data", {})
@@ -541,9 +551,11 @@ if veg_df is not None and len(veg_df) > 0:
             # SUBPLOT_KEY format: uuid:xxx/sub_plot[0]
             if "PLOT_KEY" in tree_count_gdf.columns:
                 tree_count_gdf["SUBPLOT_KEY"] = tree_count_gdf.apply(
-                    lambda row: f"{row['PLOT_KEY']}/sub_plot[{row['subplot_id'].split('[')[1].split(']')[0] if '[' in str(row['subplot_id']) else '0'}]"
-                    if pd.notna(row.get("subplot_id")) and pd.notna(row.get("PLOT_KEY"))
-                    else None,
+                    lambda row: (
+                        f"{row['PLOT_KEY']}/sub_plot[{row['subplot_id'].split('[')[1].split(']')[0] if '[' in str(row['subplot_id']) else '0'}]"
+                        if pd.notna(row.get("subplot_id")) and pd.notna(row.get("PLOT_KEY"))
+                        else None
+                    ),
                     axis=1,
                 )
 
@@ -728,7 +740,9 @@ else:
 # Download visible subplots
 st.markdown("---")
 st.markdown("### 📥 Export Map Data")
-st.caption("Download the currently filtered data for use in GIS software (QGIS, ArcGIS) or spreadsheets. GeoJSON preserves geometry for mapping. CSV is for tabular analysis. 'Errors Only' exports just invalid subplots for targeted field revisits.")
+st.caption(
+    "Download the currently filtered data for use in GIS software (QGIS, ArcGIS) or spreadsheets. GeoJSON preserves geometry for mapping. CSV is for tabular analysis. 'Errors Only' exports just invalid subplots for targeted field revisits."
+)
 
 col1, col2, col3 = st.columns(3)
 

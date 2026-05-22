@@ -142,9 +142,7 @@ if issues_list:
                     issue_types[issue] = issue_types.get(issue, 0) + 1
 
     # Sort by count
-    sorted_issues = sorted(
-        issue_types.items(), key=lambda x: x[1], reverse=True
-    )
+    sorted_issues = sorted(issue_types.items(), key=lambda x: x[1], reverse=True)
 
     print("\nIssue breakdown:")
     for issue, count in sorted_issues[:10]:  # Show top 10
