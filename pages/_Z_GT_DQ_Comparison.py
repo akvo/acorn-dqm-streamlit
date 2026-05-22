@@ -1183,6 +1183,14 @@ if len(matches_df) > 0:
 
                     # Expandable details per species
                     st.markdown("**Species Details:**")
+
+                    # Create mapping dicts for easy lookup in details tables
+                    gt_to_dq_map = {}
+                    dq_to_gt_map = {}
+                    if len(subplot_mapping) > 0:
+                        gt_to_dq_map = dict(zip(subplot_mapping["gt_subplot_num"], subplot_mapping["dq_subplot_num"]))
+                        dq_to_gt_map = dict(zip(subplot_mapping["dq_subplot_num"], subplot_mapping["gt_subplot_num"]))
+
                     for sp in all_species:
                         sp_gt_count = gt_tree_counts.get(sp, 0)
                         sp_dq_count = dq_tree_counts.get(sp, 0)
@@ -1194,6 +1202,16 @@ if len(matches_df) > 0:
                                 st.markdown("**GT Records:**")
                                 gt_records = get_tree_records_by_species(gt_key, sp, gt_raw)
                                 if len(gt_records) > 0:
+                                    gt_records["Mapped DQ Subplot"] = gt_records["Subplot"].map(
+                                        lambda x: f"{gt_to_dq_map[x]}" if x in gt_to_dq_map else "N/A"
+                                    )
+                                    # Put Mapped DQ Subplot next to Subplot
+                                    cols = list(gt_records.columns)
+                                    if "Mapped DQ Subplot" in cols:
+                                        cols.remove("Mapped DQ Subplot")
+                                        cols.insert(1, "Mapped DQ Subplot")
+                                        gt_records = gt_records[cols]
+
                                     st.dataframe(
                                         gt_records,
                                         use_container_width=True,
@@ -1205,6 +1223,16 @@ if len(matches_df) > 0:
                                 st.markdown("**DQ Records:**")
                                 dq_records = get_tree_records_by_species(dq_key, sp, dq_raw)
                                 if len(dq_records) > 0:
+                                    dq_records["Mapped GT Subplot"] = dq_records["Subplot"].map(
+                                        lambda x: f"{dq_to_gt_map[x]}" if x in dq_to_gt_map else "N/A"
+                                    )
+                                    # Put Mapped GT Subplot next to Subplot
+                                    cols = list(dq_records.columns)
+                                    if "Mapped GT Subplot" in cols:
+                                        cols.remove("Mapped GT Subplot")
+                                        cols.insert(1, "Mapped GT Subplot")
+                                        dq_records = dq_records[cols]
+
                                     st.dataframe(
                                         dq_records,
                                         use_container_width=True,
