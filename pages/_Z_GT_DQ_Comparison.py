@@ -1197,23 +1197,128 @@ if len(matches_df) > 0:
                         sp_diff = sp_dq_count - sp_gt_count
 
                         with st.expander(f"{sp} | GT: {sp_gt_count} | DQ: {sp_dq_count} | Diff: {sp_diff}"):
+                            # 1. Fetch both records up front
+                            gt_records = get_tree_records_by_species(gt_key, sp, gt_raw)
+                            dq_records = get_tree_records_by_species(dq_key, sp, dq_raw)
+
+                            # 2. Add Mapped column for GT
+                            if len(gt_records) > 0:
+                                gt_records["Mapped DQ Subplot"] = gt_records["Subplot"].map(
+                                    lambda x: f"{gt_to_dq_map[x]}" if x in gt_to_dq_map else "N/A"
+                                )
+                                # Put Mapped DQ Subplot next to Subplot
+                                cols = list(gt_records.columns)
+                                if "Mapped DQ Subplot" in cols:
+                                    cols.remove("Mapped DQ Subplot")
+                                    cols.insert(1, "Mapped DQ Subplot")
+                                    gt_records = gt_records[cols]
+
+                            # 3. Add Mapped column for DQ
+                            if len(dq_records) > 0:
+                                dq_records["Mapped GT Subplot"] = dq_records["Subplot"].map(
+                                    lambda x: f"{dq_to_gt_map[x]}" if x in dq_to_gt_map else "N/A"
+                                )
+                                # Put Mapped GT Subplot next to Subplot
+                                cols = list(dq_records.columns)
+                                if "Mapped GT Subplot" in cols:
+                                    cols.remove("Mapped GT Subplot")
+                                    cols.insert(1, "Mapped GT Subplot")
+                                    dq_records = dq_records[cols]
+
+                            # 4. Define styling functions
+                            def style_gt(df):
+                                styles = pd.DataFrame("", index=df.index, columns=df.columns)
+                                if len(df) == 0:
+                                    return styles
+
+                                # Create lookup dictionary for DQ records by Subplot (for same species)
+                                dq_lookup = {}
+                                if len(dq_records) > 0:
+                                    for _, r in dq_records.iterrows():
+                                        try:
+                                            dq_lookup[int(r["Subplot"])] = r
+                                        except Exception:
+                                            pass
+
+                                for idx, row in df.iterrows():
+                                    try:
+                                        sub = int(row["Subplot"])
+                                    except Exception:
+                                        continue
+
+                                    mapped_dq_val = row.get("Mapped DQ Subplot", "N/A")
+                                    if mapped_dq_val == "N/A":
+                                        styles.at[idx, "Mapped DQ Subplot"] = "background-color: #f0f0f0; color: #888888;"
+                                    else:
+                                        try:
+                                            mapped_dq = int(mapped_dq_val)
+                                        except Exception:
+                                            mapped_dq = None
+
+                                        if mapped_dq is not None:
+                                            dq_row = dq_lookup.get(mapped_dq)
+                                            if dq_row is None:
+                                                # Mapped DQ subplot exists but no record for this species
+                                                styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                            else:
+                                                # Both exist, check mismatches in count/height
+                                                if int(row.get("Count", 0)) != int(dq_row.get("Count", 0)):
+                                                    styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                if str(row.get("Height", "N/A")).strip() != str(dq_row.get("Height", "N/A")).strip():
+                                                    styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                return styles
+
+                            def style_dq(df):
+                                styles = pd.DataFrame("", index=df.index, columns=df.columns)
+                                if len(df) == 0:
+                                    return styles
+
+                                # Create lookup dictionary for GT records by Subplot (for same species)
+                                gt_lookup = {}
+                                if len(gt_records) > 0:
+                                    for _, r in gt_records.iterrows():
+                                        try:
+                                            gt_lookup[int(r["Subplot"])] = r
+                                        except Exception:
+                                            pass
+
+                                for idx, row in df.iterrows():
+                                    try:
+                                        sub = int(row["Subplot"])
+                                    except Exception:
+                                        continue
+
+                                    mapped_gt_val = row.get("Mapped GT Subplot", "N/A")
+                                    if mapped_gt_val == "N/A":
+                                        styles.at[idx, "Mapped GT Subplot"] = "background-color: #f0f0f0; color: #888888;"
+                                    else:
+                                        try:
+                                            mapped_gt = int(mapped_gt_val)
+                                        except Exception:
+                                            mapped_gt = None
+
+                                        if mapped_gt is not None:
+                                            gt_row = gt_lookup.get(mapped_gt)
+                                            if gt_row is None:
+                                                # Mapped GT subplot exists but no record for this species
+                                                styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                            else:
+                                                # Both exist, check mismatches in count/height
+                                                if int(row.get("Count", 0)) != int(gt_row.get("Count", 0)):
+                                                    styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                if str(row.get("Height", "N/A")).strip() != str(gt_row.get("Height", "N/A")).strip():
+                                                    styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                return styles
+
+                            # 5. Render tables
                             detail_col1, detail_col2 = st.columns(2)
                             with detail_col1:
                                 st.markdown("**GT Records:**")
-                                gt_records = get_tree_records_by_species(gt_key, sp, gt_raw)
                                 if len(gt_records) > 0:
-                                    gt_records["Mapped DQ Subplot"] = gt_records["Subplot"].map(
-                                        lambda x: f"{gt_to_dq_map[x]}" if x in gt_to_dq_map else "N/A"
-                                    )
-                                    # Put Mapped DQ Subplot next to Subplot
-                                    cols = list(gt_records.columns)
-                                    if "Mapped DQ Subplot" in cols:
-                                        cols.remove("Mapped DQ Subplot")
-                                        cols.insert(1, "Mapped DQ Subplot")
-                                        gt_records = gt_records[cols]
-
                                     st.dataframe(
-                                        gt_records,
+                                        gt_records.style.apply(style_gt, axis=None),
                                         use_container_width=True,
                                         hide_index=True,
                                     )
@@ -1221,20 +1326,9 @@ if len(matches_df) > 0:
                                     st.caption("No records")
                             with detail_col2:
                                 st.markdown("**DQ Records:**")
-                                dq_records = get_tree_records_by_species(dq_key, sp, dq_raw)
                                 if len(dq_records) > 0:
-                                    dq_records["Mapped GT Subplot"] = dq_records["Subplot"].map(
-                                        lambda x: f"{dq_to_gt_map[x]}" if x in dq_to_gt_map else "N/A"
-                                    )
-                                    # Put Mapped GT Subplot next to Subplot
-                                    cols = list(dq_records.columns)
-                                    if "Mapped GT Subplot" in cols:
-                                        cols.remove("Mapped GT Subplot")
-                                        cols.insert(1, "Mapped GT Subplot")
-                                        dq_records = dq_records[cols]
-
                                     st.dataframe(
-                                        dq_records,
+                                        dq_records.style.apply(style_dq, axis=None),
                                         use_container_width=True,
                                         hide_index=True,
                                     )
