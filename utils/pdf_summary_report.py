@@ -271,9 +271,15 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
             [
                 "Valid Subplots",
                 f"{total_valid:,} ({total_valid / len(measured_gdf) * 100:.1f}%)",
-                f"{dq_total_valid:,} ({dq_total_valid / dq_total_subplots * 100:.1f}%)" if dq_total_subplots > 0 else "0",
+                f"{dq_total_valid:,} ({dq_total_valid / dq_total_subplots * 100:.1f}%)"
+                if dq_total_subplots > 0
+                else "0",
             ],
-            ["Invalid Subplots", f"{total_invalid:,} ({error_rate:.1f}%)", f"{dq_total_invalid:,} ({dq_error_rate:.1f}%)"],
+            [
+                "Invalid Subplots",
+                f"{total_invalid:,} ({error_rate:.1f}%)",
+                f"{dq_total_invalid:,} ({dq_error_rate:.1f}%)",
+            ],
             ["Plots", f"{unique_plots:,}", f"{dq_unique_plots:,}"],
             ["Data Collectors", f"{unique_enumerators}", f"{dq_unique_enumerators}"],
         ]
@@ -779,9 +785,11 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                         if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
                             temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
                             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
-                                if re.search(r"\[(\d+)\]", str(x))
-                                else 999
+                                lambda x: (
+                                    int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                    if re.search(r"\[(\d+)\]", str(x))
+                                    else 999
+                                )
                             )
                             temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                                 lambda x: int(x) if pd.notna(x) else 999
@@ -797,9 +805,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                 if "subplot_id" in enum_data.columns and "measured_subplots" in enum_data.columns:
                     temp_df = enum_data[["subplot_id", "measured_subplots"]].copy()
                     temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                        lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
-                        if re.search(r"\[(\d+)\]", str(x))
-                        else 999
+                        lambda x: (
+                            int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
+                        )
                     )
                     temp_df["measured_subplots_int"] = temp_df["measured_subplots"].apply(
                         lambda x: int(x) if pd.notna(x) else 999
@@ -1010,7 +1018,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
 
                             # Convert to image
                             map_buffer = BytesIO()
-                            plt.savefig(map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
+                            plt.savefig(
+                                map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white"
+                            )
                             plt.close(fig)
                             map_buffer.seek(0)
 
@@ -1024,7 +1034,12 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                 story.append(Spacer(1, 0.2 * inch))
 
     # ============= DQ MAPS BY DATA COLLECTOR =============
-    if dq_measured is not None and len(dq_measured) > 0 and "enumerator" in dq_measured.columns and MATPLOTLIB_AVAILABLE:
+    if (
+        dq_measured is not None
+        and len(dq_measured) > 0
+        and "enumerator" in dq_measured.columns
+        and MATPLOTLIB_AVAILABLE
+    ):
         story.append(PageBreak())
         story.append(
             Paragraph(
@@ -1130,7 +1145,13 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
 
                             # Convert to image
                             dq_map_buffer = BytesIO()
-                            plt.savefig(dq_map_buffer, format="png", dpi=config.PDF_MAP_DPI, bbox_inches="tight", facecolor="white")
+                            plt.savefig(
+                                dq_map_buffer,
+                                format="png",
+                                dpi=config.PDF_MAP_DPI,
+                                bbox_inches="tight",
+                                facecolor="white",
+                            )
                             plt.close(fig)
                             dq_map_buffer.seek(0)
 
@@ -1139,7 +1160,9 @@ def generate_summary_pdf_report(filtered_gdf, raw_data, partner_name="Partner", 
                             story.append(Spacer(1, 0.15 * inch))
 
                         except Exception as e:
-                            print(f"DEBUG PDF: Error creating DQ map for plot {plot_display}: {str(e)}", file=sys.stderr)
+                            print(
+                                f"DEBUG PDF: Error creating DQ map for plot {plot_display}: {str(e)}", file=sys.stderr
+                            )
 
                 story.append(Spacer(1, 0.2 * inch))
 
@@ -1312,9 +1335,11 @@ We detect measurement issues by comparing tree measurements to expected ranges a
             height_details_df = height_outliers_df.copy()
             if "median_height" in height_details_df.columns and "tree_height_m" in height_details_df.columns:
                 height_details_df["ratio"] = height_details_df.apply(
-                    lambda row: row["tree_height_m"] / row["median_height"]
-                    if pd.notna(row["median_height"]) and row["median_height"] > 0
-                    else 0,
+                    lambda row: (
+                        row["tree_height_m"] / row["median_height"]
+                        if pd.notna(row["median_height"]) and row["median_height"] > 0
+                        else 0
+                    ),
                     axis=1,
                 )
 
@@ -1390,9 +1415,11 @@ We detect measurement issues by comparing tree measurements to expected ranges a
 
             if circ_col and "median_circ" in circ_details_df.columns:
                 circ_details_df["ratio"] = circ_details_df.apply(
-                    lambda row: row[circ_col] / row["median_circ"]
-                    if pd.notna(row.get("median_circ")) and row["median_circ"] > 0
-                    else 0,
+                    lambda row: (
+                        row[circ_col] / row["median_circ"]
+                        if pd.notna(row.get("median_circ")) and row["median_circ"] > 0
+                        else 0
+                    ),
                     axis=1,
                 )
 

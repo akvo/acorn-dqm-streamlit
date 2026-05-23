@@ -5,6 +5,7 @@ Uses st.cache_resource for shared data across users (team collaboration).
 Data is cached per-partner to allow multiple partners to be viewed simultaneously.
 Includes timestamp tracking and manual refresh capability.
 """
+
 import streamlit as st
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -25,6 +26,7 @@ def save_data(data: Dict, data_type: str = "gt", partner: str = None) -> None:
     """Save data to shared cache, keyed by partner."""
     if partner is None:
         import config
+
         partner = config.PARTNER
 
     store = _get_data_store()
@@ -44,6 +46,7 @@ def load_data(data_type: str = "gt", partner: str = None) -> Optional[Dict]:
     """Load data from session state, falling back to shared cache."""
     if partner is None:
         import config
+
         partner = config.PARTNER
 
     session_key = "data" if data_type == "gt" else "dq_data"
@@ -71,6 +74,7 @@ def get_data_timestamp(partner: str = None) -> Optional[datetime]:
     """Get when data was last fetched for a partner."""
     if partner is None:
         import config
+
         partner = config.PARTNER
 
     store = _get_data_store()
@@ -83,6 +87,7 @@ def clear_data(data_type: str = "gt", partner: str = None) -> None:
     """Clear data for a specific partner and type."""
     if partner is None:
         import config
+
         partner = config.PARTNER
 
     session_key = "data" if data_type == "gt" else "dq_data"
@@ -99,6 +104,7 @@ def clear_all_partner_data(partner: str = None) -> None:
     """Clear all data (GT and DQ) for a partner. Use when refreshing from SurveyCTO."""
     if partner is None:
         import config
+
         partner = config.PARTNER
 
     # Clear session state

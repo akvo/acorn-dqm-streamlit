@@ -73,7 +73,11 @@ def validate_credentials(server_name: str, username: str, password: str, form_id
 
     print(f"[validate_credentials] Starting validation...")
     print(f"[validate_credentials] URL: {url}")
-    print(f"[validate_credentials] Username: {username[:3]}***" if username else "[validate_credentials] Username: (empty)")
+    print(
+        f"[validate_credentials] Username: {username[:3]}***"
+        if username
+        else "[validate_credentials] Username: (empty)"
+    )
 
     try:
         # Use current timestamp (in milliseconds) to get empty/minimal response
@@ -81,12 +85,7 @@ def validate_credentials(server_name: str, username: str, password: str, form_id
         current_timestamp = str(int(time.time() * 1000))
         print(f"[validate_credentials] Making GET request with date={current_timestamp} (current time)...")
 
-        response = requests.get(
-            url,
-            auth=(username, password),
-            params={"date": current_timestamp},
-            timeout=15
-        )
+        response = requests.get(url, auth=(username, password), params={"date": current_timestamp}, timeout=15)
 
         print(f"[validate_credentials] Response status: {response.status_code}")
         print(f"[validate_credentials] Response length: {len(response.content)} bytes")
@@ -117,7 +116,15 @@ def validate_credentials(server_name: str, username: str, password: str, form_id
 
 
 def fetch_surveycto_data(
-    server_name, username, password, form_id, progress_bar=None, progress_start=0, progress_end=100, label="", start_date=None
+    server_name,
+    username,
+    password,
+    form_id,
+    progress_bar=None,
+    progress_start=0,
+    progress_end=100,
+    label="",
+    start_date=None,
 ):
     """
     Fetch data from SurveyCTO API with comprehensive error handling.
@@ -236,6 +243,7 @@ st.set_page_config(
 # Show partner tiles landing page when no ?partner= param is present
 if not config.has_partner_param():
     from ui.partner_tiles import render_landing_page
+
     render_landing_page()
     st.stop()
 
@@ -292,9 +300,7 @@ show_header()
 # Sidebar - API Configuration & Filters
 with st.sidebar:
     st.markdown(
-        '<a href="/" target="_self" style="text-decoration:none;">'
-        '← All Cases'
-        '</a>',
+        '<a href="/" target="_self" style="text-decoration:none;">← All Cases</a>',
         unsafe_allow_html=True,
     )
 
@@ -804,7 +810,9 @@ if st.session_state.data is not None:
 
     # Main content
     st.markdown("## 📊 Overview Dashboard")
-    st.caption("High-level summary of data quality. Green metrics indicate healthy data. Yellow/red metrics require attention. Click through to detailed pages for investigation and remediation guidance.")
+    st.caption(
+        "High-level summary of data quality. Green metrics indicate healthy data. Yellow/red metrics require attention. Click through to detailed pages for investigation and remediation guidance."
+    )
 
     # Plot-level metrics (Row 1)
     show_plot_metrics_row(plot_summary)
@@ -959,7 +967,7 @@ if st.session_state.data is not None:
                     # Plot ID (from SUBPLOT_KEY - extract plot portion)
                     if "SUBPLOT_KEY" in df.columns:
                         result["Plot ID"] = df["SUBPLOT_KEY"].apply(
-                            lambda x: (str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x))
+                            lambda x: str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x)
                         )
                     elif "PLOT_KEY" in df.columns:
                         result["Plot ID"] = df["PLOT_KEY"]
@@ -1041,7 +1049,7 @@ if st.session_state.data is not None:
                             # Plot ID (extract from subplot_id)
                             if "subplot_id" in invalid_subplots.columns:
                                 result["Plot ID"] = invalid_subplots["subplot_id"].apply(
-                                    lambda x: (str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x))
+                                    lambda x: str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x)
                                 )
                                 result["Subplot ID"] = invalid_subplots["subplot_id"]
                             else:
@@ -1120,15 +1128,15 @@ if st.session_state.data is not None:
                                         height_check, median_check, how="inner", on="VEGETATION_KEY"
                                     )
                                     height_total["Upper_outliers"] = height_total.apply(
-                                        lambda row: "outlier"
-                                        if row["tree_height_m"] > (row["median_height"] * 4)
-                                        else "ok",
+                                        lambda row: (
+                                            "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"
+                                        ),
                                         axis=1,
                                     )
                                     height_total["Lower_outliers"] = height_total.apply(
-                                        lambda row: "outlier"
-                                        if row["tree_height_m"] < (row["median_height"] / 4)
-                                        else "ok",
+                                        lambda row: (
+                                            "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"
+                                        ),
                                         axis=1,
                                     )
 
@@ -1635,9 +1643,11 @@ if st.session_state.data is not None:
 
                             # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
                             temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
-                                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1))
-                                if re.search(r"\[(\d+)\]", str(x))
-                                else 999
+                                lambda x: (
+                                    int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                    if re.search(r"\[(\d+)\]", str(x))
+                                    else 999
+                                )
                             )
 
                             # Convert measured_subplots to int
@@ -1880,7 +1890,9 @@ if st.session_state.data is not None:
 
                 # Generate PDF with progress updates
                 status.update(label="Generating maps and tables (this may take a moment)...", state="running")
-                st.caption("Tip: PDF generation speed depends on the number of plots. Maps are rendered at reduced DPI for faster generation.")
+                st.caption(
+                    "Tip: PDF generation speed depends on the number of plots. Maps are rendered at reduced DPI for faster generation."
+                )
 
                 pdf_buffer = generate_summary_pdf_report(
                     filtered_gdf,
@@ -1903,7 +1915,7 @@ if st.session_state.data is not None:
                     mime="application/pdf",
                     use_container_width=True,
                 )
-                st.success(f"✅ PDF generated! ({len(pdf_bytes)/1024:.0f} KB)")
+                st.success(f"✅ PDF generated! ({len(pdf_bytes) / 1024:.0f} KB)")
 
             except Exception as e:
                 status.update(label="PDF generation failed", state="error")
@@ -1916,7 +1928,9 @@ if st.session_state.data is not None:
     # Charts
     st.markdown("---")
     st.markdown("## 📈 Validation Analysis")
-    st.caption("Visual breakdown of geometry validation results. The pie chart shows overall pass/fail ratio. The bar chart breaks down specific error types to identify systemic issues (e.g., GPS accuracy problems, area calculation errors).")
+    st.caption(
+        "Visual breakdown of geometry validation results. The pie chart shows overall pass/fail ratio. The bar chart breaks down specific error types to identify systemic issues (e.g., GPS accuracy problems, area calculation errors)."
+    )
 
     col1, col2 = st.columns(2)
 
@@ -1937,7 +1951,9 @@ if st.session_state.data is not None:
     # Timeline
     st.markdown("---")
     st.markdown("## 📅 Data Collection Timeline")
-    st.caption("Shows submission volume over time. Use this to identify data collection patterns, gaps in fieldwork, or periods of intensive surveying. Spikes may indicate batch uploads or focused field campaigns.")
+    st.caption(
+        "Shows submission volume over time. Use this to identify data collection patterns, gaps in fieldwork, or periods of intensive surveying. Spikes may indicate batch uploads or focused field campaigns."
+    )
     fig_timeline = create_timeline_chart(filtered_gdf)
     if fig_timeline:
         st.plotly_chart(fig_timeline, use_container_width=True)
@@ -1945,7 +1961,9 @@ if st.session_state.data is not None:
     # Enumerator performance (using only measured subplots)
     st.markdown("---")
     st.markdown("## 👥 Enumerator Overview")
-    st.caption("Submission counts by enumerator (measured subplots only). Use this for workload distribution analysis. For detailed quality metrics per enumerator (error rates, measurement patterns), see the Enumerator Performance page.")
+    st.caption(
+        "Submission counts by enumerator (measured subplots only). Use this for workload distribution analysis. For detailed quality metrics per enumerator (error rates, measurement patterns), see the Enumerator Performance page."
+    )
     fig_enum = create_enumerator_performance_chart(gdf_for_plots)
     if fig_enum:
         st.plotly_chart(fig_enum, use_container_width=True)
@@ -1953,7 +1971,9 @@ if st.session_state.data is not None:
     # Summary table
     st.markdown("---")
     st.markdown("## 📋 Summary Statistics")
-    st.caption("Detailed breakdown of validation errors by type. The percentage shows each error's contribution to total invalid records. Focus on high-percentage errors first for maximum impact on data quality improvement.")
+    st.caption(
+        "Detailed breakdown of validation errors by type. The percentage shows each error's contribution to total invalid records. Focus on high-percentage errors first for maximum impact on data quality improvement."
+    )
 
     if summary["reason_counts"]:
         error_df = pd.DataFrame(

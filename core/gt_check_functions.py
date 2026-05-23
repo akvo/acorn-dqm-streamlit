@@ -204,15 +204,13 @@ def calculate_area(
 
         geod = Geod(ellps="WGS84")
         gdf[area_field] = gdf_4326[geometry_field].apply(
-            lambda x: (0 if x is None or pd.isna(x) else abs(geod.geometry_area_perimeter(x)[0]))
+            lambda x: 0 if x is None or pd.isna(x) else abs(geod.geometry_area_perimeter(x)[0])
         )
     else:
         if gdf.crs.is_projected:
             gdf[area_field] = gdf[geometry_field].area
         else:
-            gdf[area_field] = gdf[geometry_field].apply(
-                lambda x: (0 if x is None or pd.isna(x) else geom_to_utm(x).area)
-            )
+            gdf[area_field] = gdf[geometry_field].apply(lambda x: 0 if x is None or pd.isna(x) else geom_to_utm(x).area)
 
     return gdf
 
@@ -531,9 +529,7 @@ def validate_overlap(
         .pipe(lambda x: x[x[f"{id_column}_1"] != x[f"{id_column}_2"]])
         .pipe(calculate_area, geodisic=True)
         .assign(
-            min_area=lambda x: (
-                x[["area_m2_1", "area_m2_2"]].min(axis=1) if not x.empty else pd.Series(dtype="float64")
-            ),
+            min_area=lambda x: x[["area_m2_1", "area_m2_2"]].min(axis=1) if not x.empty else pd.Series(dtype="float64"),
             overlay_ratio=lambda x: x.area_m2 / x.min_area,
             overlap=lambda x: min_overlap < x.overlay_ratio.to_numpy(),
         )

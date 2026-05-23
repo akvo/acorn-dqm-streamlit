@@ -20,7 +20,7 @@ PARTNERS = {
         "max_plot_area": 300000,
         "map_center": [14.39, 77.49],
         "start_date": "2026-05-18",
-        "map_zoom": 5
+        "map_zoom": 5,
     },
     "RAV": {
         "country": "Vietnam",
