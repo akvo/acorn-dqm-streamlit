@@ -21,3 +21,4 @@ version2/data/*
 version2/.ipynb_checkpoints/*
 
 .vscode
+version2/SCTOData/*

@@ -185,7 +185,7 @@ def show_sidebar_info():
     Displays active partner and data status (appears after date filter).
     """
     st.sidebar.markdown(
-        '<a href="/" target="_self" style="text-decoration:none;font-size:0.9rem;">← All Cases</a>',
+        '<a href="/?reset=1" target="_self" style="text-decoration:none;font-size:0.9rem;">← All Cases</a>',
         unsafe_allow_html=True,
     )
     st.sidebar.markdown("---")

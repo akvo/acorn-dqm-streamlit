@@ -9,6 +9,30 @@ import geopandas as gpd
 from typing import Dict, List, Any
 
 
+def raw_centroid_from_gps_string(gps_string):
+    """
+    Compute mean lat/lon from a raw SurveyCTO GPS string, ignoring accuracy thresholds.
+    Format: 'lat lon alt acc;lat lon alt acc;...'
+    Returns a shapely Point(lon, lat) or None if no valid coordinates found.
+    """
+    from shapely.geometry import Point
+
+    if pd.isna(gps_string) or not str(gps_string).strip():
+        return None
+    lats, lons = [], []
+    for vertex in str(gps_string).split(";"):
+        parts = vertex.strip().split()
+        if len(parts) >= 2:
+            try:
+                lats.append(float(parts[0]))
+                lons.append(float(parts[1]))
+            except ValueError:
+                continue
+    if not lats:
+        return None
+    return Point(sum(lons) / len(lons), sum(lats) / len(lats))
+
+
 def calculate_centroid_distance_meters(geom1, geom2) -> float:
     """
     Calculate distance in meters between centroids of two geometries.

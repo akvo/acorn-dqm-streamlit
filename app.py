@@ -240,8 +240,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Show partner tiles landing page when no ?partner= param is present
-if not config.has_partner_param():
+# Handle explicit "← All Cases" navigation — clear partner and show tiles
+if st.query_params.get("reset") == "1":
+    if "partner" in st.session_state:
+        del st.session_state["partner"]
+    from ui.partner_tiles import render_landing_page
+
+    render_landing_page()
+    st.stop()
+
+# Show tiles only when no partner in URL AND none in session state
+if not config.has_partner_param() and not st.session_state.get("partner"):
     from ui.partner_tiles import render_landing_page
 
     render_landing_page()
@@ -300,7 +309,7 @@ show_header()
 # Sidebar - API Configuration & Filters
 with st.sidebar:
     st.markdown(
-        '<a href="/" target="_self" style="text-decoration:none;">← All Cases</a>',
+        '<a href="/?reset=1" target="_self" style="text-decoration:none;">← All Cases</a>',
         unsafe_allow_html=True,
     )
 

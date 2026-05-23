@@ -311,6 +311,7 @@ from utils.comparison_utils import (
     get_tree_records_by_species,
     get_total_tree_count,
     get_vegetation_coverage,
+    raw_centroid_from_gps_string,
 )
 
 # Show sidebar info
@@ -541,9 +542,21 @@ st.markdown("---")
 gt_measured = filter_to_measured_subplots(gt_gdf)
 dq_measured = filter_to_measured_subplots(dq_gdf)
 
-# Match plots by centroid distance (needed for overlap count)
+# Match plots using raw GPS centroids (bypasses accuracy filtering — all vertices used regardless of accuracy)
+def _build_raw_centroid_gdf(plots_gdf, gps_col="gt_plot"):
+    import geopandas as gpd
+
+    if plots_gdf is None or len(plots_gdf) == 0 or gps_col not in plots_gdf.columns:
+        return plots_gdf
+    gdf = plots_gdf.copy()
+    gdf["geometry"] = gdf[gps_col].apply(raw_centroid_from_gps_string)
+    gdf = gdf[gdf["geometry"].notna()].copy()
+    return gpd.GeoDataFrame(gdf, geometry="geometry", crs=4326)
+
 if gt_plots_gdf is not None and dq_plots_gdf is not None and len(gt_plots_gdf) > 0 and len(dq_plots_gdf) > 0:
-    matches_df = match_plots_by_centroid(gt_plots_gdf, dq_plots_gdf, distance_threshold=50.0)
+    _gt_for_match = _build_raw_centroid_gdf(gt_plots_gdf)
+    _dq_for_match = _build_raw_centroid_gdf(dq_plots_gdf)
+    matches_df = match_plots_by_centroid(_gt_for_match, _dq_for_match, distance_threshold=50.0)
 else:
     matches_df = match_plots_by_centroid(gt_measured, dq_measured, distance_threshold=50.0)
 
@@ -713,6 +726,54 @@ else:
     st.success("✅ All DQ subplots pass validation!")
 
 st.markdown("---")
+
+
+# ============================================
+# DQ PLOT ISSUES TABLE
+# ============================================
+
+if "PLOT_KEY" in dq_measured.columns and "geom_valid" in dq_measured.columns:
+    _valid_col = "overall_valid" if "overall_valid" in dq_measured.columns else "geom_valid"
+    _agg_kwargs = {
+        "total_subplots": ("subplot_id", "count") if "subplot_id" in dq_measured.columns else (_valid_col, "count"),
+        "invalid_subplots": (_valid_col, lambda x: (~x).sum()),
+    }
+    if "enumerator" in dq_measured.columns:
+        _agg_kwargs["enumerator"] = ("enumerator", "first")
+    _plot_agg = dq_measured.groupby("PLOT_KEY").agg(**_agg_kwargs).reset_index()
+    dq_plot_issues = _plot_agg[_plot_agg["invalid_subplots"] >= 8].copy()
+
+    if len(dq_plot_issues) > 0:
+        dq_plot_issues["error_rate"] = (
+            dq_plot_issues["invalid_subplots"] / dq_plot_issues["total_subplots"].replace(0, pd.NA) * 100
+        ).round(1)
+        dq_plot_issues = dq_plot_issues.sort_values("invalid_subplots", ascending=False).reset_index(drop=True)
+
+        st.markdown("### ⚠️ DQ Plot Issues")
+        st.caption(
+            "DQ plots with ≥8 invalid subplots. These plots have significant data quality concerns identified during the quality monitoring visit."
+        )
+        st.warning(f"⚠️ {len(dq_plot_issues)} DQ plot(s) have ≥8 invalid subplots")
+
+        dq_plot_issues.insert(0, "#", range(1, len(dq_plot_issues) + 1))
+        display_cols = ["#", "PLOT_KEY", "enumerator", "total_subplots", "invalid_subplots", "error_rate"]
+        display_cols = [c for c in display_cols if c in dq_plot_issues.columns]
+
+        st.dataframe(
+            dq_plot_issues[display_cols],
+            use_container_width=True,
+            height=min(400, 35 * len(dq_plot_issues) + 40),
+            column_config={
+                "#": st.column_config.NumberColumn("#", width="small"),
+                "PLOT_KEY": "Plot ID",
+                "enumerator": "Enumerator",
+                "total_subplots": st.column_config.NumberColumn("Total Subplots", format="%d"),
+                "invalid_subplots": st.column_config.NumberColumn("Invalid Subplots", format="%d"),
+                "error_rate": st.column_config.NumberColumn("Error Rate (%)", format="%.1f"),
+            },
+            hide_index=True,
+        )
+        st.markdown("---")
 
 
 # ============================================
@@ -1431,3 +1492,75 @@ with st.expander("📈 Summary Statistics"):
             )
     else:
         st.info("No matched plots to calculate statistics.")
+
+
+# ============================================
+# EXPORT DQ DATA
+# ============================================
+
+st.markdown("---")
+st.markdown("### 📥 Export DQ Data")
+st.caption(
+    "Download the filtered DQ subplot data for use in GIS software (QGIS, ArcGIS) or spreadsheets. "
+    "Data reflects the current date filter and includes only measured subplots. "
+    "GeoJSON preserves geometry for mapping. CSV is for tabular analysis. 'Errors Only' exports just invalid DQ subplots."
+)
+
+_export_dq = dq_measured[~dq_measured.geometry.is_empty].copy()
+
+col1, col2, col3 = st.columns(3)
+
+# GeoJSON Export (Full data)
+with col1:
+    st.markdown("##### 🗺️ GeoJSON Export")
+    st.caption("Geographic data format")
+
+    st.download_button(
+        label="🗺️ Download GeoJSON",
+        data=_export_dq.to_json(default=str),
+        file_name=f"{config.PARTNER}_dq_subplots.geojson",
+        mime="application/geo+json",
+        use_container_width=True,
+    )
+
+# CSV Export
+with col2:
+    st.markdown("##### 📊 CSV Export")
+    st.caption("Spreadsheet format")
+
+    try:
+        from utils.export_helpers import create_csv_export
+
+        _csv_data = create_csv_export(_export_dq, valid_only=False)
+    except ImportError:
+        _csv_df = _export_dq.drop(columns=["geometry"], errors="ignore")
+        _csv_data = _csv_df.to_csv(index=False)
+
+    st.download_button(
+        label="📊 Download CSV",
+        data=_csv_data,
+        file_name=f"{config.PARTNER}_dq_subplots.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+# Errors Only GeoJSON
+with col3:
+    st.markdown("##### ⚠️ Errors Only")
+    st.caption("Invalid subplots GeoJSON")
+
+    if "geom_valid" in _export_dq.columns:
+        _invalid_dq = _export_dq[~_export_dq["geom_valid"]].copy()
+    else:
+        _invalid_dq = pd.DataFrame()
+
+    if len(_invalid_dq) > 0:
+        st.download_button(
+            label="🗺️ Download Errors GeoJSON",
+            data=_invalid_dq.to_json(default=str),
+            file_name=f"{config.PARTNER}_dq_errors.geojson",
+            mime="application/geo+json",
+            use_container_width=True,
+        )
+    else:
+        st.success("✅ No errors to export!")
