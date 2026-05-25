@@ -176,24 +176,6 @@ def get_active_partner():
                         st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default COMACO.")
                         return "COMACO"
 
-        # Fallback: try experimental API for older Streamlit versions
-        elif hasattr(st, "experimental_get_query_params"):
-            query_params = st.experimental_get_query_params()
-
-            if "partner" in query_params:
-                partner_param = (
-                    query_params["partner"][0] if isinstance(query_params["partner"], list) else query_params["partner"]
-                )
-
-                if partner_param:
-                    partner_param = str(partner_param).upper()
-
-                    if partner_param in PARTNERS:
-                        return partner_param
-                    else:
-                        st.warning(f"⚠️ Unknown partner '{partner_param}'. Using default COMACO.")
-                        return "COMACO"
-
     except Exception:
         # If any error, use default
         # Silently fail and use default
@@ -208,12 +190,6 @@ def has_partner_param() -> bool:
     try:
         if hasattr(st, "query_params") and "partner" in st.query_params:
             return str(st.query_params["partner"]).upper() in PARTNERS
-        elif hasattr(st, "experimental_get_query_params"):
-            params = st.experimental_get_query_params()
-            if "partner" in params:
-                val = params["partner"]
-                val = val[0] if isinstance(val, list) else val
-                return str(val).upper() in PARTNERS
     except Exception:
         pass
     return False
