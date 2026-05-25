@@ -7,8 +7,16 @@ import streamlit as st
 import pandas as pd
 import re
 import config
-from ui.components import show_header, create_sidebar_filters, show_sidebar_info, require_auth
-from utils.comparison_utils import get_tree_count_by_name, get_tree_records_by_species
+from ui.components import (
+    show_header,
+    create_sidebar_filters,
+    show_sidebar_info,
+    require_auth,
+)
+from utils.comparison_utils import (
+    get_tree_count_by_name,
+    get_tree_records_by_species,
+)
 from utils.session_manager import load_data
 
 # Page config
@@ -207,7 +215,12 @@ if len(plot_summary) > 0 and "PLOT_KEY" in filtered_gdf.columns:
     # Get first enumerator and starttime per plot
     plot_info = (
         filtered_gdf.groupby("PLOT_KEY")
-        .agg({"enumerator": "first", "starttime": "first" if "starttime" in filtered_gdf.columns else lambda x: None})
+        .agg(
+            {
+                "enumerator": "first",
+                "starttime": ("first" if "starttime" in filtered_gdf.columns else lambda x: None),
+            }
+        )
         .reset_index()
     )
 
@@ -255,7 +268,11 @@ with col4:
 with col5:
     invalid_subplots = (~measured_gdf["overall_valid"]).sum()
     invalid_sub_pct = (invalid_subplots / total_subplots * 100) if total_subplots > 0 else 0
-    st.metric("❌ Invalid Subplots", f"{invalid_subplots:,}", f"{invalid_sub_pct:.1f}%")
+    st.metric(
+        "❌ Invalid Subplots",
+        f"{invalid_subplots:,}",
+        f"{invalid_sub_pct:.1f}%",
+    )
 
 st.markdown("---")
 
@@ -361,6 +378,91 @@ else:
 st.markdown("---")
 
 # ============================================
+# PLOT-LEVEL COMMENTS
+# ============================================
+st.markdown("### 💬 Plot-Level Comments")
+st.caption(
+    "Comments left by enumerators at the plot level. This helps explain external conditions or context for the entire plot data submission."
+)
+
+if "sheets" in st.session_state.data and "plots" in st.session_state.data["sheets"]:
+    plots_raw_df = st.session_state.data["sheets"]["plots"]
+    # find plot comment column dynamically
+    plot_comment_col = None
+    for col in ["comments", "plot_comments", "plot_comment", "remarks"]:
+        if col in plots_raw_df.columns:
+            plot_comment_col = col
+            break
+    if not plot_comment_col:
+        for col in plots_raw_df.columns:
+            if (
+                "comment" in col.lower()
+                and "subplot" not in col.lower()
+                and "tree" not in col.lower()
+                and "crop" not in col.lower()
+            ):
+                plot_comment_col = col
+                break
+
+    if plot_comment_col and len(plots_raw_df) > 0:
+        # Filter to plots with non-empty comments
+        plot_comments_df = plots_raw_df[
+            plots_raw_df[plot_comment_col].notna() & (plots_raw_df[plot_comment_col].astype(str).str.strip() != "")
+        ].copy()
+
+        if len(plot_comments_df) > 0:
+            # Build display columns
+            display_plot_comments_cols = ["PLOT_KEY"]
+            if "enumerator" in plot_comments_df.columns:
+                display_plot_comments_cols.append("enumerator")
+            elif "enumerator_name" in plot_comments_df.columns:
+                plot_comments_df["enumerator"] = plot_comments_df["enumerator_name"]
+                display_plot_comments_cols.append("enumerator")
+
+            if "SubmissionDate" in plot_comments_df.columns:
+                display_plot_comments_cols.append("SubmissionDate")
+            elif "starttime" in plot_comments_df.columns:
+                display_plot_comments_cols.append("starttime")
+
+            display_plot_comments_cols.append(plot_comment_col)
+
+            # Select existing columns
+            plot_comments_display = plot_comments_df[display_plot_comments_cols].copy()
+
+            # Rename columns for display
+            plot_comments_display = plot_comments_display.rename(
+                columns={
+                    "PLOT_KEY": "Plot ID",
+                    "enumerator": "Enumerator",
+                    "SubmissionDate": "Date",
+                    "starttime": "Date",
+                    plot_comment_col: "Plot Comment",
+                }
+            )
+
+            # Add row numbers
+            plot_comments_display.insert(0, "#", range(1, len(plot_comments_display) + 1))
+
+            st.dataframe(
+                plot_comments_display,
+                use_container_width=True,
+                height=300,
+                column_config={
+                    "#": st.column_config.NumberColumn("#", width="small"),
+                    "Date": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
+                },
+                hide_index=True,
+            )
+        else:
+            st.info("ℹ️ No plot-level comments recorded in this dataset.")
+    else:
+        st.info("ℹ️ Plot-level comment field not found in this dataset.")
+else:
+    st.info("No raw plot sheets available.")
+
+st.markdown("---")
+
+# ============================================
 # SUBPLOTS WITH VEGETATION ISSUES ONLY
 # ============================================
 
@@ -375,10 +477,16 @@ if len(veg_issues_only) > 0:
     st.warning(f"⚠️ {len(veg_issues_only)} subplots have vegetation issues (≥10 'other' trees)")
 
     # Prepare display columns
-    display_cols = ["subplot_id", "PLOT_KEY", "enumerator", "other_count", "veg_errors"]
+    display_cols = [
+        "subplot_id",
+        "PLOT_KEY",
+        "enumerator",
+        "other_count",
+        "veg_errors",
+    ]
 
     # Add optional columns if they exist
-    for col in ["starttime", "area_m2"]:
+    for col in ["starttime", "area_m2", "subplot_comments"]:
         if col in veg_issues_only.columns:
             display_cols.append(col)
 
@@ -406,6 +514,7 @@ if len(veg_issues_only) > 0:
             "veg_errors": "Issue Description",
             "starttime": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
             "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+            "subplot_comments": "Enumerator Comment",
         },
         hide_index=True,
     )
@@ -448,6 +557,7 @@ if len(geom_issues_only) > 0:
         "length_width_ratio",
         "mrr_ratio",
         "in_radius",
+        "subplot_comments",
     ]:
         if col in geom_issues_only.columns:
             display_cols.append(col)
@@ -475,6 +585,7 @@ if len(geom_issues_only) > 0:
             "length_width_ratio": st.column_config.NumberColumn("L/W Ratio", format="%.2f"),
             "mrr_ratio": st.column_config.NumberColumn("MRR Ratio", format="%.2f"),
             "in_radius": st.column_config.CheckboxColumn("In Radius"),
+            "subplot_comments": "Enumerator Comment",
         },
         hide_index=True,
     )
@@ -530,6 +641,10 @@ if len(empty_geom_subplots) > 0:
     else:
         display_cols.append("reasons")
 
+    # Add subplot_comments if available
+    if "subplot_comments" in empty_geom_subplots.columns:
+        display_cols.append("subplot_comments")
+
     # Add starttime if available
     if "starttime" in empty_geom_subplots.columns:
         display_cols.insert(3, "starttime")
@@ -546,6 +661,7 @@ if len(empty_geom_subplots) > 0:
         "subplot_id": "Subplot ID",
         "PLOT_KEY": "Plot ID",
         "enumerator": "Enumerator",
+        "subplot_comments": "Enumerator Comment",
     }
 
     # Add appropriate issue description column
@@ -595,7 +711,7 @@ if len(both_issues) > 0:
     ]
 
     # Add optional columns if they exist
-    for col in ["starttime", "area_m2"]:
+    for col in ["starttime", "area_m2", "subplot_comments"]:
         if col in both_issues.columns:
             display_cols.append(col)
 
@@ -624,6 +740,7 @@ if len(both_issues) > 0:
             "other_count": st.column_config.NumberColumn("'Other' Trees", width="small"),
             "starttime": st.column_config.DatetimeColumn("Date", format="YYYY-MM-DD"),
             "area_m2": st.column_config.NumberColumn("Area (m²)", format="%.1f"),
+            "subplot_comments": "Enumerator Comment",
         },
         hide_index=True,
     )
@@ -764,7 +881,10 @@ if "PLOT_KEY" in filtered_gdf.columns:
             plot_options.append(f"{status_icon} {pk} ({subplot_count} subplots)")
 
         selected_plot_display = st.selectbox(
-            "Select a plot to view details", options=plot_options, index=0, key="plot_explorer_select"
+            "Select a plot to view details",
+            options=plot_options,
+            index=0,
+            key="plot_explorer_select",
         )
 
         # Extract plot key from selection
@@ -826,7 +946,11 @@ if "PLOT_KEY" in filtered_gdf.columns:
                     if tree_counts:
                         # Build tree summary table
                         tree_data = []
-                        for species_name, count in sorted(tree_counts.items(), key=lambda x: x[1], reverse=True):
+                        for species_name, count in sorted(
+                            tree_counts.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        ):
                             # Get subplot breakdown for this species
                             species_records = get_tree_records_by_species(selected_plot_key, species_name, raw_data)
                             if len(species_records) > 0:
@@ -835,11 +959,23 @@ if "PLOT_KEY" in filtered_gdf.columns:
                             else:
                                 subplot_str = "N/A"
 
-                            tree_data.append({"Species": species_name, "Total Count": count, "Subplots": subplot_str})
+                            tree_data.append(
+                                {
+                                    "Species": species_name,
+                                    "Total Count": count,
+                                    "Subplots": subplot_str,
+                                }
+                            )
 
                         # Add total row
                         total_trees = sum(tree_counts.values())
-                        tree_data.append({"Species": "**TOTAL**", "Total Count": total_trees, "Subplots": "-"})
+                        tree_data.append(
+                            {
+                                "Species": "**TOTAL**",
+                                "Total Count": total_trees,
+                                "Subplots": "-",
+                            }
+                        )
 
                         tree_df = pd.DataFrame(tree_data)
                         st.dataframe(
@@ -855,11 +991,19 @@ if "PLOT_KEY" in filtered_gdf.columns:
 
                         # Expandable species details
                         st.markdown("**Detailed Tree Records per Species:**")
-                        for species_name, count in sorted(tree_counts.items(), key=lambda x: x[1], reverse=True):
+                        for species_name, count in sorted(
+                            tree_counts.items(),
+                            key=lambda x: x[1],
+                            reverse=True,
+                        ):
                             with st.expander(f"{species_name}: {count} trees"):
                                 species_records = get_tree_records_by_species(selected_plot_key, species_name, raw_data)
                                 if len(species_records) > 0:
-                                    st.dataframe(species_records, use_container_width=True, hide_index=True)
+                                    st.dataframe(
+                                        species_records,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
                                 else:
                                     st.caption("No detailed records available")
                     else:
@@ -893,7 +1037,11 @@ if "PLOT_KEY" in filtered_gdf.columns:
                         else:
                             display_df = invalid_display[["Subplot #"]]
 
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            display_df,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
     else:
         st.info("No plots available")
 else:
