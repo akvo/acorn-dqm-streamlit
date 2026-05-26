@@ -298,7 +298,13 @@ def get_subplot_count(plot_key: str, gdf: gpd.GeoDataFrame) -> int:
     return len(gdf[gdf["PLOT_KEY"] == plot_key])
 
 
-def get_tree_count_by_name(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame = None, height_filter: str = "all") -> Dict[str, int]:
+def get_tree_count_by_name(
+    plot_key: str,
+    raw_data: Dict,
+    gdf: gpd.GeoDataFrame = None,
+    height_filter: str = "all",
+    exclude_species: List[str] = None,
+) -> Dict[str, int]:
     """
     Get tree counts grouped by tree_name for a plot (woody trees only).
     Uses normalized vegetation data from plots_subplots_vegetation.
@@ -308,11 +314,13 @@ def get_tree_count_by_name(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame 
         raw_data: Raw data dictionary containing vegetation data
         gdf: Optional GeoDataFrame with subplot info for filtering
         height_filter: "all" | "above_1.3" | "below_1.3"
+        exclude_species: Optional list of species names to exclude from counts
 
     Returns:
         dict {tree_name: count}
     """
     tree_counts = {}
+    exclude_set = set(exclude_species) if exclude_species else set()
 
     # Get vegetation data from raw_data (normalized format)
     veg_df = raw_data.get("plots_subplots_vegetation")
@@ -371,13 +379,72 @@ def get_tree_count_by_name(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame 
                     tree_name = str(val).strip()
                     break
 
+        if tree_name in exclude_set:
+            continue
+
         count = int(row.get("vegetation_type_number", 0))
         tree_counts[tree_name] = tree_counts.get(tree_name, 0) + count
 
     return tree_counts
 
 
-def get_tree_records_by_species(plot_key: str, species_name: str, raw_data: Dict) -> pd.DataFrame:
+def get_all_tree_species(raw_data: Dict) -> List[str]:
+    """
+    Return the sorted list of unique woody tree species names present in the data.
+    Mirrors the species-resolution logic used by get_tree_count_by_name so the
+    exclusion dropdown offers exactly the names that drive the counts.
+
+    Args:
+        raw_data: Raw data dictionary containing vegetation data
+
+    Returns:
+        Sorted list of unique species names (may include "Unknown")
+    """
+    veg_df = raw_data.get("plots_subplots_vegetation")
+    if veg_df is None or len(veg_df) == 0:
+        return []
+
+    veg_df = veg_df.copy()
+
+    # Woody trees only (non_woody_species must be NULL)
+    if "non_woody_species" in veg_df.columns:
+        veg_df = veg_df[veg_df["non_woody_species"].isna()]
+
+    if len(veg_df) == 0 or "vegetation_type_number" not in veg_df.columns:
+        return []
+
+    veg_df["vegetation_type_number"] = pd.to_numeric(veg_df["vegetation_type_number"], errors="coerce")
+    veg_df = veg_df[(veg_df["vegetation_type_number"].notna()) & (veg_df["vegetation_type_number"] > 0)]
+
+    species_cols = [
+        "woody_species",
+        "bamboo_species",
+        "banana_species",
+        "palm_species",
+        "living_fences",
+    ]
+
+    names = set()
+    for _, row in veg_df.iterrows():
+        tree_name = "Unknown"
+        for col in species_cols:
+            if col in row.index:
+                val = row.get(col)
+                if pd.notna(val) and str(val).strip():
+                    tree_name = str(val).strip()
+                    break
+        names.add(tree_name)
+
+    return sorted(names)
+
+
+def get_tree_records_by_species(
+    plot_key: str,
+    species_name: str,
+    raw_data: Dict,
+    height_filter: str = "all",
+    exclude_species: List[str] = None,
+) -> pd.DataFrame:
     """
     Get individual vegetation records for a specific species in a plot.
 
@@ -385,10 +452,17 @@ def get_tree_records_by_species(plot_key: str, species_name: str, raw_data: Dict
         plot_key: The PLOT_KEY to get records for
         species_name: The species name to filter by
         raw_data: Raw data dictionary containing vegetation data
+        height_filter: "all" | "above_1.3" | "below_1.3" - filters records by
+            the categorical vegetation_type_height flag set by enumerators
+        exclude_species: Optional list of species names to exclude; if
+            species_name is in this list, an empty frame is returned
 
     Returns:
         DataFrame with columns: Subplot, Count, Height, Year Planted
     """
+    if exclude_species and species_name in set(exclude_species):
+        return pd.DataFrame()
+
     # Get vegetation data from raw_data (normalized format)
     veg_df = raw_data.get("plots_subplots_vegetation")
     if veg_df is None or len(veg_df) == 0:
@@ -441,6 +515,13 @@ def get_tree_records_by_species(plot_key: str, species_name: str, raw_data: Dict
     # Filter for the specific species
     species_records = tree_records[tree_records["tree_name"] == species_name]
 
+    # Height filter using the categorical flag set by enumerators
+    if height_filter != "all" and "vegetation_type_height" in species_records.columns:
+        if height_filter == "above_1.3":
+            species_records = species_records[species_records["vegetation_type_height"] == "yes_above_1.3"]
+        elif height_filter == "below_1.3":
+            species_records = species_records[species_records["vegetation_type_height"] == "no_below_1.3m"]
+
     if len(species_records) == 0:
         return pd.DataFrame()
 
@@ -485,7 +566,13 @@ def get_tree_records_by_species(plot_key: str, species_name: str, raw_data: Dict
     return pd.DataFrame(result_rows)
 
 
-def get_total_tree_count(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame = None, height_filter: str = "all") -> int:
+def get_total_tree_count(
+    plot_key: str,
+    raw_data: Dict,
+    gdf: gpd.GeoDataFrame = None,
+    height_filter: str = "all",
+    exclude_species: List[str] = None,
+) -> int:
     """
     Get total tree count for a plot.
 
@@ -494,11 +581,14 @@ def get_total_tree_count(plot_key: str, raw_data: Dict, gdf: gpd.GeoDataFrame = 
         raw_data: Raw data dictionary containing vegetation data
         gdf: Optional GeoDataFrame with subplot info for filtering
         height_filter: "all" | "above_1.3" | "below_1.3"
+        exclude_species: Optional list of species names to exclude from the total
 
     Returns:
         int: Total number of trees
     """
-    tree_counts = get_tree_count_by_name(plot_key, raw_data, gdf, height_filter=height_filter)
+    tree_counts = get_tree_count_by_name(
+        plot_key, raw_data, gdf, height_filter=height_filter, exclude_species=exclude_species
+    )
     return sum(tree_counts.values())
 
 

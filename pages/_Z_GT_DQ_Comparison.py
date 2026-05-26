@@ -310,6 +310,7 @@ from utils.comparison_utils import (
     get_tree_count_by_name,
     get_tree_records_by_species,
     get_total_tree_count,
+    get_all_tree_species,
     get_vegetation_coverage,
     raw_centroid_from_gps_string,
 )
@@ -1055,13 +1056,26 @@ st.caption(
 
 HEIGHT_FILTER_OPTIONS = {"All": "all", "Above 1.3m": "above_1.3", "Below 1.3m": "below_1.3"}
 
-table_height_label = st.selectbox(
-    "Tree height filter:",
-    options=list(HEIGHT_FILTER_OPTIONS.keys()),
-    index=1,
-    key="table_height_filter",
-    help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
-)
+# Species options derived from the data (union of GT + DQ woody species)
+SPECIES_OPTIONS = sorted(set(get_all_tree_species(gt_raw)) | set(get_all_tree_species(dq_raw)))
+
+_tcol1, _tcol2 = st.columns(2)
+with _tcol1:
+    table_height_label = st.selectbox(
+        "Tree height filter:",
+        options=list(HEIGHT_FILTER_OPTIONS.keys()),
+        index=1,
+        key="table_height_filter",
+        help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
+    )
+with _tcol2:
+    table_exclude_species = st.multiselect(
+        "Exclude species:",
+        options=SPECIES_OPTIONS,
+        default=[],
+        key="table_exclude_species",
+        help="Selected species are removed from the GT/DQ tree counts in this table.",
+    )
 table_height_filter = HEIGHT_FILTER_OPTIONS[table_height_label]
 
 if len(matches_df) > 0:
@@ -1078,8 +1092,12 @@ if len(matches_df) > 0:
         dq_subplots = len(dq_measured[dq_measured["PLOT_KEY"] == dq_key])
 
         # Get tree counts
-        gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured, height_filter=table_height_filter)
-        dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured, height_filter=table_height_filter)
+        gt_trees = get_total_tree_count(
+            gt_key, gt_raw, gt_measured, height_filter=table_height_filter, exclude_species=table_exclude_species
+        )
+        dq_trees = get_total_tree_count(
+            dq_key, dq_raw, dq_measured, height_filter=table_height_filter, exclude_species=table_exclude_species
+        )
 
         comparison_data.append(
             {
@@ -1107,13 +1125,23 @@ if len(matches_df) > 0:
         "Click to expand individual plot comparisons. Shows subplot-by-subplot validation status, tree species breakdown (GT vs DQ), and identifies specific discrepancies. Use this for detailed investigation of data quality issues."
     )
 
-    details_height_label = st.selectbox(
-        "Tree height filter:",
-        options=list(HEIGHT_FILTER_OPTIONS.keys()),
-        index=1,
-        key="details_height_filter",
-        help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
-    )
+    _dcol1, _dcol2 = st.columns(2)
+    with _dcol1:
+        details_height_label = st.selectbox(
+            "Tree height filter:",
+            options=list(HEIGHT_FILTER_OPTIONS.keys()),
+            index=1,
+            key="details_height_filter",
+            help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
+        )
+    with _dcol2:
+        details_exclude_species = st.multiselect(
+            "Exclude species:",
+            options=SPECIES_OPTIONS,
+            default=[],
+            key="details_exclude_species",
+            help="Selected species are removed from the species comparison, counts, and record tables below.",
+        )
     details_height_filter = HEIGHT_FILTER_OPTIONS[details_height_label]
 
     for idx, row in matches_df.iterrows():
@@ -1230,10 +1258,10 @@ if len(matches_df) > 0:
 
                 # Tree Species Comparison (GT vs DQ)
                 gt_tree_counts = get_tree_count_by_name(
-                    gt_key, gt_raw, gt_measured, height_filter=details_height_filter
+                    gt_key, gt_raw, gt_measured, height_filter=details_height_filter, exclude_species=details_exclude_species
                 )
                 dq_tree_counts = get_tree_count_by_name(
-                    dq_key, dq_raw, dq_measured, height_filter=details_height_filter
+                    dq_key, dq_raw, dq_measured, height_filter=details_height_filter, exclude_species=details_exclude_species
                 )
 
                 if gt_tree_counts or dq_tree_counts:
@@ -1282,8 +1310,8 @@ if len(matches_df) > 0:
 
                         with st.expander(f"{sp} | GT: {sp_gt_count} | DQ: {sp_dq_count} | Diff: {sp_diff}"):
                             # 1. Fetch both records up front
-                            gt_records = get_tree_records_by_species(gt_key, sp, gt_raw)
-                            dq_records = get_tree_records_by_species(dq_key, sp, dq_raw)
+                            gt_records = get_tree_records_by_species(gt_key, sp, gt_raw, height_filter=details_height_filter, exclude_species=details_exclude_species)
+                            dq_records = get_tree_records_by_species(dq_key, sp, dq_raw, height_filter=details_height_filter, exclude_species=details_exclude_species)
 
                             # 2. Add Mapped column for GT
                             if len(gt_records) > 0:
