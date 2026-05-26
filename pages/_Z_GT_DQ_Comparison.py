@@ -1053,6 +1053,17 @@ st.caption(
     "Plots where GT and DQ centroids are within 50m (considered the same location). Compare subplot counts and tree counts between datasets. Differences may indicate: trees added/removed between visits, different measurement methodologies, or data collection errors."
 )
 
+HEIGHT_FILTER_OPTIONS = {"All": "all", "Above 1.3m": "above_1.3", "Below 1.3m": "below_1.3"}
+
+table_height_label = st.selectbox(
+    "Tree height filter:",
+    options=list(HEIGHT_FILTER_OPTIONS.keys()),
+    index=1,
+    key="table_height_filter",
+    help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
+)
+table_height_filter = HEIGHT_FILTER_OPTIONS[table_height_label]
+
 if len(matches_df) > 0:
     # Build comparison table
     comparison_data = []
@@ -1067,15 +1078,14 @@ if len(matches_df) > 0:
         dq_subplots = len(dq_measured[dq_measured["PLOT_KEY"] == dq_key])
 
         # Get tree counts
-        gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured)
-        dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured)
+        gt_trees = get_total_tree_count(gt_key, gt_raw, gt_measured, height_filter=table_height_filter)
+        dq_trees = get_total_tree_count(dq_key, dq_raw, dq_measured, height_filter=table_height_filter)
 
         comparison_data.append(
             {
                 "#": idx + 1,
                 "GT Plot ID": gt_key,
                 "DQ Plot ID": dq_key,
-                "Distance (m)": f"{distance:.1f}",
                 "GT Subplots": gt_subplots,
                 "DQ Subplots": dq_subplots,
                 "Subplot Diff": dq_subplots - gt_subplots,
@@ -1096,6 +1106,15 @@ if len(matches_df) > 0:
     st.caption(
         "Click to expand individual plot comparisons. Shows subplot-by-subplot validation status, tree species breakdown (GT vs DQ), and identifies specific discrepancies. Use this for detailed investigation of data quality issues."
     )
+
+    details_height_label = st.selectbox(
+        "Tree height filter:",
+        options=list(HEIGHT_FILTER_OPTIONS.keys()),
+        index=1,
+        key="details_height_filter",
+        help="Filter tree counts by the height flag recorded by enumerators (vegetation_type_height).",
+    )
+    details_height_filter = HEIGHT_FILTER_OPTIONS[details_height_label]
 
     for idx, row in matches_df.iterrows():
         dq_key = row["dq_plot_key"]
@@ -1210,8 +1229,12 @@ if len(matches_df) > 0:
                     st.info("No subplot mapping available (missing geometry data)")
 
                 # Tree Species Comparison (GT vs DQ)
-                gt_tree_counts = get_tree_count_by_name(gt_key, gt_raw, gt_measured)
-                dq_tree_counts = get_tree_count_by_name(dq_key, dq_raw, dq_measured)
+                gt_tree_counts = get_tree_count_by_name(
+                    gt_key, gt_raw, gt_measured, height_filter=details_height_filter
+                )
+                dq_tree_counts = get_tree_count_by_name(
+                    dq_key, dq_raw, dq_measured, height_filter=details_height_filter
+                )
 
                 if gt_tree_counts or dq_tree_counts:
                     st.markdown("**Tree Species Comparison (GT vs DQ):**")
