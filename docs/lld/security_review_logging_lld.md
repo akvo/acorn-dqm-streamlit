@@ -2,7 +2,7 @@
 
 > **Stage 3 of 3 — Documentation Hierarchy**
 > Owner: Winston (Architect) | Target Location: `docs/lld/security_review_logging_lld.md` | References: `docs/prd/security_review_logging_prd.md`
-> Status: `Draft` | Design Review: _[Pending]_
+> Status: `Draft` | Design Review: _[Approved]_
 
 ---
 

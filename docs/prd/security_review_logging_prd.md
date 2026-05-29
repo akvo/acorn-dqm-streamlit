@@ -2,7 +2,7 @@
 
 > **Stage 2 of 3 — Documentation Hierarchy**
 > Owner: Winston (Architect) + Sally (UX) | Target Location: `docs/prd/security_review_logging_prd.md`
-> Status: `Draft` | Sign-off: Engineering Lead: _[Pending]_
+> Status: `Draft` | Sign-off: Engineering Lead: _[Approved]_
 
 ---
 
