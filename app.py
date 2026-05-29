@@ -12,8 +12,18 @@ import pandas as pd
 import config
 import requests
 from io import BytesIO
-from utils.cache_utils import is_dev_mode, load_from_cache, save_to_cache, cache_exists
-from utils.session_manager import save_data, load_data, has_data, get_data_timestamp
+from utils.cache_utils import (
+    is_dev_mode,
+    load_from_cache,
+    save_to_cache,
+    cache_exists,
+)
+from utils.session_manager import (
+    save_data,
+    load_data,
+    has_data,
+    get_data_timestamp,
+)
 from ui.components import (
     show_header,
     show_plot_metrics_row,
@@ -53,7 +63,9 @@ def format_time_ago(timestamp: datetime) -> str:
         return f"{hours}h ago"
 
 
-def validate_credentials(server_name: str, username: str, password: str, form_id: str) -> tuple:
+def validate_credentials(
+    server_name: str, username: str, password: str, form_id: str
+) -> tuple:
     """
     Validate credentials against SurveyCTO API.
     Uses the form data endpoint with a recent timestamp to get minimal/empty response.
@@ -68,50 +80,108 @@ def validate_credentials(server_name: str, username: str, password: str, form_id
         tuple: (is_valid: bool, error_message: str or None)
     """
     import time
+    from utils.logging_utils import get_audit_logger
 
+    audit_logger = get_audit_logger("validate_credentials")
     url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
 
-    print(f"[validate_credentials] Starting validation...")
-    print(f"[validate_credentials] URL: {url}")
-    print(
-        f"[validate_credentials] Username: {username[:3]}***"
-        if username
-        else "[validate_credentials] Username: (empty)"
+    audit_logger.info(
+        "Starting validation...",
+        extra={"action": "auth_started", "url": url, "username": username},
     )
 
     try:
         # Use current timestamp (in milliseconds) to get empty/minimal response
         # This returns only submissions after "now", which should be none
         current_timestamp = str(int(time.time() * 1000))
-        print(f"[validate_credentials] Making GET request with date={current_timestamp} (current time)...")
+        audit_logger.info(
+            "Making GET request",
+            extra={
+                "action": "auth_request_sent",
+                "date_param": current_timestamp,
+            },
+        )
 
-        response = requests.get(url, auth=(username, password), params={"date": current_timestamp}, timeout=15)
+        response = requests.get(
+            url,
+            auth=(username, password),
+            params={"date": current_timestamp},
+            timeout=15,
+        )
 
-        print(f"[validate_credentials] Response status: {response.status_code}")
-        print(f"[validate_credentials] Response length: {len(response.content)} bytes")
-        print(f"[validate_credentials] Response body: {response.text[:200]}")
+        audit_logger.info(
+            "Received response",
+            extra={
+                "action": "auth_response_received",
+                "response_status": response.status_code,
+                "response_length": len(response.content),
+                "response_body": response.text,
+            },
+        )
 
         if response.status_code == 200:
-            print("[validate_credentials] Validation SUCCESS")
+            audit_logger.info(
+                "Validation SUCCESS",
+                extra={"action": "auth_success", "username": username},
+            )
             return True, None
         elif response.status_code == 401:
-            print("[validate_credentials] Validation FAILED - 401 Unauthorized")
+            audit_logger.warning(
+                "Validation FAILED - 401 Unauthorized",
+                extra={
+                    "action": "auth_failed",
+                    "status_code": 401,
+                    "username": username,
+                },
+            )
             return False, "Invalid username or password"
         elif response.status_code == 403:
-            print("[validate_credentials] Validation FAILED - 403 Forbidden")
+            audit_logger.warning(
+                "Validation FAILED - 403 Forbidden",
+                extra={
+                    "action": "auth_failed",
+                    "status_code": 403,
+                    "username": username,
+                },
+            )
             return False, "Access denied - check account permissions"
         elif response.status_code == 404:
-            print("[validate_credentials] Validation FAILED - 404 Not Found")
+            audit_logger.warning(
+                "Validation FAILED - 404 Not Found",
+                extra={
+                    "action": "auth_failed",
+                    "status_code": 404,
+                    "username": username,
+                    "form_id": form_id,
+                },
+            )
             return False, f"Form '{form_id}' not found"
         else:
-            print(f"[validate_credentials] Validation FAILED - HTTP {response.status_code}")
+            audit_logger.warning(
+                f"Validation FAILED - HTTP {response.status_code}",
+                extra={
+                    "action": "auth_failed",
+                    "status_code": response.status_code,
+                    "username": username,
+                },
+            )
             return False, f"Validation failed (HTTP {response.status_code})"
 
     except requests.exceptions.Timeout:
-        print("[validate_credentials] EXCEPTION - Timeout")
+        audit_logger.error(
+            "EXCEPTION - Timeout",
+            extra={"action": "auth_timeout", "username": username},
+        )
         return False, "Connection timeout - check network"
     except requests.exceptions.RequestException as e:
-        print(f"[validate_credentials] EXCEPTION - {type(e).__name__}: {str(e)}")
+        audit_logger.error(
+            f"EXCEPTION - {type(e).__name__}: {str(e)}",
+            extra={
+                "action": "auth_exception",
+                "exception_type": type(e).__name__,
+                "username": username,
+            },
+        )
         return False, f"Connection error: {str(e)}"
 
 
@@ -147,7 +217,9 @@ def fetch_surveycto_data(
 
     try:
         if progress_bar:
-            progress_bar.progress(progress_start, text=f"Fetching {label} data from API...")
+            progress_bar.progress(
+                progress_start, text=f"Fetching {label} data from API..."
+            )
 
         url = f"https://{server_name}.surveycto.com/api/v2/forms/data/wide/json/{form_id}"
 
@@ -162,7 +234,9 @@ def fetch_surveycto_data(
         else:
             params = {"date": "0"}
 
-        response = requests.get(url, auth=(username, password), params=params, timeout=300)
+        response = requests.get(
+            url, auth=(username, password), params=params, timeout=300
+        )
 
         # Check for specific HTTP errors
         if response.status_code == 417:
@@ -172,50 +246,90 @@ def fetch_surveycto_data(
                 match = regex_module.search(r"(\d+)\s*seconds", wait_seconds)
                 if match:
                     wait_time = int(match.group(1))
-                    return False, None, f"Rate limit: Please wait {wait_time} seconds before retrying."
+                    return (
+                        False,
+                        None,
+                        f"Rate limit: Please wait {wait_time} seconds before retrying.",
+                    )
                 else:
                     return False, None, f"Rate limit: {wait_seconds}"
-            except:
-                return False, None, "Rate limit: Please wait approximately 5 minutes before retrying."
+            except Exception:
+                return (
+                    False,
+                    None,
+                    "Rate limit: Please wait approximately 5 minutes before retrying.",
+                )
 
         elif response.status_code == 429:
-            return False, None, "Rate limit exceeded. Please wait 60 seconds before trying again."
+            return (
+                False,
+                None,
+                "Rate limit exceeded. Please wait 60 seconds before trying again.",
+            )
 
         elif response.status_code == 503:
-            return False, None, "Service temporarily unavailable. Please wait 60-120 seconds."
+            return (
+                False,
+                None,
+                "Service temporarily unavailable. Please wait 60-120 seconds.",
+            )
 
         elif response.status_code == 401:
-            return False, None, "Authentication failed. Check your credentials."
+            return (
+                False,
+                None,
+                "Authentication failed. Check your credentials.",
+            )
 
         elif response.status_code == 403:
-            return False, None, "Access denied. You may not have permission to access this form."
+            return (
+                False,
+                None,
+                "Access denied. You may not have permission to access this form.",
+            )
 
         elif response.status_code == 404:
-            return False, None, f"Form '{form_id}' not found on server '{server_name}'."
+            return (
+                False,
+                None,
+                f"Form '{form_id}' not found on server '{server_name}'.",
+            )
 
         elif response.status_code == 412:
             try:
                 error_response = response.json()
-                error_msg = error_response.get("error", {}).get("message", response.text)
-            except:
+                error_msg = error_response.get("error", {}).get(
+                    "message", response.text
+                )
+            except Exception:
                 error_msg = response.text
             return False, None, f"Precondition failed: {error_msg}"
 
         elif response.status_code >= 500:
-            return False, None, f"Server error (Status: {response.status_code}). Try again later."
+            return (
+                False,
+                None,
+                f"Server error (Status: {response.status_code}). Try again later.",
+            )
 
         response.raise_for_status()
         json_data = response.json()
 
         if progress_bar:
-            mid_progress = progress_start + (progress_end - progress_start) // 2
-            progress_bar.progress(mid_progress, text=f"Processing {label} data...")
+            mid_progress = (
+                progress_start + (progress_end - progress_start) // 2
+            )
+            progress_bar.progress(
+                mid_progress, text=f"Processing {label} data..."
+            )
 
         # Process the data
         data = process_json_data(json_data)
 
         if progress_bar:
-            progress_bar.progress(progress_end, text=f"{label} data processed!")
+            progress_bar.progress(
+                progress_end, text=f"{label} data processed!"
+            )
 
         return True, data, None
 
@@ -223,7 +337,11 @@ def fetch_surveycto_data(
         return False, None, "Request timeout. The request took too long."
 
     except requests.exceptions.ConnectionError:
-        return False, None, "Connection error. Could not connect to SurveyCTO server."
+        return (
+            False,
+            None,
+            "Connection error. Could not connect to SurveyCTO server.",
+        )
 
     except ValueError as e:
         return False, None, f"Invalid response: {str(e)}"
@@ -339,7 +457,9 @@ with st.sidebar:
         data_source = st.radio(
             "Select data source:",
             options=["api", "file"],
-            format_func=lambda x: "🌐 SurveyCTO API" if x == "api" else "📁 Excel File Upload",
+            format_func=lambda x: (
+                "🌐 SurveyCTO API" if x == "api" else "📁 Excel File Upload"
+            ),
             horizontal=True,
             help="Use API for live data, or upload an Excel export as fallback",
         )
@@ -368,7 +488,10 @@ with st.sidebar:
         prev_password = st.session_state.password
 
         username = st.text_input(
-            "Username", value=st.session_state.username, key="username_input", help="Your SurveyCTO username"
+            "Username",
+            value=st.session_state.username,
+            key="username_input",
+            help="Your SurveyCTO username",
         )
 
         password = st.text_input(
@@ -392,7 +515,9 @@ with st.sidebar:
         if credentials_configured:
             if st.button("🔐 Validate Credentials", use_container_width=True):
                 with st.spinner("Validating..."):
-                    is_valid, error = validate_credentials(server_name, username, password, config.GT_FORM_ID)
+                    is_valid, error = validate_credentials(
+                        server_name, username, password, config.GT_FORM_ID
+                    )
                     if is_valid:
                         st.session_state.credentials_validated = True
                         st.success("✅ Credentials validated")
@@ -425,12 +550,22 @@ with st.sidebar:
                 age_str = format_time_ago(cache_time)
                 col1, col2 = st.columns(2)
                 with col1:
-                    use_cache_btn = st.button(f"📂 Use Cached ({age_str})", use_container_width=True)
+                    use_cache_btn = st.button(
+                        f"📂 Use Cached ({age_str})", use_container_width=True
+                    )
                 with col2:
-                    process_btn = st.button("🚀 Fetch Fresh", type="primary", use_container_width=True)
+                    process_btn = st.button(
+                        "🚀 Fetch Fresh",
+                        type="primary",
+                        use_container_width=True,
+                    )
             else:
                 # No cache - show single fetch button
-                process_btn = st.button("🚀 Fetch GT Data", type="primary", use_container_width=True)
+                process_btn = st.button(
+                    "🚀 Fetch GT Data",
+                    type="primary",
+                    use_container_width=True,
+                )
         elif not st.session_state.credentials_validated:
             # Credentials not validated yet - message shown above
             pass
@@ -439,7 +574,11 @@ with st.sidebar:
     else:
         # File upload mode (dev only)
         if uploaded_file is not None:
-            process_btn = st.button("🔄 Process Uploaded File", type="primary", use_container_width=True)
+            process_btn = st.button(
+                "🔄 Process Uploaded File",
+                type="primary",
+                use_container_width=True,
+            )
         else:
             process_btn = False
             st.warning("⚠️ Upload an Excel file to continue")
@@ -455,7 +594,11 @@ if use_cache_btn:
         st.error("Cache data no longer available. Please fetch fresh data.")
 
 # Process data (fetch from API or cache, then process) - API MODE
-if st.session_state.data_source_mode == "api" and process_btn and st.session_state.credentials_validated:
+if (
+    st.session_state.data_source_mode == "api"
+    and process_btn
+    and st.session_state.credentials_validated
+):
     with st.spinner("Fetching and processing data..."):
         try:
             progress_bar = st.progress(0, text="Connecting to SurveyCTO...")
@@ -465,9 +608,13 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
 
             if use_cache:
                 # Load from cache
-                progress_bar.progress(25, text="📁 Loading from local cache...")
+                progress_bar.progress(
+                    25, text="📁 Loading from local cache..."
+                )
                 json_data = load_from_cache(config.PARTNER, "gt")
-                st.info(f"📁 Loaded GT data from local cache (dev mode) - {len(json_data)} records")
+                st.info(
+                    f"📁 Loaded GT data from local cache (dev mode) - {len(json_data)} records"
+                )
             else:
                 # Fetch JSON data directly from API
                 progress_bar.progress(25, text="📡 Downloading from API...")
@@ -482,15 +629,21 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
 
                 if start_date_str:
                     try:
-                        start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
-                        start_timestamp = int(start_dt.timestamp() * 1000)  # milliseconds
+                        start_dt = datetime.strptime(
+                            start_date_str, "%Y-%m-%d"
+                        )
+                        start_timestamp = int(
+                            start_dt.timestamp() * 1000
+                        )  # milliseconds
                         params = {"date": str(start_timestamp)}
                     except ValueError:
                         params = {"date": "0"}
                 else:
                     params = {"date": "0"}
 
-                response = requests.get(url, auth=(username, password), params=params, timeout=300)
+                response = requests.get(
+                    url, auth=(username, password), params=params, timeout=300
+                )
 
                 # Check for specific HTTP errors
                 if response.status_code == 417:
@@ -498,7 +651,9 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
                     progress_bar.empty()
                     try:
                         error_data = response.json()
-                        wait_seconds = error_data.get("error", {}).get("message", "")
+                        wait_seconds = error_data.get("error", {}).get(
+                            "message", ""
+                        )
 
                         # Extract wait time from message
                         import re
@@ -516,10 +671,14 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
                             )
                         else:
                             st.error("🚫 **SurveyCTO Rate Limit**")
-                            st.warning(f"⏱️ {wait_seconds}\n\nPlease wait before retrying.")
-                    except:
+                            st.warning(
+                                f"⏱️ {wait_seconds}\n\nPlease wait before retrying."
+                            )
+                    except Exception:
                         st.error("🚫 **SurveyCTO Rate Limit**")
-                        st.warning("⏱️ Please wait approximately 5 minutes before retrying.")
+                        st.warning(
+                            "⏱️ Please wait approximately 5 minutes before retrying."
+                        )
 
                     st.info(
                         "📘 **About SurveyCTO Rate Limits**\n\n"
@@ -596,8 +755,10 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
                     # Try to get the server's error message
                     try:
                         error_response = response.json()
-                        error_msg = error_response.get("error", {}).get("message", response.text)
-                    except:
+                        error_msg = error_response.get("error", {}).get(
+                            "message", response.text
+                        )
+                    except Exception:
                         error_msg = response.text
 
                     st.warning(
@@ -653,7 +814,9 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
             save_data(data, "gt")
             st.session_state.filename = f"API: {form_id}"
 
-            st.success(f"✅ Processed {len(data['subplots'])} subplots successfully!")
+            st.success(
+                f"✅ Processed {len(data['subplots'])} subplots successfully!"
+            )
             progress_bar.empty()
 
         except requests.exceptions.Timeout:
@@ -693,12 +856,18 @@ if st.session_state.data_source_mode == "api" and process_btn and st.session_sta
 
         except Exception as e:
             st.error("❌ **Unexpected Error**")
-            st.warning(f"An unexpected error occurred.\n\n**Error details:** {str(e)}")
+            st.warning(
+                f"An unexpected error occurred.\n\n**Error details:** {str(e)}"
+            )
             st.exception(e)
             progress_bar.empty()
 
 # Process uploaded file (FILE UPLOAD MODE)
-if st.session_state.data_source_mode == "file" and process_btn and uploaded_file is not None:
+if (
+    st.session_state.data_source_mode == "file"
+    and process_btn
+    and uploaded_file is not None
+):
     with st.spinner("Processing uploaded file..."):
         try:
             progress_bar = st.progress(0, text="Reading Excel file...")
@@ -759,7 +928,12 @@ if st.session_state.data is not None:
                 if "other_species" in subplot_veg.columns:
                     other_count = subplot_veg["other_species"].notna().sum()
                 elif "vegetation_species_type" in subplot_veg.columns:
-                    other_count = (subplot_veg["vegetation_species_type"].astype(str).str.lower() == "other").sum()
+                    other_count = (
+                        subplot_veg["vegetation_species_type"]
+                        .astype(str)
+                        .str.lower()
+                        == "other"
+                    ).sum()
 
                 veg_valid_list.append(other_count < 10)
 
@@ -768,49 +942,82 @@ if st.session_state.data is not None:
             filtered_gdf["veg_valid"] = True
 
         # Create overall_valid column
-        filtered_gdf["overall_valid"] = filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]
+        filtered_gdf["overall_valid"] = (
+            filtered_gdf["geom_valid"] & filtered_gdf["veg_valid"]
+        )
 
     # Now calculate plot validation using overall_valid
     import re
 
-    if "PLOT_KEY" not in filtered_gdf.columns and "subplot_id" in filtered_gdf.columns:
-        filtered_gdf["PLOT_KEY"] = filtered_gdf["subplot_id"].str.split("/").str[0]
+    if (
+        "PLOT_KEY" not in filtered_gdf.columns
+        and "subplot_id" in filtered_gdf.columns
+    ):
+        filtered_gdf["PLOT_KEY"] = (
+            filtered_gdf["subplot_id"].str.split("/").str[0]
+        )
 
     if "PLOT_KEY" in filtered_gdf.columns:
         # Filter to only measured subplots (same as Plot Issues page)
-        if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+        if (
+            "subplot_id" in filtered_gdf.columns
+            and "measured_subplots" in filtered_gdf.columns
+        ):
             temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
+                lambda x: (
+                    int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                    if re.search(r"\[(\d+)\]", str(x))
+                    else 999
+                )
             )
-            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
-            measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]][
-                "subplot_id"
-            ].unique()
-            gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+            measured_subplot_ids = temp_df[
+                temp_df["subplot_number"] <= temp_df["measured_subplots"]
+            ]["subplot_id"].unique()
+            gdf_for_plots = filtered_gdf[
+                filtered_gdf["subplot_id"].isin(measured_subplot_ids)
+            ].copy()
         else:
             gdf_for_plots = filtered_gdf.copy()
 
         plot_summary = (
-            gdf_for_plots.groupby("PLOT_KEY").agg({"subplot_id": "count", "overall_valid": "sum"}).reset_index()
+            gdf_for_plots.groupby("PLOT_KEY")
+            .agg({"subplot_id": "count", "overall_valid": "sum"})
+            .reset_index()
         )
         plot_summary.columns = ["PLOT_KEY", "total_subplots", "valid_subplots"]
-        plot_summary["invalid_subplots"] = plot_summary["total_subplots"] - plot_summary["valid_subplots"]
+        plot_summary["invalid_subplots"] = (
+            plot_summary["total_subplots"] - plot_summary["valid_subplots"]
+        )
         # Plot is invalid if ≥8 subplots are invalid
         plot_summary["plot_valid"] = plot_summary["invalid_subplots"] < 8
     else:
         # Fallback: Still try to filter by measured subplots even without PLOT_KEY
         plot_summary = pd.DataFrame()
-        if "subplot_id" in filtered_gdf.columns and "measured_subplots" in filtered_gdf.columns:
+        if (
+            "subplot_id" in filtered_gdf.columns
+            and "measured_subplots" in filtered_gdf.columns
+        ):
             temp_df = filtered_gdf[["subplot_id", "measured_subplots"]].copy()
             temp_df["subplot_number"] = temp_df["subplot_id"].apply(
-                lambda x: int(re.search(r"\[(\d+)\]", str(x)).group(1)) if re.search(r"\[(\d+)\]", str(x)) else 999
+                lambda x: (
+                    int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                    if re.search(r"\[(\d+)\]", str(x))
+                    else 999
+                )
             )
-            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(lambda x: int(x) if pd.notna(x) else 999)
-            measured_subplot_ids = temp_df[temp_df["subplot_number"] <= temp_df["measured_subplots"]][
-                "subplot_id"
-            ].unique()
-            gdf_for_plots = filtered_gdf[filtered_gdf["subplot_id"].isin(measured_subplot_ids)].copy()
+            temp_df["measured_subplots"] = temp_df["measured_subplots"].apply(
+                lambda x: int(x) if pd.notna(x) else 999
+            )
+            measured_subplot_ids = temp_df[
+                temp_df["subplot_number"] <= temp_df["measured_subplots"]
+            ]["subplot_id"].unique()
+            gdf_for_plots = filtered_gdf[
+                filtered_gdf["subplot_id"].isin(measured_subplot_ids)
+            ].copy()
         else:
             gdf_for_plots = filtered_gdf.copy()
 
@@ -836,7 +1043,9 @@ if st.session_state.data is not None:
     # Export section
     st.markdown("---")
     st.markdown("## 📥 Export All Quality Checks")
-    st.caption("Download comprehensive quality report with all validation checks")
+    st.caption(
+        "Download comprehensive quality report with all validation checks"
+    )
 
     if st.button(
         "📥 Generate Complete Quality Report (Excel)",
@@ -869,7 +1078,9 @@ if st.session_state.data is not None:
 
                 # Check data availability
                 has_vegetation = "plots_subplots_vegetation" in raw_data
-                has_measurements = "plots_subplots_vegetation_measurements" in raw_data
+                has_measurements = (
+                    "plots_subplots_vegetation_measurements" in raw_data
+                )
                 has_complete = "complete" in raw_data
 
                 if not has_vegetation:
@@ -880,38 +1091,65 @@ if st.session_state.data is not None:
                 plots_df_all = raw_data.get("plots_subplots", pd.DataFrame())
                 veg_df_all = raw_data["plots_subplots_vegetation"].copy()
                 meas_df_all = (
-                    raw_data.get("plots_subplots_vegetation_measurements", pd.DataFrame())
+                    raw_data.get(
+                        "plots_subplots_vegetation_measurements",
+                        pd.DataFrame(),
+                    )
                     if has_measurements
                     else pd.DataFrame()
                 )
-                complete_df_all = raw_data.get("complete", pd.DataFrame()) if has_complete else pd.DataFrame()
+                complete_df_all = (
+                    raw_data.get("complete", pd.DataFrame())
+                    if has_complete
+                    else pd.DataFrame()
+                )
 
                 # IMPORTANT: Filter data based on filtered_gdf (which has date/enumerator filters applied)
                 # This ensures the export respects the sidebar filters
                 filtered_subplot_ids = (
-                    filtered_gdf["subplot_id"].unique() if "subplot_id" in filtered_gdf.columns else []
+                    filtered_gdf["subplot_id"].unique()
+                    if "subplot_id" in filtered_gdf.columns
+                    else []
                 )
 
                 if len(filtered_subplot_ids) > 0:
                     # Filter all dataframes to only include subplots from filtered_gdf
                     plots_df = (
-                        plots_df_all[plots_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        plots_df_all[
+                            plots_df_all["SUBPLOT_KEY"].isin(
+                                filtered_subplot_ids
+                            )
+                        ].copy()
                         if "SUBPLOT_KEY" in plots_df_all.columns
                         else plots_df_all.copy()
                     )
                     veg_df = (
-                        veg_df_all[veg_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
+                        veg_df_all[
+                            veg_df_all["SUBPLOT_KEY"].isin(
+                                filtered_subplot_ids
+                            )
+                        ].copy()
                         if "SUBPLOT_KEY" in veg_df_all.columns
                         else veg_df_all.copy()
                     )
                     meas_df = (
-                        meas_df_all[meas_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
-                        if has_measurements and "SUBPLOT_KEY" in meas_df_all.columns
+                        meas_df_all[
+                            meas_df_all["SUBPLOT_KEY"].isin(
+                                filtered_subplot_ids
+                            )
+                        ].copy()
+                        if has_measurements
+                        and "SUBPLOT_KEY" in meas_df_all.columns
                         else meas_df_all.copy()
                     )
                     complete_df = (
-                        complete_df_all[complete_df_all["SUBPLOT_KEY"].isin(filtered_subplot_ids)].copy()
-                        if has_complete and "SUBPLOT_KEY" in complete_df_all.columns
+                        complete_df_all[
+                            complete_df_all["SUBPLOT_KEY"].isin(
+                                filtered_subplot_ids
+                            )
+                        ].copy()
+                        if has_complete
+                        and "SUBPLOT_KEY" in complete_df_all.columns
                         else complete_df_all.copy()
                     )
                 else:
@@ -923,9 +1161,18 @@ if st.session_state.data is not None:
                 # DEBUG: Check what columns are in filtered_gdf
                 import sys
 
-                print(f"DEBUG EXPORT: filtered_gdf columns: {filtered_gdf.columns.tolist()}", file=sys.stderr)
-                print(f"DEBUG EXPORT: Has SubmissionDate: {'SubmissionDate' in filtered_gdf.columns}", file=sys.stderr)
-                print(f"DEBUG EXPORT: Has starttime: {'starttime' in filtered_gdf.columns}", file=sys.stderr)
+                print(
+                    f"DEBUG EXPORT: filtered_gdf columns: {filtered_gdf.columns.tolist()}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"DEBUG EXPORT: Has SubmissionDate: {'SubmissionDate' in filtered_gdf.columns}",
+                    file=sys.stderr,
+                )
+                print(
+                    f"DEBUG EXPORT: Has starttime: {'starttime' in filtered_gdf.columns}",
+                    file=sys.stderr,
+                )
 
                 # Merge with enumerator
                 veg_with_enum = merge_with_enumerator(veg_df, filtered_gdf)
@@ -945,7 +1192,9 @@ if st.session_state.data is not None:
                 )
 
                 if has_measurements:
-                    meas_with_enum = merge_with_enumerator(meas_df, filtered_gdf)
+                    meas_with_enum = merge_with_enumerator(
+                        meas_df, filtered_gdf
+                    )
                     meas_with_enum = add_tree_name_column(meas_with_enum)
                 else:
                     meas_with_enum = pd.DataFrame()
@@ -953,7 +1202,13 @@ if st.session_state.data is not None:
                 species_col = get_species_column(veg_with_enum)
 
                 # Helper function to format dataframe for export
-                def format_for_export(df, issue_type, issue_description_col=None, additional_cols=None, key_col=None):
+                def format_for_export(
+                    df,
+                    issue_type,
+                    issue_description_col=None,
+                    additional_cols=None,
+                    key_col=None,
+                ):
                     """
                     Format dataframe according to user's specification:
                     Plot id | Subplot id | KEY | Data collector name | Issue type | Issue description | Empty | Clarification
@@ -976,7 +1231,11 @@ if st.session_state.data is not None:
                     # Plot ID (from SUBPLOT_KEY - extract plot portion)
                     if "SUBPLOT_KEY" in df.columns:
                         result["Plot ID"] = df["SUBPLOT_KEY"].apply(
-                            lambda x: str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x)
+                            lambda x: (
+                                str(x).split("-")[0]
+                                if pd.notna(x) and "-" in str(x)
+                                else str(x)
+                            )
                         )
                     elif "PLOT_KEY" in df.columns:
                         result["Plot ID"] = df["PLOT_KEY"]
@@ -1007,17 +1266,28 @@ if st.session_state.data is not None:
                     result["Issue Type"] = issue_type
 
                     # Issue description
-                    if issue_description_col and issue_description_col in df.columns:
+                    if (
+                        issue_description_col
+                        and issue_description_col in df.columns
+                    ):
                         result["Issue Description"] = df[issue_description_col]
                     elif additional_cols:
                         # Build description from multiple columns row-wise
-                        available_cols = [col for col in additional_cols if col in df.columns]
+                        available_cols = [
+                            col for col in additional_cols if col in df.columns
+                        ]
                         if available_cols:
                             # Convert first column to string
-                            result["Issue Description"] = df[available_cols[0]].astype(str)
+                            result["Issue Description"] = df[
+                                available_cols[0]
+                            ].astype(str)
                             # Concatenate remaining columns with " | " separator
                             for col in available_cols[1:]:
-                                result["Issue Description"] = result["Issue Description"] + " | " + df[col].astype(str)
+                                result["Issue Description"] = (
+                                    result["Issue Description"]
+                                    + " | "
+                                    + df[col].astype(str)
+                                )
                         else:
                             result["Issue Description"] = ""
                     else:
@@ -1041,7 +1311,9 @@ if st.session_state.data is not None:
                     # SHEET 1: Geometry Validation Errors (Invalid Subplots)
                     try:
                         # Get invalid subplots
-                        invalid_subplots = filtered_gdf[~filtered_gdf["geom_valid"]].copy()
+                        invalid_subplots = filtered_gdf[
+                            ~filtered_gdf["geom_valid"]
+                        ].copy()
 
                         if len(invalid_subplots) > 0:
                             # Prepare export dataframe
@@ -1049,18 +1321,30 @@ if st.session_state.data is not None:
 
                             # Submitted Date (FIRST COLUMN)
                             if "SubmissionDate" in invalid_subplots.columns:
-                                result["Submitted Date"] = invalid_subplots["SubmissionDate"]
+                                result["Submitted Date"] = invalid_subplots[
+                                    "SubmissionDate"
+                                ]
                             elif "starttime" in invalid_subplots.columns:
-                                result["Submitted Date"] = invalid_subplots["starttime"]
+                                result["Submitted Date"] = invalid_subplots[
+                                    "starttime"
+                                ]
                             else:
                                 result["Submitted Date"] = ""
 
                             # Plot ID (extract from subplot_id)
                             if "subplot_id" in invalid_subplots.columns:
-                                result["Plot ID"] = invalid_subplots["subplot_id"].apply(
-                                    lambda x: str(x).split("-")[0] if pd.notna(x) and "-" in str(x) else str(x)
+                                result["Plot ID"] = invalid_subplots[
+                                    "subplot_id"
+                                ].apply(
+                                    lambda x: (
+                                        str(x).split("-")[0]
+                                        if pd.notna(x) and "-" in str(x)
+                                        else str(x)
+                                    )
                                 )
-                                result["Subplot ID"] = invalid_subplots["subplot_id"]
+                                result["Subplot ID"] = invalid_subplots[
+                                    "subplot_id"
+                                ]
                             else:
                                 result["Plot ID"] = ""
                                 result["Subplot ID"] = ""
@@ -1073,7 +1357,9 @@ if st.session_state.data is not None:
 
                             # Data collector
                             if "enumerator" in invalid_subplots.columns:
-                                result["Data Collector Name"] = invalid_subplots["enumerator"]
+                                result["Data Collector Name"] = (
+                                    invalid_subplots["enumerator"]
+                                )
                             else:
                                 result["Data Collector Name"] = ""
 
@@ -1085,23 +1371,46 @@ if st.session_state.data is not None:
 
                             # Add reasons if available
                             if "reasons" in invalid_subplots.columns:
-                                desc_parts.append(invalid_subplots["reasons"].fillna("Unknown error"))
+                                desc_parts.append(
+                                    invalid_subplots["reasons"].fillna(
+                                        "Unknown error"
+                                    )
+                                )
 
                             # Add area if available
                             if "area_m2" in invalid_subplots.columns:
-                                desc_parts.append("Area: " + invalid_subplots["area_m2"].round(2).astype(str) + " m²")
+                                desc_parts.append(
+                                    "Area: "
+                                    + invalid_subplots["area_m2"]
+                                    .round(2)
+                                    .astype(str)
+                                    + " m²"
+                                )
 
                             # Add vertex count if available
                             if "nr_vertices" in invalid_subplots.columns:
-                                desc_parts.append("Vertices: " + invalid_subplots["nr_vertices"].astype(str))
+                                desc_parts.append(
+                                    "Vertices: "
+                                    + invalid_subplots["nr_vertices"].astype(
+                                        str
+                                    )
+                                )
 
                             # Combine all description parts
                             if desc_parts:
-                                result["Issue Description"] = desc_parts[0].astype(str)
+                                result["Issue Description"] = desc_parts[
+                                    0
+                                ].astype(str)
                                 for part in desc_parts[1:]:
-                                    result["Issue Description"] = result["Issue Description"] + " | " + part.astype(str)
+                                    result["Issue Description"] = (
+                                        result["Issue Description"]
+                                        + " | "
+                                        + part.astype(str)
+                                    )
                             else:
-                                result["Issue Description"] = "Geometry validation failed"
+                                result["Issue Description"] = (
+                                    "Geometry validation failed"
+                                )
 
                             # Empty columns for manual review
                             result["Notes"] = ""
@@ -1109,49 +1418,78 @@ if st.session_state.data is not None:
 
                             # Export
                             sheet_name = "Geometry Errors"
-                            result.to_excel(writer, sheet_name=sheet_name, index=False)
+                            result.to_excel(
+                                writer, sheet_name=sheet_name, index=False
+                            )
                             sheet_dataframes[sheet_name] = result
                             sheets_created += 1
                     except Exception as e:
-                        st.warning(f"Could not export Geometry Errors: {str(e)}")
+                        st.warning(
+                            f"Could not export Geometry Errors: {str(e)}"
+                        )
 
                     # SHEET 2: Height Outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                     if has_measurements and len(meas_with_enum) > 0:
                         try:
                             # Use VEGETATION_KEY grouping instead of species-based
-                            if "tree_height_m" in meas_with_enum.columns and "VEGETATION_KEY" in meas_with_enum.columns:
+                            if (
+                                "tree_height_m" in meas_with_enum.columns
+                                and "VEGETATION_KEY" in meas_with_enum.columns
+                            ):
                                 height_check = meas_with_enum[
-                                    meas_with_enum["tree_height_m"].notna() & meas_with_enum["VEGETATION_KEY"].notna()
+                                    meas_with_enum["tree_height_m"].notna()
+                                    & meas_with_enum["VEGETATION_KEY"].notna()
                                 ].copy()
 
                                 if len(height_check) > 0:
                                     # Calculate median height per VEGETATION_KEY (tree group)
                                     median_check = (
-                                        height_check.groupby("VEGETATION_KEY")["tree_height_m"]
+                                        height_check.groupby("VEGETATION_KEY")[
+                                            "tree_height_m"
+                                        ]
                                         .median()
                                         .reset_index(name="median_height")
                                     )
 
                                     # Merge and apply 4x/0.25x thresholds
                                     height_total = pd.merge(
-                                        height_check, median_check, how="inner", on="VEGETATION_KEY"
+                                        height_check,
+                                        median_check,
+                                        how="inner",
+                                        on="VEGETATION_KEY",
                                     )
-                                    height_total["Upper_outliers"] = height_total.apply(
-                                        lambda row: (
-                                            "outlier" if row["tree_height_m"] > (row["median_height"] * 4) else "ok"
-                                        ),
-                                        axis=1,
+                                    height_total["Upper_outliers"] = (
+                                        height_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row["tree_height_m"]
+                                                > (row["median_height"] * 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
                                     )
-                                    height_total["Lower_outliers"] = height_total.apply(
-                                        lambda row: (
-                                            "outlier" if row["tree_height_m"] < (row["median_height"] / 4) else "ok"
-                                        ),
-                                        axis=1,
+                                    height_total["Lower_outliers"] = (
+                                        height_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row["tree_height_m"]
+                                                < (row["median_height"] / 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
                                     )
 
                                     height_outliers = height_total[
-                                        (height_total["Upper_outliers"] == "outlier")
-                                        | (height_total["Lower_outliers"] == "outlier")
+                                        (
+                                            height_total["Upper_outliers"]
+                                            == "outlier"
+                                        )
+                                        | (
+                                            height_total["Lower_outliers"]
+                                            == "outlier"
+                                        )
                                     ]
                                 else:
                                     height_outliers = pd.DataFrame()
@@ -1162,16 +1500,40 @@ if st.session_state.data is not None:
                                 # Ensure enumerator column exists - try multiple approaches
                                 if "enumerator" not in height_outliers.columns:
                                     # Try to add from filtered_gdf if available
-                                    if "enumerator" in filtered_gdf.columns and "subplot_id" in height_outliers.columns:
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        height_outliers = height_outliers.merge(enum_map, on="subplot_id", how="left")
+                                    if (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "subplot_id"
+                                        in height_outliers.columns
+                                    ):
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        height_outliers = (
+                                            height_outliers.merge(
+                                                enum_map,
+                                                on="subplot_id",
+                                                how="left",
+                                            )
+                                        )
                                     elif (
                                         "enumerator" in filtered_gdf.columns
-                                        and "SUBPLOT_KEY" in height_outliers.columns
+                                        and "SUBPLOT_KEY"
+                                        in height_outliers.columns
                                     ):
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                        height_outliers = height_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        enum_map.columns = [
+                                            "SUBPLOT_KEY",
+                                            "enumerator",
+                                        ]
+                                        height_outliers = (
+                                            height_outliers.merge(
+                                                enum_map,
+                                                on="SUBPLOT_KEY",
+                                                how="left",
+                                            )
+                                        )
                                     else:
                                         height_outliers["enumerator"] = ""
 
@@ -1188,11 +1550,15 @@ if st.session_state.data is not None:
                                     key_col="MEASUREMENT_KEY",
                                 )
                                 sheet_name = "Height Outliers"
-                                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                export_df.to_excel(
+                                    writer, sheet_name=sheet_name, index=False
+                                )
                                 sheet_dataframes[sheet_name] = export_df
                                 sheets_created += 1
                         except Exception as e:
-                            st.warning(f"Could not export Height Outliers: {str(e)}")
+                            st.warning(
+                                f"Could not export Height Outliers: {str(e)}"
+                            )
 
                     # SHEET 3: Circumference Outliers (using VEGETATION_KEY grouping - Rabobank methodology)
                     if has_measurements and len(meas_with_enum) > 0:
@@ -1200,39 +1566,72 @@ if st.session_state.data is not None:
                             # Find circumference column
                             if "circumference_bh" in meas_with_enum.columns:
                                 circ_col = "circumference_bh"
-                            elif "circumference_10cm" in meas_with_enum.columns:
+                            elif (
+                                "circumference_10cm" in meas_with_enum.columns
+                            ):
                                 circ_col = "circumference_10cm"
                             else:
                                 circ_col = None
 
                             # Use VEGETATION_KEY grouping instead of species-based
-                            if circ_col and "VEGETATION_KEY" in meas_with_enum.columns:
+                            if (
+                                circ_col
+                                and "VEGETATION_KEY" in meas_with_enum.columns
+                            ):
                                 circ_check = meas_with_enum[
-                                    meas_with_enum[circ_col].notna() & meas_with_enum["VEGETATION_KEY"].notna()
+                                    meas_with_enum[circ_col].notna()
+                                    & meas_with_enum["VEGETATION_KEY"].notna()
                                 ].copy()
 
                                 if len(circ_check) > 0:
                                     # Calculate median circumference per VEGETATION_KEY (tree group)
                                     median_check = (
-                                        circ_check.groupby("VEGETATION_KEY")[circ_col]
+                                        circ_check.groupby("VEGETATION_KEY")[
+                                            circ_col
+                                        ]
                                         .median()
                                         .reset_index(name="median_circ")
                                     )
 
                                     # Merge and apply 4x/0.25x thresholds
-                                    circ_total = pd.merge(circ_check, median_check, how="inner", on="VEGETATION_KEY")
-                                    circ_total["Upper_outliers"] = circ_total.apply(
-                                        lambda row: "outlier" if row[circ_col] > (row["median_circ"] * 4) else "ok",
-                                        axis=1,
+                                    circ_total = pd.merge(
+                                        circ_check,
+                                        median_check,
+                                        how="inner",
+                                        on="VEGETATION_KEY",
                                     )
-                                    circ_total["Lower_outliers"] = circ_total.apply(
-                                        lambda row: "outlier" if row[circ_col] < (row["median_circ"] / 4) else "ok",
-                                        axis=1,
+                                    circ_total["Upper_outliers"] = (
+                                        circ_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row[circ_col]
+                                                > (row["median_circ"] * 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
+                                    )
+                                    circ_total["Lower_outliers"] = (
+                                        circ_total.apply(
+                                            lambda row: (
+                                                "outlier"
+                                                if row[circ_col]
+                                                < (row["median_circ"] / 4)
+                                                else "ok"
+                                            ),
+                                            axis=1,
+                                        )
                                     )
 
                                     circ_outliers = circ_total[
-                                        (circ_total["Upper_outliers"] == "outlier")
-                                        | (circ_total["Lower_outliers"] == "outlier")
+                                        (
+                                            circ_total["Upper_outliers"]
+                                            == "outlier"
+                                        )
+                                        | (
+                                            circ_total["Lower_outliers"]
+                                            == "outlier"
+                                        )
                                     ]
                                 else:
                                     circ_outliers = pd.DataFrame()
@@ -1243,15 +1642,36 @@ if st.session_state.data is not None:
                                 # Ensure enumerator column exists - try multiple approaches
                                 if "enumerator" not in circ_outliers.columns:
                                     # Try to add from filtered_gdf if available
-                                    if "enumerator" in filtered_gdf.columns and "subplot_id" in circ_outliers.columns:
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        circ_outliers = circ_outliers.merge(enum_map, on="subplot_id", how="left")
-                                    elif (
-                                        "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in circ_outliers.columns
+                                    if (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "subplot_id"
+                                        in circ_outliers.columns
                                     ):
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                        circ_outliers = circ_outliers.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        circ_outliers = circ_outliers.merge(
+                                            enum_map,
+                                            on="subplot_id",
+                                            how="left",
+                                        )
+                                    elif (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "SUBPLOT_KEY"
+                                        in circ_outliers.columns
+                                    ):
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        enum_map.columns = [
+                                            "SUBPLOT_KEY",
+                                            "enumerator",
+                                        ]
+                                        circ_outliers = circ_outliers.merge(
+                                            enum_map,
+                                            on="SUBPLOT_KEY",
+                                            how="left",
+                                        )
                                     else:
                                         circ_outliers["enumerator"] = ""
 
@@ -1268,11 +1688,15 @@ if st.session_state.data is not None:
                                     key_col="CIRCUMFERENCE_KEY",
                                 )
                                 sheet_name = "Circumference Outliers"
-                                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                export_df.to_excel(
+                                    writer, sheet_name=sheet_name, index=False
+                                )
                                 sheet_dataframes[sheet_name] = export_df
                                 sheets_created += 1
                         except Exception as e:
-                            st.warning(f"Could not export Circumference Outliers: {str(e)}")
+                            st.warning(
+                                f"Could not export Circumference Outliers: {str(e)}"
+                            )
 
                     # COMMENTED OUT: Height Outliers (by Species) - IQR-based detection
                     # if has_complete and len(complete_df) > 0:
@@ -1484,31 +1908,64 @@ if st.session_state.data is not None:
                     # SHEET 10: Super Tall Trees (>25m)
                     if has_measurements:
                         try:
-                            m_mea = raw_data["plots_subplots_vegetation_measurements"]
+                            m_mea = raw_data[
+                                "plots_subplots_vegetation_measurements"
+                            ]
                             if "MEASUREMENT_KEY" in m_mea.columns:
-                                m_mea_actual = m_mea[m_mea["MEASUREMENT_KEY"].notna()].copy()
+                                m_mea_actual = m_mea[
+                                    m_mea["MEASUREMENT_KEY"].notna()
+                                ].copy()
                             else:
                                 m_mea_actual = m_mea.copy()
 
                             if "tree_height_m" in m_mea_actual.columns:
-                                super_tall = m_mea_actual[m_mea_actual["tree_height_m"] > 25].copy()
+                                super_tall = m_mea_actual[
+                                    m_mea_actual["tree_height_m"] > 25
+                                ].copy()
 
                                 if len(super_tall) > 0:
-                                    super_tall = merge_with_enumerator(super_tall, filtered_gdf)
-                                    super_tall = add_tree_name_column(super_tall)
+                                    super_tall = merge_with_enumerator(
+                                        super_tall, filtered_gdf
+                                    )
+                                    super_tall = add_tree_name_column(
+                                        super_tall
+                                    )
 
                                     # Ensure enumerator column exists - try multiple approaches
                                     if "enumerator" not in super_tall.columns:
                                         # Try to add from filtered_gdf if available
-                                        if "enumerator" in filtered_gdf.columns and "subplot_id" in super_tall.columns:
-                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                            super_tall = super_tall.merge(enum_map, on="subplot_id", how="left")
-                                        elif (
-                                            "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in super_tall.columns
+                                        if (
+                                            "enumerator"
+                                            in filtered_gdf.columns
+                                            and "subplot_id"
+                                            in super_tall.columns
                                         ):
-                                            enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                            enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                            super_tall = super_tall.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                            enum_map = filtered_gdf[
+                                                ["subplot_id", "enumerator"]
+                                            ].drop_duplicates()
+                                            super_tall = super_tall.merge(
+                                                enum_map,
+                                                on="subplot_id",
+                                                how="left",
+                                            )
+                                        elif (
+                                            "enumerator"
+                                            in filtered_gdf.columns
+                                            and "SUBPLOT_KEY"
+                                            in super_tall.columns
+                                        ):
+                                            enum_map = filtered_gdf[
+                                                ["subplot_id", "enumerator"]
+                                            ].drop_duplicates()
+                                            enum_map.columns = [
+                                                "SUBPLOT_KEY",
+                                                "enumerator",
+                                            ]
+                                            super_tall = super_tall.merge(
+                                                enum_map,
+                                                on="SUBPLOT_KEY",
+                                                how="left",
+                                            )
                                         else:
                                             super_tall["enumerator"] = ""
 
@@ -1523,29 +1980,60 @@ if st.session_state.data is not None:
                                         key_col="MEASUREMENT_KEY",
                                     )
                                     sheet_name = "Super Tall Trees"
-                                    export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                    export_df.to_excel(
+                                        writer,
+                                        sheet_name=sheet_name,
+                                        index=False,
+                                    )
                                     sheet_dataframes[sheet_name] = export_df
                                     sheets_created += 1
                         except Exception as e:
-                            st.warning(f"Could not export Super Tall Trees: {str(e)}")
+                            st.warning(
+                                f"Could not export Super Tall Trees: {str(e)}"
+                            )
 
                     # SHEET 11: High Stem Counts (>20)
                     if has_measurements and len(meas_with_enum) > 0:
                         try:
-                            meas_with_stems = detect_stem_outliers(meas_with_enum, threshold=20)
-                            high_stems = meas_with_stems[meas_with_stems["high_stems_bh"] == True]
+                            meas_with_stems = detect_stem_outliers(
+                                meas_with_enum, threshold=20
+                            )
+                            high_stems = meas_with_stems[
+                                meas_with_stems["high_stems_bh"] == True
+                            ]
 
                             if len(high_stems) > 0:
                                 # Ensure enumerator column exists - try multiple approaches
                                 if "enumerator" not in high_stems.columns:
                                     # Try to add from filtered_gdf if available
-                                    if "enumerator" in filtered_gdf.columns and "subplot_id" in high_stems.columns:
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        high_stems = high_stems.merge(enum_map, on="subplot_id", how="left")
-                                    elif "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in high_stems.columns:
-                                        enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                        enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                        high_stems = high_stems.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                    if (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "subplot_id" in high_stems.columns
+                                    ):
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        high_stems = high_stems.merge(
+                                            enum_map,
+                                            on="subplot_id",
+                                            how="left",
+                                        )
+                                    elif (
+                                        "enumerator" in filtered_gdf.columns
+                                        and "SUBPLOT_KEY" in high_stems.columns
+                                    ):
+                                        enum_map = filtered_gdf[
+                                            ["subplot_id", "enumerator"]
+                                        ].drop_duplicates()
+                                        enum_map.columns = [
+                                            "SUBPLOT_KEY",
+                                            "enumerator",
+                                        ]
+                                        high_stems = high_stems.merge(
+                                            enum_map,
+                                            on="SUBPLOT_KEY",
+                                            how="left",
+                                        )
                                     else:
                                         high_stems["enumerator"] = ""
 
@@ -1561,58 +2049,110 @@ if st.session_state.data is not None:
                                     key_col="MEASUREMENT_KEY",
                                 )
                                 sheet_name = "High Stem Counts"
-                                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                                export_df.to_excel(
+                                    writer, sheet_name=sheet_name, index=False
+                                )
                                 sheet_dataframes[sheet_name] = export_df
                                 sheets_created += 1
                         except Exception as e:
-                            st.warning(f"Could not export High Stem Counts: {str(e)}")
+                            st.warning(
+                                f"Could not export High Stem Counts: {str(e)}"
+                            )
 
                     # SHEET 12: Suspicious Circumference by Age
                     if has_complete:
                         try:
-                            complete_with_enum = merge_with_enumerator(complete_df, filtered_gdf)
-                            complete_with_enum = add_tree_name_column(complete_with_enum)
+                            complete_with_enum = merge_with_enumerator(
+                                complete_df, filtered_gdf
+                            )
+                            complete_with_enum = add_tree_name_column(
+                                complete_with_enum
+                            )
 
-                            if "circumference_bh" in complete_with_enum.columns:
+                            if (
+                                "circumference_bh"
+                                in complete_with_enum.columns
+                            ):
                                 circ_col = "circumference_bh"
-                            elif "circumference_10cm" in complete_with_enum.columns:
+                            elif (
+                                "circumference_10cm"
+                                in complete_with_enum.columns
+                            ):
                                 circ_col = "circumference_10cm"
                             else:
                                 circ_col = None
 
-                            if circ_col and "tree_year_planted" in complete_with_enum.columns:
-                                circ_data = complete_with_enum[complete_with_enum[circ_col].notna()].copy()
+                            if (
+                                circ_col
+                                and "tree_year_planted"
+                                in complete_with_enum.columns
+                            ):
+                                circ_data = complete_with_enum[
+                                    complete_with_enum[circ_col].notna()
+                                ].copy()
                                 circ_data = calculate_tree_age(circ_data)
 
                                 if circ_data["tree_age"].notna().any():
-                                    circ_data = detect_suspicious_circumference_by_age(
-                                        circ_data,
-                                        circ_col=circ_col,
-                                        young_tree_circ_threshold=50,
-                                        young_tree_age_threshold=5,
-                                        large_circ_threshold=300,
-                                        large_circ_age_threshold=15,
+                                    circ_data = (
+                                        detect_suspicious_circumference_by_age(
+                                            circ_data,
+                                            circ_col=circ_col,
+                                            young_tree_circ_threshold=50,
+                                            young_tree_age_threshold=5,
+                                            large_circ_threshold=300,
+                                            large_circ_age_threshold=15,
+                                        )
                                     )
 
-                                    suspicious = circ_data[circ_data["suspicious"] == True]
+                                    suspicious = circ_data[
+                                        circ_data["suspicious"] == True
+                                    ]
 
                                     if len(suspicious) > 0:
                                         # Ensure enumerator column exists - try multiple approaches
-                                        if "enumerator" not in suspicious.columns:
+                                        if (
+                                            "enumerator"
+                                            not in suspicious.columns
+                                        ):
                                             # Try to add from filtered_gdf if available
                                             if (
-                                                "enumerator" in filtered_gdf.columns
-                                                and "subplot_id" in suspicious.columns
+                                                "enumerator"
+                                                in filtered_gdf.columns
+                                                and "subplot_id"
+                                                in suspicious.columns
                                             ):
-                                                enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                                suspicious = suspicious.merge(enum_map, on="subplot_id", how="left")
+                                                enum_map = filtered_gdf[
+                                                    [
+                                                        "subplot_id",
+                                                        "enumerator",
+                                                    ]
+                                                ].drop_duplicates()
+                                                suspicious = suspicious.merge(
+                                                    enum_map,
+                                                    on="subplot_id",
+                                                    how="left",
+                                                )
                                             elif (
-                                                "enumerator" in filtered_gdf.columns
-                                                and "SUBPLOT_KEY" in suspicious.columns
+                                                "enumerator"
+                                                in filtered_gdf.columns
+                                                and "SUBPLOT_KEY"
+                                                in suspicious.columns
                                             ):
-                                                enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                                enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                                suspicious = suspicious.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                                enum_map = filtered_gdf[
+                                                    [
+                                                        "subplot_id",
+                                                        "enumerator",
+                                                    ]
+                                                ].drop_duplicates()
+                                                enum_map.columns = [
+                                                    "SUBPLOT_KEY",
+                                                    "enumerator",
+                                                ]
+                                                suspicious = suspicious.merge(
+                                                    enum_map,
+                                                    on="SUBPLOT_KEY",
+                                                    how="left",
+                                                )
                                             else:
                                                 suspicious["enumerator"] = ""
 
@@ -1628,76 +2168,116 @@ if st.session_state.data is not None:
                                             key_col="CIRCUMFERENCE_KEY",
                                         )
                                         sheet_name = "Suspicious Circ by Age"
-                                        export_df.to_excel(writer, sheet_name=sheet_name, index=False)
-                                        sheet_dataframes[sheet_name] = export_df
+                                        export_df.to_excel(
+                                            writer,
+                                            sheet_name=sheet_name,
+                                            index=False,
+                                        )
+                                        sheet_dataframes[sheet_name] = (
+                                            export_df
+                                        )
                                         sheets_created += 1
                         except Exception as e:
-                            st.warning(f"Could not export Suspicious Circ by Age: {str(e)}")
+                            st.warning(
+                                f"Could not export Suspicious Circ by Age: {str(e)}"
+                            )
 
                     # SHEET 13: Missing Vegetation
                     try:
                         # Filter veg_df to only actual vegetation (non-null VEGETATION_KEY)
                         if "VEGETATION_KEY" in veg_df.columns:
-                            veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
+                            veg_df_actual = veg_df[
+                                veg_df["VEGETATION_KEY"].notna()
+                            ].copy()
                         else:
                             veg_df_actual = veg_df.copy()
 
                         # Filter plots_df to only include MEASURED subplots
                         # This ensures we don't count unmeasured subplots as "missing vegetation"
-                        if "SUBPLOT_KEY" in plots_df.columns and "measured_subplots" in plots_df.columns:
+                        if (
+                            "SUBPLOT_KEY" in plots_df.columns
+                            and "measured_subplots" in plots_df.columns
+                        ):
                             import re
 
                             # Create temporary dataframe with subplot info
                             temp_plots = plots_df.copy()
 
                             # Extract subplot number from SUBPLOT_KEY (e.g., "uuid.../sub_plot[12]" -> 12)
-                            temp_plots["subplot_number"] = temp_plots["SUBPLOT_KEY"].apply(
+                            temp_plots["subplot_number"] = temp_plots[
+                                "SUBPLOT_KEY"
+                            ].apply(
                                 lambda x: (
-                                    int(re.search(r"\[(\d+)\]", str(x)).group(1))
+                                    int(
+                                        re.search(r"\[(\d+)\]", str(x)).group(
+                                            1
+                                        )
+                                    )
                                     if re.search(r"\[(\d+)\]", str(x))
                                     else 999
                                 )
                             )
 
                             # Convert measured_subplots to int
-                            temp_plots["measured_subplots"] = temp_plots["measured_subplots"].apply(
-                                lambda x: int(x) if pd.notna(x) else 999
-                            )
+                            temp_plots["measured_subplots"] = temp_plots[
+                                "measured_subplots"
+                            ].apply(lambda x: int(x) if pd.notna(x) else 999)
 
                             # Only include subplots where subplot_number <= measured_subplots
                             plots_df_measured = temp_plots[
-                                temp_plots["subplot_number"] <= temp_plots["measured_subplots"]
+                                temp_plots["subplot_number"]
+                                <= temp_plots["measured_subplots"]
                             ].copy()
 
                             # Drop temporary columns
-                            plots_df_measured = plots_df_measured.drop(columns=["subplot_number"], errors="ignore")
+                            plots_df_measured = plots_df_measured.drop(
+                                columns=["subplot_number"], errors="ignore"
+                            )
                         else:
                             # Fallback: use all plots_df
                             plots_df_measured = plots_df.copy()
 
                         # Get missing vegetation subplots (using measured plots only and actual vegetation)
-                        missing_veg = get_missing_subplots(plots_df_measured, veg_df_actual)
+                        missing_veg = get_missing_subplots(
+                            plots_df_measured, veg_df_actual
+                        )
 
                         if len(missing_veg) > 0:
                             # Ensure enumerator column exists
                             if "enumerator" not in missing_veg.columns:
                                 # Try to add from filtered_gdf if available
-                                if "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in missing_veg.columns:
-                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                    missing_veg = missing_veg.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                if (
+                                    "enumerator" in filtered_gdf.columns
+                                    and "SUBPLOT_KEY" in missing_veg.columns
+                                ):
+                                    enum_map = filtered_gdf[
+                                        ["subplot_id", "enumerator"]
+                                    ].drop_duplicates()
+                                    enum_map.columns = [
+                                        "SUBPLOT_KEY",
+                                        "enumerator",
+                                    ]
+                                    missing_veg = missing_veg.merge(
+                                        enum_map, on="SUBPLOT_KEY", how="left"
+                                    )
                                 else:
                                     missing_veg["enumerator"] = ""
 
                             # Add explanation about measured_subplots vs actual data collected
-                            if "measured_subplots" in missing_veg.columns and "SUBPLOT_KEY" in missing_veg.columns:
+                            if (
+                                "measured_subplots" in missing_veg.columns
+                                and "SUBPLOT_KEY" in missing_veg.columns
+                            ):
                                 import re
 
                                 def create_missing_description(row):
                                     parts = []
 
                                     # Extract subplot number
-                                    subplot_match = re.search(r"\[(\d+)\]", str(row.get("SUBPLOT_KEY", "")))
+                                    subplot_match = re.search(
+                                        r"\[(\d+)\]",
+                                        str(row.get("SUBPLOT_KEY", "")),
+                                    )
                                     if subplot_match:
                                         subplot_num = subplot_match.group(1)
                                         parts.append(f"Subplot #{subplot_num}")
@@ -1710,13 +2290,23 @@ if st.session_state.data is not None:
 
                                     # Add comments if available
                                     if pd.notna(row.get("subplot_comments")):
-                                        parts.append(f"Comment: {row['subplot_comments']}")
+                                        parts.append(
+                                            f"Comment: {row['subplot_comments']}"
+                                        )
                                     else:
-                                        parts.append("No vegetation data collected")
+                                        parts.append(
+                                            "No vegetation data collected"
+                                        )
 
-                                    return " | ".join(parts) if parts else "No vegetation data"
+                                    return (
+                                        " | ".join(parts)
+                                        if parts
+                                        else "No vegetation data"
+                                    )
 
-                                missing_veg["description"] = missing_veg.apply(create_missing_description, axis=1)
+                                missing_veg["description"] = missing_veg.apply(
+                                    create_missing_description, axis=1
+                                )
 
                                 export_df = format_for_export(
                                     missing_veg,
@@ -1732,43 +2322,67 @@ if st.session_state.data is not None:
                                     key_col="SUBPLOT_KEY",
                                 )
                             sheet_name = "Missing Vegetation"
-                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            export_df.to_excel(
+                                writer, sheet_name=sheet_name, index=False
+                            )
                             sheet_dataframes[sheet_name] = export_df
                             sheets_created += 1
                     except Exception as e:
-                        st.warning(f"Could not export Missing Vegetation: {str(e)}")
+                        st.warning(
+                            f"Could not export Missing Vegetation: {str(e)}"
+                        )
 
                     # SHEET 14: Unknown/Unidentified Species
                     try:
                         # Get vegetation data with actual records only
                         if "VEGETATION_KEY" in veg_df.columns:
-                            veg_df_actual = veg_df[veg_df["VEGETATION_KEY"].notna()].copy()
+                            veg_df_actual = veg_df[
+                                veg_df["VEGETATION_KEY"].notna()
+                            ].copy()
                         else:
                             veg_df_actual = veg_df.copy()
 
                         # Check for unidentified species (where species = "other")
-                        unknown_species = check_unidentified_species(veg_df_actual)
+                        unknown_species = check_unidentified_species(
+                            veg_df_actual
+                        )
 
                         if len(unknown_species) > 0:
                             # Ensure enumerator column exists
                             if "enumerator" not in unknown_species.columns:
                                 # Try to add from filtered_gdf if available
-                                if "enumerator" in filtered_gdf.columns and "SUBPLOT_KEY" in unknown_species.columns:
-                                    enum_map = filtered_gdf[["subplot_id", "enumerator"]].drop_duplicates()
-                                    enum_map.columns = ["SUBPLOT_KEY", "enumerator"]
-                                    unknown_species = unknown_species.merge(enum_map, on="SUBPLOT_KEY", how="left")
+                                if (
+                                    "enumerator" in filtered_gdf.columns
+                                    and "SUBPLOT_KEY"
+                                    in unknown_species.columns
+                                ):
+                                    enum_map = filtered_gdf[
+                                        ["subplot_id", "enumerator"]
+                                    ].drop_duplicates()
+                                    enum_map.columns = [
+                                        "SUBPLOT_KEY",
+                                        "enumerator",
+                                    ]
+                                    unknown_species = unknown_species.merge(
+                                        enum_map, on="SUBPLOT_KEY", how="left"
+                                    )
                                 else:
                                     unknown_species["enumerator"] = ""
 
                             # Add tree_name column for display
-                            unknown_species = add_tree_name_column(unknown_species)
+                            unknown_species = add_tree_name_column(
+                                unknown_species
+                            )
 
                             # Create issue description
                             def create_unknown_description(row):
                                 parts = []
 
                                 # Add tree name if available
-                                if pd.notna(row.get("tree_name")) and row.get("tree_name") != "other":
+                                if (
+                                    pd.notna(row.get("tree_name"))
+                                    and row.get("tree_name") != "other"
+                                ):
                                     parts.append(f"Tree: {row['tree_name']}")
                                 else:
                                     parts.append("Species marked as 'other'")
@@ -1786,22 +2400,31 @@ if st.session_state.data is not None:
                                     if (
                                         col in row.index
                                         and pd.notna(row.get(col))
-                                        and str(row.get(col)).lower() == "other"
+                                        and str(row.get(col)).lower()
+                                        == "other"
                                     ):
-                                        parts.append(f"Type: {col.replace('_', ' ').title()}")
+                                        parts.append(
+                                            f"Type: {col.replace('_', ' ').title()}"
+                                        )
                                         break
 
                                 if (
                                     pd.notna(row.get("language_other_species"))
                                     and row.get("language_other_species") != ""
                                 ):
-                                    parts.append(f"Local: {row['language_other_species']}")
+                                    parts.append(
+                                        f"Local: {row['language_other_species']}"
+                                    )
 
                                 parts.append("Needs botanical verification")
 
                                 return " | ".join(parts)
 
-                            unknown_species["description"] = unknown_species.apply(create_unknown_description, axis=1)
+                            unknown_species["description"] = (
+                                unknown_species.apply(
+                                    create_unknown_description, axis=1
+                                )
+                            )
 
                             export_df = format_for_export(
                                 unknown_species,
@@ -1818,17 +2441,29 @@ if st.session_state.data is not None:
                                 key_col="VEGETATION_KEY",
                             )
                             sheet_name = "Unknown Species"
-                            export_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            export_df.to_excel(
+                                writer, sheet_name=sheet_name, index=False
+                            )
                             sheet_dataframes[sheet_name] = export_df
                             sheets_created += 1
                     except Exception as e:
-                        st.warning(f"Could not export Unknown Species: {str(e)}")
+                        st.warning(
+                            f"Could not export Unknown Species: {str(e)}"
+                        )
 
                     # Summary sheet if no data
                     if sheets_created == 0:
-                        summary_df = pd.DataFrame({"Note": ["No quality issues found - all checks passed!"]})
+                        summary_df = pd.DataFrame(
+                            {
+                                "Note": [
+                                    "No quality issues found - all checks passed!"
+                                ]
+                            }
+                        )
                         sheet_name = "Summary"
-                        summary_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        summary_df.to_excel(
+                            writer, sheet_name=sheet_name, index=False
+                        )
                         sheet_dataframes[sheet_name] = summary_df
 
                     # Adjust column widths for all sheets
@@ -1843,7 +2478,9 @@ if st.session_state.data is not None:
 
                 output.seek(0)
 
-                st.success(f"✅ Generated quality report with {sheets_created} sheet(s)")
+                st.success(
+                    f"✅ Generated quality report with {sheets_created} sheet(s)"
+                )
 
                 st.download_button(
                     label="💾 Download Complete Quality Report",
@@ -1861,16 +2498,22 @@ if st.session_state.data is not None:
     # PDF Summary Report
     st.markdown("---")
     st.markdown("## 📄 Summary PDF Report")
-    st.caption("Download comprehensive summary report with all quality check statisticss")
+    st.caption(
+        "Download comprehensive summary report with all quality check statisticss"
+    )
 
     if st.button(
         "📄 Generate Summary PDF Report",
         use_container_width=True,
         type="secondary",
     ):
-        with st.status("Generating PDF summary report...", expanded=True) as status:
+        with st.status(
+            "Generating PDF summary report...", expanded=True
+        ) as status:
             try:
-                from utils.pdf_summary_report import generate_summary_pdf_report
+                from utils.pdf_summary_report import (
+                    generate_summary_pdf_report,
+                )
 
                 # Get raw data
                 status.update(label="Preparing data...", state="running")
@@ -1887,18 +2530,33 @@ if st.session_state.data is not None:
                         date_start = st.session_state.get("date_filter_start")
                         date_end = st.session_state.get("date_filter_end")
                         if date_start and date_end:
-                            dq_gdf = filter_by_date(dq_gdf, date_start, date_end)
+                            dq_gdf = filter_by_date(
+                                dq_gdf, date_start, date_end
+                            )
                 else:
                     dq_gdf = None
                     dq_raw_data = None
 
                 # Calculate expected work
-                num_enumerators = filtered_gdf["enumerator"].nunique() if "enumerator" in filtered_gdf.columns else 0
-                num_plots = filtered_gdf["PLOT_KEY"].nunique() if "PLOT_KEY" in filtered_gdf.columns else 0
-                st.write(f"Processing {num_enumerators} enumerators, {num_plots} plots...")
+                num_enumerators = (
+                    filtered_gdf["enumerator"].nunique()
+                    if "enumerator" in filtered_gdf.columns
+                    else 0
+                )
+                num_plots = (
+                    filtered_gdf["PLOT_KEY"].nunique()
+                    if "PLOT_KEY" in filtered_gdf.columns
+                    else 0
+                )
+                st.write(
+                    f"Processing {num_enumerators} enumerators, {num_plots} plots..."
+                )
 
                 # Generate PDF with progress updates
-                status.update(label="Generating maps and tables (this may take a moment)...", state="running")
+                status.update(
+                    label="Generating maps and tables (this may take a moment)...",
+                    state="running",
+                )
                 st.caption(
                     "Tip: PDF generation speed depends on the number of plots. Maps are rendered at reduced DPI for faster generation."
                 )
@@ -1914,7 +2572,9 @@ if st.session_state.data is not None:
                 pdf_bytes = pdf_buffer.getvalue()
                 timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
 
-                status.update(label="PDF generated successfully!", state="complete")
+                status.update(
+                    label="PDF generated successfully!", state="complete"
+                )
 
                 # Download button INSIDE the if-block - no session state needed
                 st.download_button(
@@ -1924,7 +2584,9 @@ if st.session_state.data is not None:
                     mime="application/pdf",
                     use_container_width=True,
                 )
-                st.success(f"✅ PDF generated! ({len(pdf_bytes) / 1024:.0f} KB)")
+                st.success(
+                    f"✅ PDF generated! ({len(pdf_bytes) / 1024:.0f} KB)"
+                )
 
             except Exception as e:
                 status.update(label="PDF generation failed", state="error")
@@ -1990,7 +2652,8 @@ if st.session_state.data is not None:
                 "Error Type": list(summary["reason_counts"].keys()),
                 "Count": list(summary["reason_counts"].values()),
                 "Percentage": [
-                    f"{(count / summary['invalid'] * 100):.1f}%" for count in summary["reason_counts"].values()
+                    f"{(count / summary['invalid'] * 100):.1f}%"
+                    for count in summary["reason_counts"].values()
                 ],
             }
         ).sort_values("Count", ascending=False)
@@ -2005,4 +2668,6 @@ else:
     # Welcome screen
     st.markdown("## 👋 Welcome to Ground Truth DQM")
 
-    st.info("👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data")
+    st.info(
+        "👈 Enter your SurveyCTO credentials and click 'Fetch & Validate' to load data"
+    )

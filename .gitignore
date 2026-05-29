@@ -9,6 +9,7 @@ data_cache/*.json
 
 # Environment variables
 .env
+.streamlit/secrets.toml
 
 # Agent Config & Docs
 .agent/
