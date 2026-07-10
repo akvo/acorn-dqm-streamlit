@@ -10,6 +10,18 @@ import streamlit as st
 # ============================================
 
 PARTNERS = {
+    "KATZ": {
+        "country": "Tanzania",
+        "country_iso3": "TZA",
+        "dqID": "data_quality_ground_truth_collection_kaderes_2026_july_swahili",
+        "gtID": "ground_truth_collection_KADERES_2026_june_SWAHILI",
+        "description": "Kaderes Tanzania 2026",
+        "min_plot_area": 1000,
+        "max_plot_area": 300000,
+        "map_center": [-2.09, 31.17],
+        "start_date": "2026-07-08",
+        "map_zoom": 5,
+    },
     "AFEC-26": {
         "country": "India",
         "country_iso3": "IND",
