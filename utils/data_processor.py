@@ -12,7 +12,6 @@ from core import (
     assign_geom_valid_geojson,
 )
 import config
-import sys
 import streamlit as st
 
 
@@ -226,6 +225,10 @@ def process_excel_file(uploaded_file):
     if "measured_subplots" in m_plots.columns:
         cols_to_select.append("measured_subplots")
 
+    # Add subplot_comments if available
+    if "subplot_comments" in m_plots.columns:
+        cols_to_select.append("subplot_comments")
+
     # Add PLOT_KEY to group by plot for measured_subplots aggregation
     if "PLOT_KEY" in m_plots.columns:
         cols_to_select.append("PLOT_KEY")
@@ -289,6 +292,8 @@ def process_excel_file(uploaded_file):
         preserve_cols.append("SubmissionDate")
     if "starttime" in subplots_for_validation.columns:
         preserve_cols.append("starttime")
+    if "subplot_comments" in subplots_for_validation.columns:
+        preserve_cols.append("subplot_comments")
     if "PLOT_KEY" in subplots_for_validation.columns:
         preserve_cols.append("PLOT_KEY")
 
@@ -1049,6 +1054,10 @@ def process_json_data(json_data):
     if "measured_subplots" in m_plots.columns:
         cols_to_select.append("measured_subplots")
 
+    # Add subplot_comments if available
+    if "subplot_comments" in m_plots.columns:
+        cols_to_select.append("subplot_comments")
+
     # Add PLOT_KEY to group by plot for measured_subplots aggregation
     if "PLOT_KEY" in m_plots.columns:
         cols_to_select.append("PLOT_KEY")
@@ -1111,6 +1120,8 @@ def process_json_data(json_data):
         preserve_cols.append("SubmissionDate")
     if "starttime" in subplots_for_validation.columns:
         preserve_cols.append("starttime")
+    if "subplot_comments" in subplots_for_validation.columns:
+        preserve_cols.append("subplot_comments")
     if "PLOT_KEY" in subplots_for_validation.columns:
         preserve_cols.append("PLOT_KEY")
 

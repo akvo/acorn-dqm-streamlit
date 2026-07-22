@@ -303,6 +303,7 @@ tabs = st.tabs(
         "⚠️ Outliers & Suspicious",
         "🚫 Missing Data",
         "🌲 Tree Classification",
+        "💬 Comments Log",
     ]
 )
 
@@ -2051,12 +2052,27 @@ with tabs[1]:
                     "tree_year_planted",
                     "tree_prune",
                     "tree_coppiced",
+                    "tree_comments",
                 ]:
                     if col in height_outliers.columns:
                         display_cols.append(col)
 
                 if len(display_cols) > 0:
                     display_df = height_outliers[display_cols].copy()
+                    display_df = display_df.rename(
+                        columns={
+                            "VEGETATION_KEY": "Vegetation Key",
+                            "enumerator": "Enumerator",
+                            "tree_name": "Tree Name",
+                            "tree_height_m": "Height (m)",
+                            "median_height": "Group Median",
+                            "Outlier_Type": "Outlier Type",
+                            "tree_year_planted": "Year Planted",
+                            "tree_prune": "Pruned",
+                            "tree_coppiced": "Coppiced",
+                            "tree_comments": "Enumerator Comment",
+                        }
+                    )
                     display_df.insert(0, "#", range(1, len(display_df) + 1))
 
                     st.dataframe(
@@ -2165,12 +2181,25 @@ with tabs[1]:
                         "median_circ",
                         "Outlier_Type",
                         "tree_year_planted",
+                        "tree_comments",
                     ]:
                         if col in circ_outliers.columns:
                             display_cols.append(col)
 
                     if len(display_cols) > 0:
                         display_df = circ_outliers[display_cols].copy()
+                        display_df = display_df.rename(
+                            columns={
+                                "CIRCUMFERENCE_KEY": "Circumference Key",
+                                "enumerator": "Enumerator",
+                                "tree_name": "Tree Name",
+                                circ_col: "Circumference",
+                                "median_circ": "Group Median",
+                                "Outlier_Type": "Outlier Type",
+                                "tree_year_planted": "Year Planted",
+                                "tree_comments": "Enumerator Comment",
+                            }
+                        )
                         display_df.insert(0, "#", range(1, len(display_df) + 1))
 
                         st.dataframe(
@@ -2271,16 +2300,30 @@ with tabs[1]:
                         circ_col,
                         "tree_age",
                         "tree_height_m",
+                        "tree_comments",
                     ]:
                         if col and col in suspicious.columns:
                             display_cols.append(col)
 
                     if len(display_cols) > 0:
+                        display_df = suspicious[display_cols].copy()
+                        display_df = display_df.rename(
+                            columns={
+                                "CIRCUMFERENCE_KEY": "Circumference Key",
+                                "enumerator": "Enumerator",
+                                "SubmissionDate": "Date",
+                                "tree_name": "Tree Name",
+                                circ_col: "Circumference",
+                                "tree_age": "Age (years)",
+                                "tree_height_m": "Height (m)",
+                                "tree_comments": "Enumerator Comment",
+                            }
+                        )
                         st.dataframe(
                             (
-                                suspicious[display_cols].sort_values(circ_col, ascending=False)
-                                if circ_col in display_cols
-                                else suspicious[display_cols]
+                                display_df.sort_values(circ_col, ascending=False)
+                                if circ_col in display_df.columns
+                                else display_df
                             ),
                             use_container_width=True,
                             height=min(400, len(suspicious) * 35 + 38),
@@ -2627,3 +2670,145 @@ with col2:
 
         except Exception as e:
             st.error(f"Error creating CSV export: {str(e)}")
+
+# ============================================
+# TAB 5: COMMENTS LOG
+# ============================================
+
+with tabs[4]:
+    st.markdown("### 💬 Comments Log")
+    st.caption(
+        "Consolidated log of all enumerator comments entered at the subplot, vegetation, and tree measurement levels. "
+        "Use this list to find explanations for abnormal field data."
+    )
+
+    raw_data = st.session_state.data.get("raw_data", {})
+    comments_records = []
+
+    # 1. Subplot-level comments
+    if "subplots" in st.session_state.data:
+        subplots_gdf = st.session_state.data["subplots"]
+        if "subplot_comments" in subplots_gdf.columns:
+            sub_comments = subplots_gdf[
+                subplots_gdf["subplot_comments"].notna()
+                & (subplots_gdf["subplot_comments"].astype(str).str.strip() != "")
+            ].copy()
+            for _, row in sub_comments.iterrows():
+                comments_records.append(
+                    {
+                        "Subplot ID": row.get("subplot_id", row.get("SUBPLOT_KEY")),
+                        "Plot ID": row.get(
+                            "PLOT_KEY", str(row.get("subplot_id")).split("/")[0] if row.get("subplot_id") else ""
+                        ),
+                        "Enumerator": row.get("enumerator", "N/A"),
+                        "Date": str(row.get("SubmissionDate", row.get("starttime", "N/A"))),
+                        "Comment Location": "Subplot Level",
+                        "Comment": row["subplot_comments"],
+                    }
+                )
+
+    # 2. Vegetation/crop comments
+    if "plots_subplots_vegetation" in raw_data:
+        veg_df = raw_data["plots_subplots_vegetation"]
+        crop_comment_col = None
+        for col in ["crop_comments", "crop_comment", "vegetation_comments", "vegetation_comment"]:
+            if col in veg_df.columns:
+                crop_comment_col = col
+                break
+        if not crop_comment_col:
+            for col in veg_df.columns:
+                if "comment" in col.lower() and "tree" not in col.lower() and "subplot" not in col.lower():
+                    crop_comment_col = col
+                    break
+        if crop_comment_col:
+            crop_comments = veg_df[
+                veg_df[crop_comment_col].notna() & (veg_df[crop_comment_col].astype(str).str.strip() != "")
+            ].copy()
+            for _, row in crop_comments.iterrows():
+                date_val = "N/A"
+                if "SubmissionDate" in row:
+                    date_val = str(row["SubmissionDate"])
+                elif "starttime" in row:
+                    date_val = str(row["starttime"])
+                comments_records.append(
+                    {
+                        "Subplot ID": row.get("SUBPLOT_KEY", ""),
+                        "Plot ID": row.get(
+                            "PLOT_KEY", str(row.get("SUBPLOT_KEY")).split("/")[0] if row.get("SUBPLOT_KEY") else ""
+                        ),
+                        "Enumerator": row.get("enumerator", "N/A"),
+                        "Date": date_val,
+                        "Comment Location": "Crop / Vegetation Level",
+                        "Comment": row[crop_comment_col],
+                    }
+                )
+
+    # 3. Tree/measurement comments
+    if "plots_subplots_vegetation_measurements" in raw_data:
+        mea_df = raw_data["plots_subplots_vegetation_measurements"]
+        tree_comment_col = None
+        for col in ["tree_comments", "tree_comment", "measurement_comments", "measurement_comment"]:
+            if col in mea_df.columns:
+                tree_comment_col = col
+                break
+        if not tree_comment_col:
+            for col in mea_df.columns:
+                if "comment" in col.lower() and "subplot" not in col.lower() and "crop" not in col.lower():
+                    tree_comment_col = col
+                    break
+        if tree_comment_col:
+            tree_comments = mea_df[
+                mea_df[tree_comment_col].notna() & (mea_df[tree_comment_col].astype(str).str.strip() != "")
+            ].copy()
+            for _, row in tree_comments.iterrows():
+                date_val = "N/A"
+                if "SubmissionDate" in row:
+                    date_val = str(row["SubmissionDate"])
+                elif "starttime" in row:
+                    date_val = str(row["starttime"])
+                comments_records.append(
+                    {
+                        "Subplot ID": row.get("SUBPLOT_KEY", ""),
+                        "Plot ID": row.get(
+                            "PLOT_KEY", str(row.get("SUBPLOT_KEY")).split("/")[0] if row.get("SUBPLOT_KEY") else ""
+                        ),
+                        "Enumerator": row.get("enumerator", "N/A"),
+                        "Date": date_val,
+                        "Comment Location": "Tree Measurement Level",
+                        "Comment": row[tree_comment_col],
+                    }
+                )
+
+    if len(comments_records) > 0:
+        comments_df = pd.DataFrame(comments_records)
+        # Apply enumerator filters if active
+        if "filtered_gdf" in locals() and "enumerator" in filtered_gdf.columns:
+            active_enums = filtered_gdf["enumerator"].dropna().unique()
+            comments_df = comments_df[comments_df["Enumerator"].isin(active_enums)]
+
+        if len(comments_df) > 0:
+            # Sort by subplot
+            comments_df = comments_df.sort_values(by=["Subplot ID", "Comment Location"])
+            # Add row numbers
+            comments_df.insert(0, "#", range(1, len(comments_df) + 1))
+
+            st.dataframe(
+                comments_df,
+                use_container_width=True,
+                height=400,
+                column_config={
+                    "#": st.column_config.NumberColumn("#", width="small"),
+                },
+                hide_index=True,
+            )
+
+            st.download_button(
+                label="📥 Download Comments Log CSV",
+                data=comments_df.to_csv(index=False),
+                file_name=f"{config.PARTNER}_comments_log.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("ℹ️ No comments match the current filters.")
+    else:
+        st.info("ℹ️ No enumerator comments found in this dataset.")

@@ -543,6 +543,7 @@ st.markdown("---")
 gt_measured = filter_to_measured_subplots(gt_gdf)
 dq_measured = filter_to_measured_subplots(dq_gdf)
 
+
 # Match plots using raw GPS centroids (bypasses accuracy filtering — all vertices used regardless of accuracy)
 def _build_raw_centroid_gdf(plots_gdf, gps_col="gt_plot"):
     import geopandas as gpd
@@ -553,6 +554,7 @@ def _build_raw_centroid_gdf(plots_gdf, gps_col="gt_plot"):
     gdf["geometry"] = gdf[gps_col].apply(raw_centroid_from_gps_string)
     gdf = gdf[gdf["geometry"].notna()].copy()
     return gpd.GeoDataFrame(gdf, geometry="geometry", crs=4326)
+
 
 if gt_plots_gdf is not None and dq_plots_gdf is not None and len(gt_plots_gdf) > 0 and len(dq_plots_gdf) > 0:
     _gt_for_match = _build_raw_centroid_gdf(gt_plots_gdf)
@@ -1360,7 +1362,9 @@ if len(matches_df) > 0:
 
                                     mapped_dq_val = row.get("Mapped DQ Subplot", "N/A")
                                     if mapped_dq_val == "N/A":
-                                        styles.at[idx, "Mapped DQ Subplot"] = "background-color: #f0f0f0; color: #888888;"
+                                        styles.at[idx, "Mapped DQ Subplot"] = (
+                                            "background-color: #f0f0f0; color: #888888;"
+                                        )
                                     else:
                                         try:
                                             mapped_dq = int(mapped_dq_val)
@@ -1376,9 +1380,16 @@ if len(matches_df) > 0:
                                             else:
                                                 # Both exist, check mismatches in count/height
                                                 if int(row.get("Count", 0)) != int(dq_row.get("Count", 0)):
-                                                    styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
-                                                if str(row.get("Height", "N/A")).strip() != str(dq_row.get("Height", "N/A")).strip():
-                                                    styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                    styles.at[idx, "Count"] = (
+                                                        "background-color: #ffd2d2; color: #d32f2f;"
+                                                    )
+                                                if (
+                                                    str(row.get("Height", "N/A")).strip()
+                                                    != str(dq_row.get("Height", "N/A")).strip()
+                                                ):
+                                                    styles.at[idx, "Height"] = (
+                                                        "background-color: #ffd2d2; color: #d32f2f;"
+                                                    )
                                 return styles
 
                             def style_dq(df):
@@ -1403,7 +1414,9 @@ if len(matches_df) > 0:
 
                                     mapped_gt_val = row.get("Mapped GT Subplot", "N/A")
                                     if mapped_gt_val == "N/A":
-                                        styles.at[idx, "Mapped GT Subplot"] = "background-color: #f0f0f0; color: #888888;"
+                                        styles.at[idx, "Mapped GT Subplot"] = (
+                                            "background-color: #f0f0f0; color: #888888;"
+                                        )
                                     else:
                                         try:
                                             mapped_gt = int(mapped_gt_val)
@@ -1419,9 +1432,16 @@ if len(matches_df) > 0:
                                             else:
                                                 # Both exist, check mismatches in count/height
                                                 if int(row.get("Count", 0)) != int(gt_row.get("Count", 0)):
-                                                    styles.at[idx, "Count"] = "background-color: #ffd2d2; color: #d32f2f;"
-                                                if str(row.get("Height", "N/A")).strip() != str(gt_row.get("Height", "N/A")).strip():
-                                                    styles.at[idx, "Height"] = "background-color: #ffd2d2; color: #d32f2f;"
+                                                    styles.at[idx, "Count"] = (
+                                                        "background-color: #ffd2d2; color: #d32f2f;"
+                                                    )
+                                                if (
+                                                    str(row.get("Height", "N/A")).strip()
+                                                    != str(gt_row.get("Height", "N/A")).strip()
+                                                ):
+                                                    styles.at[idx, "Height"] = (
+                                                        "background-color: #ffd2d2; color: #d32f2f;"
+                                                    )
                                 return styles
 
                             # 5. Render tables
